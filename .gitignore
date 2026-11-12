@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+data/
+models/**/*.vrm
+desktop/electron/
+web/vendor/
+*.log
+# lo que trae el instalador (instalar.ps1 / instalar.sh)
+runtime/
+voz/.venv/
+voz/modelos/
+models/whisper/
+models/piper/

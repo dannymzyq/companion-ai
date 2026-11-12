@@ -1,0 +1,14 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+httpx>=0.28
+python-dotenv>=1.0
+python-multipart>=0.0.9
+numpy>=2.0
+tzdata
+faster-whisper>=1.2
+av<16
+# Voz ligera (Piper, en el procesador). Sus modelos (~380 MB) se bajan a models\piper al elegirla.
+piper-tts>=1.8
+# Whisper en la GPU (CTranslate2 necesita cuBLAS 12 y cuDNN 9). Sin ellas, el oído cae a CPU.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10

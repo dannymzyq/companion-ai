@@ -1,0 +1,8 @@
+{
+  "name": "companion-pc",
+  "productName": "Mika",
+  "version": "0.2.0",
+  "description": "Ventana de escritorio del companion: modo normal y modo flotante sobre las demás ventanas.",
+  "main": "main.js",
+  "private": true
+}

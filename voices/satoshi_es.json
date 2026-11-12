@@ -1,0 +1,7 @@
+{
+ "engine": "f5",
+ "ref_seconds": 8.5,
+ "nfe_step": 32,
+ "stream_nfe_step": 16,
+ "ref_text": "Ayer, mientras llovía muchísimo, un pequeño zorro gris cruzó el jardín y se quedó mirando fijamente la ventana."
+}

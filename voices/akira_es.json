@@ -1,0 +1,7 @@
+{
+ "engine": "f5",
+ "ref_seconds": 8.5,
+ "nfe_step": 32,
+ "stream_nfe_step": 16,
+ "ref_text": "¿Quieres que te recuerde algo más? Si prefieres, puedo buscar un lugar tranquilo para almorzar, cerca de la oficina. Avísame y lo dejo listo en un momento."
+}

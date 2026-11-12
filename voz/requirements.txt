@@ -1,0 +1,8 @@
+# Voz completa (F5-TTS). Entorno aparte, voz/.venv: PyTorch pesa varios GB y el companion no lo necesita.
+# torch se instala antes, desde el índice de PyTorch que corresponda (lo hace instalar.ps1 / instalar.sh):
+#   NVIDIA: https://download.pytorch.org/whl/cu130   (las RTX 50 necesitan CUDA 13)
+f5-tts==1.1.22
+fastapi>=0.115
+uvicorn>=0.32
+soundfile>=0.13
+librosa>=0.11
