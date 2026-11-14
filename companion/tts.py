@@ -40,6 +40,8 @@ async def available() -> bool:
 
 async def stream_speech(text: str, voice: str, speed: float = 1.0, engine: str | None = None) -> AsyncIterator[bytes]:
     """Devuelve PCM de 16 bits mono a 24 kHz en trozos, siempre con un número par de bytes."""
+    from .pronounce import for_voice
+    text = for_voice(text)                 # «Apple Music» → como se pronuncia; «qué» → «ké» (solo para la voz)
     if (engine or settings.voice_engine) == "ligera":
         from . import tts_light
         async for chunk in tts_light.stream_speech(text, voice, speed):

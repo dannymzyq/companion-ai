@@ -41,7 +41,7 @@ class Servidor:
             (TEST_DIR / "settings.json").write_text(
                 '{"onboarded": true, "profile": {"name": "Danny", "birth_year": 1990, "gender": "hombre"}}', encoding="utf-8")
         shutil.rmtree(modelos / "custom", ignore_errors=True)
-        for nombre in ("mika.vrm", "chica.vrm", "chico.vrm"):        # los personajes incluidos
+        for nombre in ("avatar1.vrm", "avatar2.vrm"):                # los personajes incluidos
             original = ROOT / "models" / nombre
             if original.exists() and not (modelos / nombre).exists():
                 shutil.copy2(original, modelos / nombre)

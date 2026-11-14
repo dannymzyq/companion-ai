@@ -401,6 +401,26 @@ async def _learn_vision(model: str):
             pass
 
 
+def can_act() -> bool:
+    """¿El cerebro en uso pide acciones con fiabilidad? Los modelos locales más pequeños se equivocan demasiado
+    (inventan acciones o datos), así que con ellos las acciones en la PC quedan apagadas."""
+    if settings.is_cloud:
+        return True
+    from .profile import LOCAL_MODELS
+    return next((m.get("actions", True) for m in LOCAL_MODELS if m["id"] == local_model()), True)
+
+
+def can_control() -> bool:
+    """¿Puede manejar una ventana paso a paso? Gemma 4 E2B se atasca repitiendo pasos (probado el 13 nov 2026):
+    hace falta E4B, un modelo local más grande o la nube."""
+    if not can_act():
+        return False
+    if settings.is_cloud:
+        return True
+    from .profile import LOCAL_MODELS
+    return next((m.get("control", True) for m in LOCAL_MODELS if m["id"] == local_model()), True)
+
+
 def sees_images() -> bool:
     """¿El cerebro en uso ve imágenes? (los modelos locales más pequeños solo leen texto)"""
     return settings.is_cloud or _vision.get(local_model(), True)

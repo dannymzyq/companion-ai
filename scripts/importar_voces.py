@@ -2,7 +2,7 @@
 elige el mejor tramo de frases completas de 5 a 8,5 s, lo transcribe con Whisper
 (el nodo necesita el texto exacto de la muestra) y escribe voices/<voz>_es.wav + .json.
 
-    .venv\\Scripts\\python.exe scripts\\importar_voces.py <carpeta con las grabaciones> [--instalar]
+    .venv\\Scripts\\python.exe scripts\\importar_voces.py <carpeta con las grabaciones> [--instalar] [--voz=mika=Mika]
 
 --instalar copia además las muestras a la carpeta de voces del nodo (pc-gpu\\voices de waifuv3).
 """
@@ -73,6 +73,11 @@ def windows(words):
 
 def main():
     src = Path(sys.argv[1])
+    global VOCES
+    for arg in sys.argv[2:]:                          # --voz mika=Mika: solo esa voz (archivos Mika*.wav|mp3)
+        if arg.startswith("--voz="):
+            nombre, prefijo = arg[6:].split("=", 1)
+            VOCES = {nombre: prefijo}
     from faster_whisper import WhisperModel
 
     from companion.stt import _add_cuda_dlls
@@ -81,7 +86,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     for voz, prefijo in VOCES.items():
         best = None
-        for path in sorted(src.glob(f"{prefijo}*.mp3")):
+        for path in sorted(p for p in src.glob(f"{prefijo}*") if p.suffix.lower() in (".mp3", ".wav", ".flac", ".m4a")):
             x = decode(path)
             x16 = np.interp(np.arange(0, len(x), SR / 16000), np.arange(len(x)), x).astype(np.float32)
             segs, _ = model.transcribe(x16, language="es", word_timestamps=True, beam_size=5)

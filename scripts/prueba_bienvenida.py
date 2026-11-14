@@ -72,10 +72,13 @@ async def main():
                 modelos: [...document.querySelectorAll('#ob-local-list .model-row')].map(r => r.querySelector('b').textContent + (r.classList.contains('off') ? ' [sin descargar]' : '') + (r.classList.contains('on') ? ' [elegido]' : '') + ' · ' + r.querySelector('small').textContent.split('.').slice(-2)[0].trim()) })""")
             assert "quedan unos" in local["gpu"] and any("Recomendado" in m for m in local["modelos"]) and any("Cabe" in m for m in local["modelos"]), local
             assert v["paso"] == "local" and local["modelos"], v
-            v = await paso("document.getElementById('ob-back').click()")
-            assert v["paso"] == "cerebro", v
-            await p.js("document.getElementById('ob-key').value = ''; document.getElementById('ob-key').dispatchEvent(new Event('input')); null")
-            v = await paso(SIGUIENTE, 5)                                # con la clave que ya estaba guardada
+            if "guardada" in guardada:                                  # hay clave en .env: se sigue por la nube
+                v = await paso("document.getElementById('ob-back').click()")
+                assert v["paso"] == "cerebro", v
+                await p.js("document.getElementById('ob-key').value = ''; document.getElementById('ob-key').dispatchEvent(new Event('input')); null")
+                v = await paso(SIGUIENTE, 5)                            # con la clave que ya estaba guardada
+            else:                                                       # sin clave: con el modelo local recomendado
+                v = await paso(SIGUIENTE, 3)
             print(f"3. cerebro          : proveedores={proveedores} · {guardada[:14]!r}… · clave falsa → {mala!r} · correcta → paso «{v['paso']}»")
             print(f"   modelo local     : {local}")
             assert v["paso"] == "modelo", v
@@ -85,14 +88,15 @@ async def main():
             subir = await p.js("!document.getElementById('ob-upload').hidden && document.getElementById('ob-upload').textContent")
             vista = {"a la vista": await p.js("document.getElementById('onboard').classList.contains('preview') && getComputedStyle(document.getElementById('start')).visibility === 'hidden'")}
             elegir = "[...document.querySelectorAll('#ob-models .pick')].find(b => b.querySelector('b').textContent === %s).click()"
-            for nombre, clave in (("Esfera", "esfera"), ("Chico", "chico")):
+            for nombre, clave in (("Avatar 3", "esfera"), ("Avatar 2", "vrm")):
                 await paso(elegir % json.dumps(nombre), 4)
                 a = await p.js("({esfera: !!window.companion.avatar.orb, vrm: !!window.companion.avatar.vrm, cargado: window.companion.avatar.loaded})")
                 vista[nombre] = a
                 assert a["cargado"] and a["esfera"] == (clave == "esfera"), a
             v = await paso(SIGUIENTE)
             print(f"4. personaje        : {modelos} · botón «{subir}» · vista previa={vista} → paso «{v['paso']}»")
-            assert v["paso"] == "voz" and {"Chica", "Chico", "Esfera"} <= {m.split(" [")[0] for m in modelos}
+            assert v["paso"] == "voz" and {m.split(" [")[0] for m in modelos} >= {"Avatar 1", "Avatar 2", "Avatar 3"}
+            assert not any(m.startswith("Mika") or m.startswith("Chic") or m.startswith("Esfera") for m in modelos), modelos
 
             voces = await p.js("[...document.querySelectorAll('#ob-voices .model-row')].map(r => r.querySelector('b').textContent + (r.classList.contains('off') ? ' (próximamente)' : '') + (r.classList.contains('on') ? ' [elegida]' : ''))")
             grupos = await p.js("document.querySelectorAll('#ob-voices .voice-group').length")
@@ -129,7 +133,7 @@ async def main():
             print(f"7. guardado         : onboarded={cfg['onboarded']} · perfil={cfg['profile']} · voz={cfg['voice']} · nube={cfg['cloud']['name']} "
                   f"(clave oculta: {cfg['cloud']['key_hint'][:1]}····) · +18 posible en local={cfg['adult']}")
             assert cfg["onboarded"] and cfg["profile"] == {"name": "Ana", "birth_year": 2000, "gender": "mujer"} and cfg["voice"] == "Kenji"
-            assert cfg["model_id"] == "chico" and guardado["voice"] == "kenji" and "key" not in json.dumps(cfg["cloud"]).replace("key_hint", "").replace("has_key", "")
+            assert cfg["model_id"] == "avatar2" and guardado["voice"] == "kenji" and "key" not in json.dumps(cfg["cloud"]).replace("key_hint", "").replace("has_key", "")
 
             # al recargar no se repite, y desde Ajustes se cambia un paso suelto
             await p.cmd("Page.reload")
@@ -180,7 +184,7 @@ async def main():
             print(f"10. empezar de nuevo: repetir → paso «perfil» con nombre {conserva!r} · restablecer → bienvenida abierta={v['abierta']}, "
                   f"perfil={vacio['profile']}, personaje={vacio['name']!r}, modelo={vacio['model_id']!r}, settings.json existe={archivo} (recuerdos antes: {store_antes})")
             assert v["abierta"] and v["paso"] == "perfil" and not vacio["onboarded"] and not vacio["profile"]["name"]
-            assert vacio["name"] == "Mika" and vacio["model_id"] == "default" and campo in ("", vacio["user"])
+            assert vacio["name"] == "Mika" and vacio["model_id"] == "avatar1" and campo in ("", vacio["user"])
         print("OK: la bienvenida guarda perfil, cerebro, voz y modelo; no se repite y se edita desde Ajustes.")
     finally:
         proc.terminate()

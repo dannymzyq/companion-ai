@@ -225,11 +225,23 @@
         <input type="checkbox" id="watch" class="switch">
       </label>
 
+      <h3>Acciones en tu PC</h3>
+      <label class="row">
+        <span><b>Permitir que pida acciones</b><small id="actions-note">Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.</small></span>
+        <input type="checkbox" id="actions-on" class="switch">
+      </label>
+      <label class="row">
+        <span><b>Pedir permiso antes de cada acción</b><small>Apagado: lo que le ordenas se hace directamente. Encendido: cada acción espera a que la apruebes en una tarjeta. Los pasos delicados (enviar, comprar, borrar algo que no pediste) se confirman siempre.</small></span>
+        <input type="checkbox" id="actions-ask" class="switch">
+      </label>
+      <div id="actions-always" class="memory-list"></div>
+      <div id="actions-log" class="memory-list"></div>
+
       <h3>Modelo 3D</h3>
       <div id="model-list" class="model-list"></div>
       <button id="model-upload" class="ghost">Subir un modelo .vrm</button>
       <input type="file" id="model-file" accept=".vrm" hidden>
-      <p class="note">También puedes arrastrar un .vrm a la ventana. El modelo por defecto siempre queda disponible.</p>
+      <p class="note">También puedes arrastrar un .vrm a la ventana. Los avatares incluidos siempre quedan disponibles.</p>
 
       <h3>Micrófono</h3>
       <div class="picker">
@@ -261,6 +273,15 @@
       <p class="note">Borra tu perfil, la clave de API, la voz y el personaje elegidos, el micrófono y la cámara recordados, la conversación y los recuerdos. Queda como recién instalado y vuelve a empezar la bienvenida. No se puede deshacer.</p>
     </div>
   </aside>
+
+  <!-- Permisos: cada acción que pide el personaje espera aquí a que la apruebes -->
+  <div id="asks" aria-live="polite"></div>
+  <!-- Mientras usa una aplicación con tu ratón y teclado: siempre a la vista, con su botón de parar -->
+  <div id="control" role="status" hidden>
+    <i class="rec" aria-hidden="true"></i>
+    <span><b id="control-title"></b><small id="control-text"></small></span>
+    <button id="control-stop">Parar (Esc)</button>
+  </div>
 
   <div id="drop" hidden><p>Suelta el modelo <b>.vrm</b></p></div>
   <div id="toast" hidden></div>

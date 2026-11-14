@@ -36,11 +36,11 @@ PRESETS = {
 LOCAL_MODELS = [                          # de mayor a menor
     {"id": "gemma4:e4b-it-qat", "name": "Gemma 4 E4B", "size_gb": 6.1, "vram_gb": 4.8, "vision": True,
      "note": "El más capaz de los ligeros. Ve imágenes."},
-    {"id": "gemma4:e2b-it-qat", "name": "Gemma 4 E2B", "size_gb": 4.3, "vram_gb": 3.3, "vision": True,
+    {"id": "gemma4:e2b-it-qat", "name": "Gemma 4 E2B", "size_gb": 4.3, "vram_gb": 3.3, "vision": True, "control": False,
      "note": "Más pequeño y rápido; se equivoca algo más. Ve imágenes."},
-    {"id": "qwen3:1.7b", "name": "Qwen 3 1.7B", "size_gb": 1.4, "vram_gb": 2.4, "vision": False,
+    {"id": "qwen3:1.7b", "name": "Qwen 3 1.7B", "size_gb": 1.4, "vram_gb": 2.4, "vision": False, "actions": False,
      "note": "Muy ligero, para tarjetas de 4 a 6 GB. No ve imágenes (ni cámara ni pantalla)."},
-    {"id": "gemma3:1b-it-qat", "name": "Gemma 3 1B", "size_gb": 1.0, "vram_gb": 1.4, "vision": False,
+    {"id": "gemma3:1b-it-qat", "name": "Gemma 3 1B", "size_gb": 1.0, "vram_gb": 1.4, "vision": False, "actions": False,
      "note": "El más pequeño: funciona incluso sin tarjeta gráfica. Respuestas sencillas. No ve imágenes."},
 ]
 

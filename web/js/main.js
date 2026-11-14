@@ -175,8 +175,112 @@ function handle(ev) {
     case 'error': toast(ev.message, true); break;
     case 'notice': toast(ev.message); refreshConfig(); break;
     case 'watch': $('watch').checked = !!ev.on; break;   // el servidor apagó la mirada en vivo (sin cuota)
+    case 'action_request': showAsk(ev); break;
+    case 'action_done': closeAsk(ev); break;
+    case 'control_start':
+      $('control-title').textContent = `${config ? config.name : 'Mika'} está usando «${ev.title}»`;
+      $('control-text').textContent = ev.task;
+      $('control').hidden = false;
+      if (floating) document.body.classList.add('hover');
+      break;
+    case 'control_step': $('control-text').textContent = `Paso ${ev.n} de ${ev.max}: ${ev.text}`; break;
+    case 'control_end':
+      $('control').hidden = true;
+      toast(ev.ok ? `Terminó: ${ev.text}` : `Se detuvo: ${ev.text}`, !ev.ok);
+      break;
   }
 }
+
+// ---------------------------------------------------------------- permisos de las acciones en la PC
+// El personaje solo PIDE: la acción se hace si la apruebas aquí (o diciendo «sí»). Los textos vienen del
+// servidor (nombres de apps, rutas): siempre como texto, nunca como HTML.
+function showAsk(ev) {
+  const card = document.createElement('div');
+  card.className = 'ask';
+  card.dataset.id = ev.id;
+  const head = document.createElement('small');
+  head.textContent = `${config ? config.name : 'Mika'} quiere: ${ev.title}`;
+  const what = document.createElement('p');
+  what.textContent = ev.detail;
+  card.append(head, what);
+  if (ev.note) { const n = document.createElement('p'); n.className = 'ask-note'; n.textContent = ev.note; card.append(n); }
+  const buttons = document.createElement('div');
+  buttons.className = 'ask-buttons';
+  const options = ev.confirm ? [['allow', 'Sí, hazlo', 'yes'], ['deny', 'No', '']]
+    : ev.no_always ? [['allow', 'Permitir', 'yes'], ['deny', 'No', '']]           // el control de ventanas, sin «siempre»
+      : [['allow', 'Permitir', 'yes'], ['always', 'Permitir siempre', ''], ['deny', 'No', '']];
+  for (const [answer, label, cls] of options) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.title = answer === 'always' ? 'No volverá a preguntar por este tipo de acción (se quita en Ajustes)' : '';
+    b.onclick = () => { send({ type: 'action_answer', id: ev.id, answer }); buttons.remove(); };
+    buttons.append(b);
+  }
+  card.append(buttons);
+  $('asks').append(card);
+  if (floating) document.body.classList.add('hover');
+}
+
+function closeAsk(ev) {
+  let card = $('asks').querySelector(`[data-id="${CSS.escape(ev.id)}"]`);
+  if (!card) {                                         // se hizo sin preguntar («permitir siempre»): solo se avisa
+    toast(ev.text, !ev.ok);
+    return;
+  }
+  card.classList.add('done');
+  card.querySelector('.ask-buttons')?.remove();
+  const result = document.createElement('p');
+  result.className = 'ask-note';
+  result.textContent = ev.ok ? `Hecho. ${ev.text}` : ev.text;
+  card.append(result);
+  setTimeout(() => card.remove(), 4500);
+  if ($('settings').hidden === false) refreshActions();
+}
+
+async function refreshActions() {
+  let a;
+  try { a = await (await fetch('/api/actions')).json(); } catch { return; }
+  $('actions-on').checked = a.enabled;
+  $('actions-on').disabled = !a.available;
+  $('actions-ask').checked = a.ask;
+  $('actions-note').textContent = a.available
+    ? 'Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.'
+    : 'El modelo local que usas ahora es demasiado pequeño para pedir acciones con fiabilidad: elige Gemma 4 E2B o E4B, o el cerebro en la nube.';
+  const rows = a.always.map((name) => {
+    const row = document.createElement('div');
+    const s = document.createElement('span');
+    s.textContent = `Siempre permitido: ${a.catalog[name] || name}`;
+    const x = document.createElement('button');
+    x.textContent = 'Quitar';
+    x.title = 'Volver a pedir permiso cada vez';
+    x.onclick = async () => {
+      await fetch('/api/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forget_always: name }) });
+      refreshActions();
+    };
+    row.append(s, x);
+    return row;
+  });
+  $('actions-always').replaceChildren(...rows);
+  $('actions-log').replaceChildren(...(a.history.length ? a.history.slice(0, 12).map((h) => {
+    const row = document.createElement('div');
+    const when = document.createElement('b');
+    when.textContent = h.when.slice(5, 16);
+    const s = document.createElement('span');
+    s.textContent = `${h.detail} · ${h.decision}${h.result ? ' · ' + h.result : ''}`;
+    row.append(when, s);
+    return row;
+  }) : [Object.assign(document.createElement('div'), { textContent: 'Todavía no ha pedido ninguna acción.' })]));
+}
+$('control-stop').onclick = () => send({ type: 'control_stop' });
+$('actions-ask').onchange = async () => {
+  await fetch('/api/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ask: $('actions-ask').checked }) });
+  refreshActions();
+};
+$('actions-on').onchange = async () => {
+  await fetch('/api/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: $('actions-on').checked }) });
+  refreshActions();
+};
 
 function setState(value) {
   state = value;
@@ -234,7 +338,7 @@ function applyConfig(cfg) {
     ['Cerebro', `${cloud ? cfg.cloud.name : 'Ollama'} · ${cfg.llm.model}`, cfg.llm.ready],
     ['Oído', cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${cfg.stt.device === 'cuda' ? 'GPU' : 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), !cfg.stt.error],
     ['Voz', cfg.tts ? 'Nodo GPU · activa' : 'No disponible', cfg.tts],
-    ['Modelo 3D', cfg.model ? (cfg.model_id === 'default' ? `${cfg.name} (por defecto)` : 'Modelo propio') : 'Falta el .vrm', cfg.model],
+    ['Modelo 3D', cfg.model ? (/^avatar\d$/.test(cfg.model_id) ? `Avatar ${cfg.model_id.slice(-1)} (incluido)` : 'Modelo propio') : 'Falta el .vrm', cfg.model],
   ];
   if (cfg.llm.detail) health[0][1] += ` · ${cfg.llm.detail}`;
   if (cfg.gpu) {
@@ -292,8 +396,7 @@ async function reloadModel() {
 }
 
 function renderModels(list) {
-  const rows = [{ id: 'default', name: list.default.name, detail: list.default.available ? 'Por defecto' : 'Por defecto · falta el archivo' },
-    ...(list.builtin || []).filter((m) => m.available).map((m) => ({ id: m.id, name: m.name, detail: m.note })),
+  const rows = [...(list.builtin || []).filter((m) => m.available).map((m) => ({ id: m.id, name: m.name, detail: m.note })),
     ...list.custom.map((m) => ({ id: m.id, name: m.name, detail: `Propio · VRM ${m.spec} · ${m.size_mb} MB`, custom: true }))];
   const box = $('model-list');
   box.replaceChildren();
@@ -682,6 +785,7 @@ const openSettings = (open) => {
   $('settings').hidden = !open;
   if (!open) return;
   refreshConfig();
+  refreshActions();
   refreshModels();
   refreshMemory();
   fillMics();
@@ -750,7 +854,8 @@ function updateHit() {
   let hit = dragging;
   if (!hit && mouse) {
     const el = document.elementFromPoint(mouse.x, mouse.y);
-    const onUi = !!(el && el.closest('.controls, #toast')) && document.body.classList.contains('hover');
+    const onUi = (!!(el && el.closest('.controls, #toast')) && document.body.classList.contains('hover'))
+      || !!(el && el.closest('#asks, #control'));     // una tarjeta de permiso o «Parar» siempre se pueden pulsar
     hit = onUi || (avatar ? avatar.probeHit : !$('orb').hidden);
   }
   if (hit) {

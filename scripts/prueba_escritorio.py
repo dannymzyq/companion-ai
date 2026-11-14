@@ -111,7 +111,7 @@ async def elegir(accion: str) -> dict:
 def prueba_modelos():
     c = httpx.Client(base_url=API, timeout=30)
     antes = c.get("/api/models").json()
-    assert antes["default"]["available"], "falta el modelo por defecto"
+    assert all(b["available"] for b in antes["builtin"]), "falta un avatar incluido"
     r = c.post("/api/models", params={"filename": "Maniquí de prueba.vrm"}, content=maniqui(False))
     assert r.status_code == 200, r.text
     nuevo = r.json()
@@ -119,13 +119,13 @@ def prueba_modelos():
     propio = c.get("/api/model").content
     assert len(propio) < 100_000, "no se está sirviendo el modelo propio"
     assert c.post("/api/models", params={"filename": "roto.vrm"}, content=b"esto no es un vrm").status_code == 400
-    assert c.post("/api/models/select", json={"id": "default"}).json()["active"] == "default"
-    assert len(c.get("/api/model").content) > 1_000_000, "no volvió al modelo por defecto"
-    assert c.delete("/api/models/default").status_code == 400, "se dejó borrar el modelo por defecto"
+    assert c.post("/api/models/select", json={"id": "avatar1"}).json()["active"] == "avatar1"
+    assert len(c.get("/api/model").content) > 1_000_000, "no volvió al avatar incluido"
+    assert c.delete("/api/models/avatar1").status_code == 400, "se dejó borrar un avatar incluido"
     despues = c.delete(f"/api/models/{nuevo['id']}").json()
-    assert despues["active"] == "default" and len(despues["custom"]) == len(antes["custom"])
+    assert despues["active"] == "avatar1" and len(despues["custom"]) == len(antes["custom"])
     print(f"1. modelos         : subir «{nuevo['meta']['name']}» → activo, VRM inválido rechazado, vuelta a "
-          f"«{despues['default']['name']}», el de fábrica no se puede borrar, propio quitado. OK")
+          f"«Avatar 1», el incluido no se puede borrar, propio quitado. OK")
 
 
 async def main():

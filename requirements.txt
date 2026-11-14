@@ -9,6 +9,9 @@ faster-whisper>=1.2
 av<16
 # Voz ligera (Piper, en el procesador). Sus modelos (~380 MB) se bajan a models\piper al elegirla.
 piper-tts>=1.8
+# Usar aplicaciones con ratón y teclado (UI Automation de Windows), siempre con permiso.
+uiautomation==2.0.29; sys_platform == "win32"
+pillow>=11                                   # captura de la ventana que maneja, mientras compartes la pantalla
 # Whisper en la GPU (CTranslate2 necesita cuBLAS 12 y cuDNN 9). Sin ellas, el oído cae a CPU.
 nvidia-cublas-cu12
 nvidia-cudnn-cu12>=9,<10

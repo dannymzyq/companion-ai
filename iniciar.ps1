@@ -34,7 +34,7 @@ function Test-Anticuado {
     try {
         $config = Invoke-RestMethod "$url/api/config" -TimeoutSec 3
         if (-not $config.started) { return $true }          # servidor de una versión que aún no lo decía
-        $archivos = @(Get-ChildItem "$raiz\companion\*.py") + @(Get-Item "$raiz\.env") + @(Get-ChildItem "$raiz\personas\*.json")
+        $archivos = @(Get-ChildItem "$raiz\companion\*.py") + @(Get-ChildItem "$raiz\voz\*.py") + @(Get-Item "$raiz\.env") + @(Get-ChildItem "$raiz\personas\*.json")
         $nuevo = ($archivos | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
         return ([DateTimeOffset]::new($nuevo).ToUnixTimeSeconds() -gt [int64]$config.started)
     } catch { return $false }                               # ante la duda, se deja como está

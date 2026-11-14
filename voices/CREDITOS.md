@@ -4,7 +4,7 @@ El personaje toma el nombre de la voz elegida. Las voces no llevan etiqueta de g
 
 | Voz | Origen | Tono de la muestra | Tono al hablar (clonada) |
 | --- | --- | --- | --- |
-| Mika | Voz original del proyecto (`mika_es`, ya estaba en el nodo de voz) | – | 216 Hz |
+| Mika | Desde el 13 nov 2026: audio que el usuario generó en ElevenLabs con textos de muestra (`Mika-2.wav`, tramo de 8,1 s). La anterior (la voz original del proyecto) está en `voices\anterior\mika_es_original.*` | 212 Hz | 207–218 Hz |
 | Kenji | Sintética: [Piper](https://github.com/OHF-Voice/piper1-gpl), modelo `es_ES-davefx-medium` con el tono ×0,76 (datos de OHF-Voice/voice-datasets · CC0). Se regenera con `scripts\generar_voces.py` | – | 142 Hz |
 | Natsumi | Grabación aportada por el usuario: `Natalia2.mp3` | 282 Hz | 298 Hz |
 | Ayaka | Grabación aportada por el usuario: `AnaMaria2.mp3` | 250 Hz | 222 Hz |
@@ -37,6 +37,12 @@ parece en tono a su voz completa. Los modelos se descargan a `models\piper` desd
 | `es_ES-sharvard-medium` | Chiaki, Ryo, Satoshi | Sharvard corpus (Univ. de Edimburgo) · CC BY 3.0 |
 | `es_ES-davefx-medium` | Kenji | OHF-Voice/voice-datasets · CC0 |
 | `es_MX-ald-medium` | Akira, Goro | rmcpantoja/Ald_Mexican_Spanish_speech_dataset · Unlicense |
+
+La muestra nueva de Mika se eligió comparando seis tramos de los tres audios con la anterior: cada uno dijo las
+mismas cinco frases dos veces y se midió con Whisper cuánto se entiende (97 %, igual que la anterior) y a qué
+velocidad habla. Para volver a la voz anterior: copiar `voices\anterior\mika_es_original.wav` y `.json` sobre
+`voices\mika_es.*` (y `mika_preview_original.wav` sobre `voices\previews\mika.wav`). Los audios de ElevenLabs
+están sujetos a sus condiciones de uso.
 
 Voces retiradas del catálogo: Aiko (12 nov 2026) y las sintéticas Yuki, Hana, Haru, Riku, Aki y Sora (12 nov 2026).
 Sus archivos siguen en `pc-gpu\voices` de waifuv3, sin usar: desde este proyecto no se borra nada de allí.

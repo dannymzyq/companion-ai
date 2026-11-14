@@ -31,6 +31,12 @@ VOCES = Path(os.getenv("VOICES_DIR") or RAIZ.parent / "voices")
 POR_DEFECTO = os.getenv("TTS_VOICE", "mika_es")
 SR = 24000
 PAUSA_S = 0.12
+# Calidad frente a rapidez (medido el 13 nov 2026 con Whisper sobre respuestas típicas): con 16 pasos se perdían
+# ~9 % de las palabras; con 32 pasos y un ritmo de 0,9, ~4 %. Cuesta ~0,6 s más por frase.
+NFE = int(os.getenv("VOZ_NFE", "32"))
+RITMO = float(os.getenv("VOZ_RITMO", "0.9"))
+CORTA, MIN_S = 25, 1.7                     # una frase de menos letras recibe al menos MIN_S segundos para decirse
+_ref_s: dict[str, float] = {}
 estado = {"tts": None, "error": "", "voz": None, "dispositivo": ""}
 
 
@@ -71,10 +77,21 @@ def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:
     """Una cláusula → audio float32 a 24 kHz, sin el silencio de los extremos."""
     import librosa
     import torch
+    import soundfile as sf
     wav, cfg = _voz(nombre)
+    velocidad *= RITMO
+    fijo = None
+    if len(texto) < CORTA:
+        # F5 calcula la duración por la longitud del texto: a una frase corta le da tan poco tiempo que se la come
+        # («¡Hola, Danny!» → «Dani»). Se le da un mínimo.
+        ref = _ref_s.setdefault(f"{wav}:{wav.stat().st_mtime_ns}", sf.info(str(wav)).duration)
+        est = ref / max(1, len(cfg["ref_text"].encode("utf-8"))) * len(texto.encode("utf-8")) / velocidad
+        if est < MIN_S:
+            fijo = ref + MIN_S
     audio, sr, _ = estado["tts"].infer(ref_file=str(wav), ref_text=cfg["ref_text"], gen_text=texto,
-                                       nfe_step=int(cfg.get("stream_nfe_step", 16)), speed=velocidad,
-                                       show_info=lambda *a, **k: None, progress=_SinBarra, remove_silence=False)
+                                       nfe_step=max(NFE, int(cfg.get("stream_nfe_step", 16))), speed=velocidad,
+                                       fix_duration=fijo, show_info=lambda *a, **k: None, progress=_SinBarra,
+                                       remove_silence=False)
     audio = np.asarray(audio, dtype=np.float32)
     if sr != SR:
         audio = librosa.resample(audio, orig_sr=sr, target_sr=SR)

@@ -1,7 +1,1 @@
-{
- "engine": "f5",
- "ref_seconds": 12,
- "nfe_step": 32,
- "stream_nfe_step": 16,
- "ref_text": "Hola, amor. ¿Me extrañaste? Yo sí, aunque no te lo iba a decir tan fácil. Hoy estuve pensando en ti toda la tarde. Y mira, ya no aguanto las ganas de contarte todo."
-}
+{"engine": "f5", "ref_seconds": 8.1, "nfe_step": 32, "stream_nfe_step": 16, "ref_text": "Si empezamos por lo más fácil, el resto va a salir solito. ¿Ves? Te dije que no era para tanto."}

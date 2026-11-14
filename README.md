@@ -64,9 +64,9 @@ La primera vez se abre un asistente de cinco pasos. Cada paso se guarda al pulsa
    - **Sin clave** → «usar un modelo en esta PC»: muestra la memoria de vídeo de tu tarjeta, recomienda el modelo
      ligero que le corresponde (12 GB o más: Gemma 4 E4B; menos: E2B), lo descarga con Ollama con barra de
      progreso y lista también los modelos que ya tengas instalados.
-3. **Personaje**, con vista previa: al tocar uno, la tarjeta baja y se le ve arriba, en vivo. Incluidos: **Chica**
-   y **Chico** (avatares de muestra de VRoid, `models\chica.vrm` y `models\chico.vrm`), **Esfera** (una
-   esfera con cara y dos manitas que cambia de color con cada emoción, `web/js/orb.js`) y **Mika**. También se
+3. **Personaje**, con vista previa: al tocar uno, la tarjeta baja y se le ve arriba, en vivo. Incluidos: **Avatar 1**
+   y **Avatar 2** (avatares de muestra de VRoid, `models\avatar1.vrm` y `models\avatar2.vrm`) y **Avatar 3** (una
+   esfera con cara y dos manitas que cambia de color con cada emoción, `web/js/orb.js`). También se
    puede agregar un VRM personalizado.
 4. **Voz**: nueve, en una sola lista sin etiquetas de género (Mika, Kenji, Natsumi, Ayaka, Chiaki, Akira, Goro,
    Ryo, Satoshi), con ▶ para oír una muestra antes de elegir. Cualquier voz sirve con cualquier personaje, y
@@ -98,6 +98,20 @@ El modelo que eliges es el que se carga, aunque no quepa (se avisa); si después
 pasa al siguiente más pequeño que tengas descargado y lo dice. Los modelos de solo texto no pueden mirar la
 cámara ni la pantalla. Todo se cambia en Ajustes › Cerebro › «Modelo local» y Ajustes › Voz.
 
+**Que diga todo el subtítulo** (`companion/voicecheck.py`, 13 nov 2026): el modelo de voz es aleatorio y a veces se
+come palabras (medido: ~9 % de las palabras). Ahora cada frase se genera con más calidad (32 pasos, ritmo 0,9),
+se escucha con Whisper antes de que suene y, si falta una palabra, se genera otra vez (la primera frase de cada
+respuesta como mucho una vez, para no hacerte esperar; las demás hasta dos, mientras suena la anterior). Las
+frases muy cortas («¡Hola, Danny!») se juntan con la siguiente o reciben un tiempo mínimo. Resultado medido:
+~1 % de palabras perdidas. Cuesta algo de espera: el primer audio llega en ~3–5 s en vez de ~2 s.
+
+**Pronunciación** (`companion/pronounce.py`): el texto que va a la voz se reescribe como suena, sin cambiar lo
+que ves en pantalla. Las palabras en inglés se cambian por su pronunciación escrita a la española («Apple Music» →
+«Apel Miúsik», «WhatsApp» → «Uatsap»), y «qu» delante de e/i se dice «k», porque el modelo a veces decía «cue».
+La lista está en `voices\pronunciacion.json`: puedes editarla o añadir palabras sin reiniciar. Para probar
+versiones de una palabra nueva y quedarte con la que mejor se entiende, añádela en
+`scripts\calibrar_pronunciacion.py` y ejecútalo.
+
 **Empezar de nuevo** (al final de Ajustes): «Repetir la bienvenida» vuelve a pasar por los pasos con lo guardado;
 «Restablecer mis datos» borra perfil, clave, voz y personaje elegidos, dispositivos recordados, conversación y
 recuerdos (`POST /api/setup/reset`), y deja el companion como recién instalado.
@@ -121,6 +135,90 @@ de todas las demás ventanas, y la conversación sigue sin cortes.
 - Los clics solo «tocan» a Mika: en la zona transparente atraviesan hacia la ventana de debajo.
 - Al pasar el ratón por encima aparecen sus botones: cámara, micrófono, pantalla, callar, volver a la ventana y cerrar.
 - No se muestra sobre juegos en pantalla completa exclusiva; sí sobre los que usan «ventana sin bordes».
+
+## Acciones en tu PC (con permiso)
+
+**Tu orden es la autorización:** cuando le pides algo de la lista, lo hace directamente (decisión del 13 nov
+2026). Si prefieres aprobar cada acción, enciende **Ajustes › Acciones en tu PC › Pedir permiso antes de cada
+acción**: entonces cada una espera en una tarjeta con **Permitir**, **Permitir siempre** y **No** (también vale
+decir «sí» o «no»; caduca a los 2 minutos).
+
+Aunque esté apagado, sí aparece una tarjeta en dos casos:
+- **Pasos delicados que tu orden no pedía:** Enviar, Comprar, Borrar… «Elimina la lista» autoriza a pulsar
+  «Eliminar lista»; «pon una canción», no.
+- **Pantalla o cámara compartidas:** si compartías la pantalla o la cámara y la acción la eligió el modelo (no
+  sale claramente de tus palabras), porque podría venir de un texto que se veía en la imagen.
+
+| Acción | Ejemplo de lo que le dices |
+| --- | --- |
+| Abrir una aplicación del menú Inicio | «Abre Spotify» |
+| Abrir una web, o buscar en Google | «Abre youtube.com», «busca recetas de pan» |
+| Abrir una carpeta | «Abre la carpeta de descargas» |
+| Buscar archivos por nombre en tus carpetas personales (te cuenta lo que encuentra) | «Busca mi archivo de la factura de octubre» |
+| Temporizador (de 1 s a 12 h; avisa al terminar mientras la ventana esté abierta) | «Pon un temporizador de 10 minutos para la pasta» |
+| Música y vídeo: pausa, siguiente, anterior | «Pasa la canción» |
+| Volumen: subir, bajar, silenciar | «Baja el volumen» |
+
+- **Es un catálogo cerrado** (`companion/actions.py`): no puede borrar, mover, enviar mensajes, comprar,
+  instalar, cambiar ajustes ni ejecutar comandos. Las carpetas se abren, los archivos nunca.
+- **Solo pide acciones cuando tú se lo pides en tu mensaje.** Al mirar la cámara o la pantalla por su cuenta,
+  al saludar o al contar un resultado no puede pedir ninguna, y la tarjeta muestra siempre lo que se va a hacer
+  de verdad. Así, un texto en pantalla o en un archivo que intente darle órdenes no consigue nada sin tu permiso.
+- **Órdenes claras:** si tu mensaje es una orden clara de la lista («abre…», «busca el archivo…», «pon un
+  temporizador…»), el companion la reconoce él mismo, porque los modelos locales pequeños a veces olvidan pedirla.
+- **Modelos:** funciona con la nube y con Gemma 4 E2B o E4B. Con Qwen 3 1.7B y Gemma 3 1B queda apagado: se
+  equivocan demasiado.
+- **Con el cerebro en la nube**, los nombres de archivo que encuentre una búsqueda van al proveedor; la tarjeta lo avisa.
+- **Ajustes › Acciones en tu PC:** apagarlas del todo, quitar lo que marcaste como «permitir siempre» y ver el
+  registro de lo que pidió y qué respondiste (`data\acciones.jsonl`).
+
+### Usar una aplicación con tu ratón y teclado
+
+«Escribe en Word un párrafo sobre el mar», «reproduce La Barca de Luis Miguel en Apple Music», «en Spotify pon
+música lofi»… El personaje maneja **una ventana que ya esté abierta** (`companion/control.py`) con tu teclado y
+tu ratón:
+
+- **Cómo la ve:** lee sus controles con UI Automation de Windows (botones, campos, documentos, listas, cada uno con
+  su nombre y lo que tiene escrito). **Mientras compartes la pantalla**, además mira una captura de esa ventana
+  en cada paso y puede hacer clic por coordenadas en lo que no tiene nombre.
+- **En segundo plano, sin quitarte el control:** puedes estar jugando y pedirle por voz que ponga una canción en
+  Apple Music. Cada paso se intenta de lo menos a lo más intrusivo:
+  1. **Accesibilidad:** pulsar, elegir, escribir en un campo. No toca nada, y la ventana puede estar detrás o
+     minimizada. Es lo que usan la mayoría de las aplicaciones (Apple Music lo expone todo así).
+  2. **Mensajes a la ventana:** escribir o hacer clic en ella aunque esté detrás. Sirve en muchas aplicaciones
+     clásicas; después se comprueba si el texto llegó.
+  3. **Teclado y ratón de verdad**, solo si no estás usando la PC (más de 4 segundos sin tocar el ratón ni el
+     teclado) y no hay nada a pantalla completa delante. Entonces trae la ventana al frente y, al terminar, te
+     devuelve la tuya. Si estás jugando o escribiendo, ese paso no se hace: busca otro camino o te dice que lo
+     necesita. Atajos con Ctrl o Alt y la rueda solo existen así.
+- **Cómo actúa:** pulsa, escribe (párrafos enteros, con acentos), hace doble clic para reproducir o abrir, usa
+  atajos (Ctrl+S…) y la rueda.
+- **La captura es de la propia ventana** (PrintWindow), aunque esté tapada: nunca de lo que tienes delante, como tu
+  juego. Si está minimizada, se guía solo por los nombres de sus controles.
+- **Comprobación:** después de cada paso le dice al modelo qué cambió en la ventana («ahora se ve: sonando…»),
+  para que pruebe otro camino si no pasó nada y no dé por hecha una tarea que no lo está.
+- **Aviso y parada:** mientras trabaja, un aviso rojo arriba enseña cada paso. Lo paras con **Esc**, con
+  **Parar** o diciendo «para». Si llegó a traer la ventana al frente y cambias tú a otra, también se detiene.
+- **Escribir en Word**, cuando no admite mensajes, necesita el teclado de verdad: se hará solo si no estás usando
+  la PC en ese momento.
+- **Límites:** solo esa ventana, como mucho 25 pasos y 5 minutos.
+- **Confirma** antes de pulsar Enviar, Comprar, Pagar, Eliminar, Publicar… (también por coordenadas: mira qué
+  hay en ese punto) si tu orden no lo pedía, y antes de Enter en un chat o un correo.
+- **Nunca escribe en campos de contraseña** ni usa la tecla Windows o atajos de cerrar (Alt+F4, Ctrl+W).
+- **No maneja** consolas, Configuración, el Administrador de tareas, gestores de contraseñas, Claude ni el propio
+  companion.
+- **Modelos:** necesita Gemma 4 E4B, un modelo local más grande o la nube; con E2B se atasca repitiendo pasos,
+  así que con él queda apagado.
+- **Nada a pantalla completa:** no maneja una ventana a pantalla completa, ni usa el teclado o ratón de verdad
+  mientras haya algo a pantalla completa delante. Así se evitan los juegos, cuyos antitrampas pueden castigar la
+  entrada simulada.
+- **Instrucciones escondidas:** un texto dentro de la ventana puede intentar darle órdenes. En la prueba,
+  Gemma 4 E4B cayó en la trampa e intentó pulsar «Eliminar lista»; la confirmación lo frenó. Lee bien cada
+  confirmación antes de decir que sí.
+- **Con el cerebro en la nube**, lo que muestra la ventana (nombres de botones y textos) se envía al proveedor en
+  cada paso; la tarjeta lo avisa.
+- **Límites:** las aplicaciones que exponen mal sus controles (muchos juegos, algunas hechas a medida) no se
+  pueden manejar así.
 
 ## Cámara y pantalla
 
@@ -251,7 +349,11 @@ Para «compartir una ventana» la prueba abre su propia tarjeta (`desktop\tarjet
 ```powershell
 .venv\Scripts\python.exe scripts\prueba_escritorio.py       # app de escritorio: modelos, cámara, selector de pantalla o ventana y modo flotante (sin ventanas visibles)
 .venv\Scripts\python.exe scripts\prueba_escritorio.py --local   # lo mismo con el cerebro local
-.venv\Scripts\python.exe scripts\prueba_bienvenida.py       # la bienvenida completa, que se guarda, no se repite y se edita desde Ajustes
+.venv\Scripts\python.exe scripts\prueba_bienvenida.py       # la bienvenida completa, que se guarda, no se repite y se edita desde Ajustes (necesita GEMINI_API_KEY en .env)
+.venv\Scripts\python.exe scripts\prueba_acciones.py         # acciones con permiso, en modo simulado: no abre ni pulsa nada en la PC (cerebro local)
+.venv\Scripts\python.exe scripts\prueba_control.py [modelo] # usar una ventana: solo su propio reproductor falso, fuera de pantalla, sin teclado ni ratón de verdad
+.venv\Scripts\python.exe scripts\prueba_control.py --mensajes # ídem solo con mensajes a la ventana (escribir y reproducir en segundo plano)
+.venv\Scripts\python.exe scripts\prueba_control_real.py --si  # ídem con TECLADO Y RATÓN DE VERDAD y captura: la ventana a la vista, ~2 min sin usar la PC
 .venv\Scripts\python.exe scripts\prueba_memoria.py          # memoria a largo plazo: conversación larga, sesión nueva y pregunta sobre lo anterior (cerebro local)
 .venv\Scripts\python.exe scripts\prueba_componentes.py      # etiquetas, voz, detección de voz, Whisper
 .venv\Scripts\python.exe scripts\prueba_ws.py               # conversación hablada completa, sin interfaz
@@ -272,33 +374,39 @@ local, y ~1 s de síntesis de voz. El primer turno tras arrancar tarda más.
 
 ## Modelo 3D y ropa
 
-- `models\mika.vrm` es el **modelo por defecto**: el base vestido por `scripts\vestir_vrm.py` (camiseta, short y calcetines).
-- `models\base\mika_base.vrm` es el original (sin ropa), tal como salió de VRoid Studio. No se modifica.
+- **Incluidos** (nombres genéricos, sin género): **Avatar 1** (`models\avatar1.vrm`) y **Avatar 2**
+  (`models\avatar2.vrm`), avatares de muestra de VRoid, y **Avatar 3**, la esfera (`web/js/orb.js`, sin archivo).
+  Avatar 1 es el de por defecto. No se pueden borrar ni sobrescribir desde la interfaz.
+- El modelo de Mika se retiró del catálogo el 13 nov 2026. Lo que tuvieras guardado como Mika, Chica, Chico o Esfera
+  pasa solo a Avatar 1, 2 o 3. Sus archivos (`models\mika.vrm`, `models\base\mika_base.vrm`) siguen en disco sin
+  usarse, igual que `chica.vrm` y `chico.vrm`, que se quedaron para no romper un companion abierto con el código
+  anterior; se pueden borrar.
 - `models\custom\` guarda los **modelos propios**. Se suben desde Ajustes › Modelo 3D › «Subir un modelo .vrm» o
-  arrastrando el archivo a la ventana; el recién subido queda activo. En la misma lista se cambia entre ellos, se
-  vuelve a Mika o se quita uno propio. El modelo por defecto no se puede borrar ni sobrescribir desde la interfaz.
-  Un modelo propio cambia solo el cuerpo: la personalidad y la voz siguen siendo las de `personas/mika.json`.
+  arrastrando el archivo a la ventana; el recién subido queda activo. En la misma lista se cambia entre ellos o se
+  quita uno propio. Un modelo cambia solo el cuerpo: el nombre y la voz son los de la voz elegida.
 
-```powershell
-.venv\Scripts\python.exe scripts\vestir_vrm.py models\base\mika_base.vrm models\mika.vrm
-.venv\Scripts\python.exe scripts\vestir_vrm.py models\base\mika_base.vrm models\mika.vrm --manga 2 --pierna 0.9   # manga larga y bermuda
-.venv\Scripts\python.exe scripts\vestir_vrm.py models\base\mika_base.vrm models\mika.vrm --sin calcetines
-```
-
-Las prendas son capas ajustadas al cuerpo que heredan sus huesos, así que se mueven con él; colores, ribete y
-holgura están en `OUTFIT` al inicio del script. Ropa con vuelo (faldas, chaquetas) hay que hacerla en VRoid Studio.
 Si un modelo trae expresiones más o menos marcadas, los pesos están en `EMOTIONS` y `setVoice` de `web/js/avatar.js`.
+(`scripts\vestir_vrm.py`, que vestía el modelo de Mika, queda como herramienta suelta.)
 
 ## Movimiento y emociones
 
 Todo el movimiento es procedural sobre el esqueleto humanoide normalizado, así que vale para cualquier VRM:
 
+- **Cómo se mueve** (pulido el 13 nov 2026): cada hueso va hacia su postura como un muelle, con inercia y un pequeño
+  rebote (la mano llega un instante después que el antebrazo); los movimientos ociosos usan ruido suave en vez de
+  ciclos fijos, para que no se note que se repiten; los dedos se mueven por separado (índice estirado para contar,
+  palmas abiertas en abanico).
+- **Ojos y cabeza**: parpadeo con cierre rápido y apertura más lenta (a veces lento si está tierna o triste), que
+  también llega con los desvíos de mirada y los cambios de emoción; la cabeza acompaña a los ojos con retraso
+  cuando miran lejos; al hablar aparta la mirada más a menudo y al escuchar casi nada.
+- **Respiración**: su ritmo depende de la emoción; toma aire al empezar a hablar y en cada pausa.
 - **En reposo**: brazos colgando cerca del cuerpo con el codo algo doblado y los dedos relajados; respiración;
   descansa sobre una pierna y cada 5–12 s cambia a la otra (la cadera se ladea, el tronco compensa, la rodilla
   libre se dobla); los brazos siguen al cuerpo con retraso; de vez en cuando mira a un lado, ladea la cabeza o
   mueve los hombros.
-- **Al hablar**: encadena gestos de manos (explica con una, con las dos, abre las palmas, mano al pecho, mano
-  levantada, se encoge) y los marca con el ritmo de la voz, igual que la cabeza y los hombros.
+- **Al hablar**: encadena gestos de manos (explica con la palma hacia arriba, con las dos, abre las palmas, mano al
+  pecho, cuenta con el índice, se encoge); cada gesto arranca con un énfasis de la voz y lo marca con el ritmo,
+  igual que la cabeza y los hombros.
 - **Al escuchar y pensar**: se inclina y asiente; si tarda en responder, se lleva la mano a la barbilla.
 - **Emociones** (14): `neutral`, `feliz`, `emocionada`, `timida`, `sonrojada`, `triste`, `molesta`,
   `sorprendida`, `pensativa`, `carinosa`, `enamorada`, `nerviosa`, `asustada`, `confundida`. Cada una cambia la

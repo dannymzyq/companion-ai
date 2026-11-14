@@ -136,12 +136,22 @@ export class Orb {
     this.body.quaternion.slerp(this._q, damp(12, dt));
 
     // Ojos: parpadeo, apertura según la emoción y mirada.
+    // Parpadeo como uno de verdad: cierra rápido, se queda un instante y abre más despacio.
     const b = this.blink;
     if (b.t < 0 && t > b.next) b.t = 0;
     let blink = 0;
-    if (b.t >= 0) { b.t += dt; blink = Math.sin(clamp(b.t / 0.15) * Math.PI); if (b.t >= 0.15) { b.t = -1; b.next = t + 2 + Math.random() * 4; } }
+    if (b.t >= 0) {
+      b.t += dt;
+      blink = b.t < 0.065 ? b.t / 0.065 : b.t < 0.095 ? 1 : 1 - clamp((b.t - 0.095) / 0.13);
+      if (b.t >= 0.225) { b.t = -1; b.next = t + 2 + Math.random() * 4; }
+    }
     const d = this.dart;
-    if (t > d.next) { const far = Math.random() < 0.2 + 0.6 * v.dart; d.x = (Math.random() - 0.5) * (far ? 1.2 : 0.2); d.y = (Math.random() - 0.5) * (far ? 0.6 : 0.1); d.next = t + (0.6 + Math.random() * 2.2) / (1 + 2 * v.dart); }
+    if (t > d.next) {
+      const far = Math.random() < 0.2 + 0.6 * v.dart;
+      d.x = (Math.random() - 0.5) * (far ? 1.2 : 0.2); d.y = (Math.random() - 0.5) * (far ? 0.6 : 0.1);
+      d.next = t + (0.6 + Math.random() * 2.2) / (1 + 2 * v.dart);
+      if (far && b.t < 0 && Math.random() < 0.45) b.next = t;       // un desvío grande suele llevar parpadeo
+    }
     this.look[0] = lerp(this.look[0], lk[0] + d.x + 0.6 * st.thinking, damp(8, dt));
     this.look[1] = lerp(this.look[1], lk[1] + d.y + 0.6 * st.thinking, damp(8, dt));
     const happy = clamp(v.smile - 0.55) * 1.6;                              // muy contenta: ojos en arco (más bajos)
@@ -175,7 +185,11 @@ export class Orb {
         s * (0.31 - 0.17 * shy - 0.12 * scared) + hand[i].x,
         -0.13 + 0.02 * Math.sin(t * 1.3 + i * 1.7) + talk + 0.06 * c.beat + 0.1 * scared + 0.03 * shy - 0.06 * v.droop + hand[i].y,   // relativo al cuerpo
         0.06 + 0.14 * shy + 0.14 * scared + 0.05 * st.speaking + hand[i].z);
-      h.position.lerp(this._v, damp(11, dt));
+      // Las manos van como un muelle: llegan con un poco de inercia y rebote, no a velocidad fija.
+      const vel = h.userData.vel || (h.userData.vel = new THREE.Vector3());
+      const w = 11, z = 0.62;
+      vel.addScaledVector(this._v.sub(h.position), w * w * dt).multiplyScalar(Math.max(0, 1 - 2 * z * w * dt));
+      h.position.addScaledVector(vel, dt);
     });
   }
 

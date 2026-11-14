@@ -8,6 +8,8 @@ Protocolo del WebSocket (/ws):
                        {"type":"sentence","id":n,"text":"...","emotion":"feliz"|null,"gestures":[...]}
                        binario: PCM 16 bits mono 24 kHz de esa frase · {"type":"sentence_end","id":n}
                        {"type":"reply_end","text":"..."} · {"type":"interrupt"} · {"type":"error","message":"..."}
+  acciones             servidor → {"type":"action_request","id","title","detail","note"} · {"type":"action_done","id","ok","text"}
+                       cliente → {"type":"action_answer","id","answer":"allow|always|deny"}
 """
 import asyncio
 import json
@@ -18,10 +20,11 @@ from collections import deque
 
 import numpy as np
 
-from . import llm, profile, store, tts
+from . import actions, llm, profile, store, tts, voicecheck
 from .config import settings
-from .prompt import OBSERVE, SUMMARIZE, adult_active, build_system_prompt, local_time, sampling_for, turn_context
-from .tags import TagStream
+from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, OPERATOR, OPERATOR_COORDS, OPERATOR_STEP, SUMMARIZE, TIMER_DONE, adult_active,
+                     build_system_prompt, local_time, sampling_for, turn_context)
+from .tags import Sentence, TagStream
 from .vad import FRAME, FRAME_MS, StreamingVAD
 
 log = logging.getLogger("companion.session")
@@ -46,6 +49,15 @@ _SILENCE_ONLY = re.compile(r"(\[[^\]]*\]|\W)*silencio(\[[^\]]*\]|\W)*", re.I)
 FRAME_MAX_AGE = 6.0                       # una imagen más vieja que esto ya no cuenta como «lo que ve ahora»
 FRAME_MAX_B64 = 4_000_000
 _TITLE_JUNK = re.compile(r"[^\w .,:;()\-–—/&+'!?@#%]+")   # el título de una ventana va al LLM: sin saltos ni corchetes
+
+ACTION_TTL = 120.0                        # una tarjeta de permiso sin responder caduca a los 2 minutos
+# «Sí» o «no» dichos (o escritos) mientras hay una tarjeta de permiso abierta: responden a la tarjeta
+_YES = re.compile(r"^(si|dale|hazlo|adelante|ok|okey|okay|vale|claro|de acuerdo|permitir|permitelo|permito|acepto|venga|va|por favor)\b")
+_NO = re.compile(r"^(no|nop|cancela|cancelala|cancelalo|niegala|niego|mejor no|dejalo|deja)\b")
+_STOP = re.compile(r"^(para|parar|paralo|detente|deten|stop|basta|alto|cancela|quieto|quieta|suelta)\b")
+SHORT_SENTENCE, SHORT_WAIT = 22, 1.2      # una frase más corta se junta con la siguiente si llega en ese tiempo
+VOICE_RETRIES = 2                         # veces que se repite una frase si la voz se comió una palabra
+CONFIRM_TTL = 60.0                       # un paso delicado sin confirmar en 1 minuto no se hace
 
 GREETING = ("(El usuario acaba de abrir la aplicación y todavía no ha dicho nada. Salúdale con naturalidad, "
             "en una sola frase corta, según la hora.)")
@@ -88,6 +100,12 @@ class Session:
         self.emotion = "neutral"
         self._send_lock = asyncio.Lock()
         self.closed = False
+        self.pending: dict[str, actions.Request] = {}     # acciones esperando permiso (id → petición)
+        self.side: set[asyncio.Task] = set()               # temporizadores y respuestas tras una acción
+        self.outcomes: list[str] = []                      # cómo acabaron sus acciones; van con el siguiente mensaje
+        self.confirms: dict[str, asyncio.Future] = {}      # pasos delicados del control esperando un «sí»
+        self.controlling: dict | None = None               # la tarea de ratón y teclado en curso
+        self.control_stop = False
 
     # ------------------------------------------------------------ envío
     async def send_json(self, data: dict):
@@ -154,6 +172,19 @@ class Session:
                 box.pop(data.get("source"), None)
         elif kind == "watch":
             self.watch = bool(data.get("on"))
+        elif kind == "action_answer":
+            # Solo la interfaz (o la voz del usuario, en _run_turn) aprueba una acción; el modelo no puede.
+            answer = data.get("answer")
+            fut = self.confirms.pop(str(data.get("id", "")), None)
+            if fut is not None:                     # un paso delicado del control de una ventana
+                if not fut.done():
+                    fut.set_result(answer in ("allow", "always"))
+                return
+            req = self.pending.pop(str(data.get("id", "")), None)
+            if req and answer in ("allow", "always", "deny"):
+                await self._answer(req, answer)
+        elif kind == "control_stop":
+            self.control_stop = True
         elif kind == "playback_end":
             self.last_talk = time.monotonic()
             self.client_playing = False
@@ -291,6 +322,27 @@ class Session:
     async def _run_turn(self, text: str | None, instruction: str | None = None, t0: float | None = None):
         t0 = t0 or time.perf_counter()
         msg_id = None
+        said = re.sub(r"[^\w\s]", " ", actions._plain(text)).strip() if text is not None else ""
+        if self.controlling and said and _STOP.match(said) and len(said.split()) <= 4:
+            self.control_stop = True                         # «para» detiene el control de la ventana
+            await self.send_json({"type": "user_text", "text": text})
+            self.phase, self.turn_text, self.turn_audio = "idle", None, None
+            return
+        if text is not None and (self.pending or self.confirms):
+            verdict = "allow" if _YES.match(said) else "deny" if _NO.match(said) else None
+            if verdict and len(said.split()) <= 4:          # «sí» o «no» responde a la tarjeta, no va al modelo
+                await self.send_json({"type": "user_text", "text": text})
+                for cid, fut in list(self.confirms.items()):
+                    self.confirms.pop(cid, None)
+                    if not fut.done():
+                        fut.set_result(verdict == "allow")
+                for req in list(self.pending.values()):
+                    self.pending.pop(req.id, None)
+                    await self._answer(req, verdict)
+                self.phase, self.turn_text, self.turn_audio = "idle", None, None
+                if not self.client_playing:
+                    await self.set_state("idle")
+                return
         if text is not None:
             if self.carry_text:
                 text, self.carry_text = f"{self.carry_text} {text}".strip(), ""
@@ -304,7 +356,16 @@ class Session:
         images = [llm.Image(kind, jpeg, name) for jpeg, at, kind, name in
                   (self.frames[src] for src in FRAME_SOURCES if src in self.frames)
                   if now - at <= FRAME_MAX_AGE] if text is not None else []
-        messages = self._messages(instruction)
+        guessed = await actions.guess_async(text) if text is not None else None
+        if guessed and guessed[0] == "controlar":
+            # La tarea va con tus palabras tal cual (con acentos y entera): el reconocedor la simplifica.
+            guessed = ("controlar", [guessed[1][0], text.strip()[:200]])
+        if guessed and not self.actions_on():                 # orden clara pero sin acciones: que no diga que lo hará
+            off = ("las acciones en la PC están apagadas en Ajustes" if not actions.config()["enabled"]
+                   else "el modelo local que usa ahora es demasiado pequeño para hacer acciones")
+            messages, guessed = self._messages(instruction, refuse=off), None
+        else:
+            messages = self._messages(instruction, hint=guessed)
         self.last_talk = time.monotonic()
 
         parser = TagStream()
@@ -337,13 +398,342 @@ class Session:
         else:
             full = " ".join(parser.spoken)
             if full:
-                store.add_message("assistant", full, self.emotion)
+                # Las acciones pedidas se guardan con la respuesta: si no, el historial le enseña al modelo
+                # (sobre todo a uno pequeño) que nunca escribe esas etiquetas, y deja de pedirlas.
+                said = [guessed, *[a for a in parser.actions if guessed is None or a[0] != guessed[0]]] if guessed else parser.actions
+                asked = "".join(f"[accion: {' | '.join([n, *a])}] " for n, a in said[:actions.MAX_PER_REPLY])
+                store.add_message("assistant", (asked if text is not None and self.actions_on() else "") + full, self.emotion)
             for fact in parser.memories:
                 store.add_memory(fact)
             await self.send_json({"type": "reply_end", "text": full})
+            # Acciones: solo las que pide en respuesta a un mensaje del usuario (no al saludar, ni al mirar la
+            # pantalla por su cuenta, ni al contar el resultado de otra acción).
+            # Una orden clara del usuario manda sobre lo que interprete el modelo (que a veces olvida la etiqueta o
+            # pide otra cosa); el modelo solo añade acciones de otro tipo. Los fallos de una suposición no se avisan.
+            wanted = parser.actions
+            if guessed:
+                wanted = [guessed, *[a for a in parser.actions if actions._plain(a[0]).replace(" ", "_") != guessed[0]]]
+            if text is not None and wanted and self.actions_on():
+                # Tu orden basta como autorización. Excepción: si compartías la pantalla o la cámara, una acción que
+                # no sale claramente de tus palabras (la eligió el modelo) pregunta, porque podría venir de un texto
+                # que se veía en la imagen.
+                trusted = {guessed[0]} if guessed else set()
+                if not images:
+                    trusted |= {actions._plain(n).replace(" ", "_") for n, _ in wanted}
+                await self._ask(wanted[:actions.MAX_PER_REPLY], quiet=not parser.actions, trusted=trusted)
         self.phase, self.turn_text, self.turn_audio = "idle", None, None
         if not self.client_playing:
             await self.set_state("idle")
+
+    # ------------------------------------------------------------ acciones en la PC (con permiso)
+    def actions_on(self) -> bool:
+        return actions.config()["enabled"] and llm.can_act()
+
+    async def _ask(self, wanted: list[tuple[str, list[str]]], quiet: bool = False, trusted: set[str] | None = None):
+        failed = []
+        for name, args in wanted:
+            try:
+                req = await actions.prepare_async(name, args)
+            except actions.ActionError as e:
+                failed.append((name, str(e)))
+                log.info("Acción %s %s no se puede hacer: %s", name, args, e)
+                continue
+            except Exception as e:  # noqa: BLE001
+                failed.append((name, "no pude prepararla"))
+                log.warning("Acción %s %s falló al prepararla: %s", name, args, e)
+                continue
+            if req.name == "controlar" and not llm.can_control():
+                failed.append((name, f"el modelo local {llm.local_model()} es demasiado pequeño para manejar ventanas; "
+                                     "con Gemma 4 E4B o el cerebro en la nube sí puedo"))
+                continue
+            if req.name == "controlar" and self.controlling:
+                failed.append((name, "ya estoy usando otra ventana; espera a que termine o dile «para»"))
+                continue
+            if not actions.config()["ask"] and req.name in (trusted or set()):
+                await self._execute(req, "por tu orden")
+            elif req.name in actions.always():
+                await self._execute(req, "siempre")
+            else:
+                self.pending[req.id] = req
+                await self.send_json({"type": "action_request", **req.public(is_cloud=settings.is_cloud,
+                                                                              provider=profile.public_cloud()["name"])})
+        if failed and not quiet:
+            why = "; ".join(f"{n}: {e}" for n, e in failed)
+            self._later(ACTION_FAILED.format(user=settings.user_name, what=why))
+
+    async def _answer(self, req: actions.Request, answer: str):
+        if answer == "deny":
+            actions.record(req, "negada", "")
+            self.outcomes.append(f"{settings.user_name} no aprobó «{req.detail}»: no se hizo")
+            await self.send_json({"type": "action_done", "id": req.id, "ok": False, "text": f"No se hizo: {req.detail}"})
+            return
+        if answer == "always":
+            actions.save(add_always=req.name)
+        await self._execute(req, "siempre" if answer == "always" else "permitida")
+
+    async def _execute(self, req: actions.Request, decision: str):
+        if req.name == "controlar":                        # tarea de varios pasos: va aparte, sin frenar la charla
+            actions.record(req, decision, "empieza")
+            await self.send_json({"type": "action_done", "id": req.id, "ok": True, "text": "Empieza: lo verás en el aviso de arriba."})
+            self._spawn(self._control(req))
+            return
+        try:
+            result = await actions.run_async(req)
+        except Exception as e:  # noqa: BLE001
+            result = f"falló ({type(e).__name__}: {str(e)[:120]})"
+            actions.record(req, decision, result)
+            self.outcomes.append(f"«{req.detail}» falló")
+            await self.send_json({"type": "action_done", "id": req.id, "ok": False, "text": f"{req.detail}: {result}"})
+            self._later(ACTION_FAILED.format(user=settings.user_name, what=f"{req.detail}: {result}"))
+            return
+        actions.record(req, decision, result)
+        self.outcomes.append(f"se hizo «{req.detail}»")
+        await self.send_json({"type": "action_done", "id": req.id, "ok": True, "text": result})
+        if req.name == "temporizador":
+            self._spawn(self._timer(req))
+        if actions.CATALOG[req.name]["report"]:
+            self._later(ACTION_RESULT.format(user=settings.user_name, title=req.detail, result=result))
+
+    # ------------------------------------------------------------ usar una ventana con ratón y teclado
+    async def _confirm(self, detail: str) -> bool:
+        """Un paso delicado (Enviar, Comprar, Eliminar…, o Enter en un chat): se pregunta otra vez."""
+        cid = actions.uuid.uuid4().hex[:12]
+        fut = asyncio.get_running_loop().create_future()
+        self.confirms[cid] = fut
+        await self.send_json({"type": "action_request", "id": cid, "action": "confirmar", "confirm": True, "no_always": True,
+                              "title": "Confirmar un paso", "detail": detail,
+                              "note": "Este paso puede enviar, comprar, borrar o publicar algo. Solo se hace si dices que sí."})
+        try:
+            ok = await asyncio.wait_for(fut, CONFIRM_TTL)
+        except asyncio.TimeoutError:
+            ok = False
+        finally:
+            self.confirms.pop(cid, None)
+        await self.send_json({"type": "action_done", "id": cid, "ok": ok, "text": "Confirmado." if ok else "No se hizo."})
+        return ok
+
+    def _sharing_screen(self) -> bool:
+        """¿El usuario está compartiendo la pantalla ahora? Entonces el control puede mirar la ventana que maneja."""
+        f = self.frames.get("screen")
+        return bool(f) and time.monotonic() - f[1] < 15
+
+    async def _control(self, req: actions.Request):
+        from . import control
+        win, task = req.target["window"], req.target["task"]
+        self.controlling, self.control_stop = {"title": win.title, "task": task}, False
+        await self.send_json({"type": "control_start", "title": win.title[:60], "task": task, "max": control.MAX_STEPS})
+        steps: list[str] = []
+        result, ok, bad, last_typed = "", False, 0, None
+        # ¿cambió algo? · pasos seguidos sin efecto · cuántas veces se probó cada paso (cada vez, de forma más directa)
+        last_sig, still, attempts, last_texts, written = None, 0, {}, [], set()
+        limit = time.monotonic() + control.MAX_SECONDS
+        sees = self._sharing_screen() and llm.sees_images()
+        system = OPERATOR.format(user=settings.user_name, task=task,
+                                 sees=", una imagen de la ventana" if sees else "",
+                                 coords=OPERATOR_COORDS if sees else "")
+        try:
+            # En segundo plano: la ventana NO se trae al frente. Solo un paso que necesite el teclado o el ratón de
+            # verdad lo hace, y únicamente si no estás usando la PC (control.real_input).
+            with control.EscWatch() as esc:
+                for n in range(1, control.MAX_STEPS + 1):
+                    if esc.pressed or self.control_stop or self.closed:
+                        result = f"{settings.user_name} lo paró" + (" con Esc" if esc.pressed else "")
+                        break
+                    if time.monotonic() > limit:
+                        result = "se acabó el tiempo máximo de la tarea"
+                        break
+                    if not control.user32.IsWindow(win.hwnd):
+                        result = "la ventana se cerró"
+                        break
+                    if win.hwnd in control._fronted and control.user32.GetForegroundWindow() != win.hwnd:
+                        result = f"{settings.user_name} cambió a otra ventana, así que me detuve"
+                        break
+                    items, texts = await asyncio.to_thread(control.snapshot, win.hwnd)
+                    sig = control.signature(items, texts)
+                    if last_sig is not None and sig == last_sig and steps and "no se pudo" not in steps[-1]:
+                        steps[-1] += " — no cambió nada en la ventana"
+                        still += 1
+                        if still >= 4:
+                            result = "varios pasos seguidos sin cambiar nada en la ventana"
+                            break
+                    elif last_sig is not None:
+                        still = 0
+                        # qué apareció de nuevo: así el modelo nota «sonando…» o «guardado» y sabe que ya está
+                        new = [t for t in texts if t not in last_texts][:3]
+                        if new and steps and "no se pudo" not in steps[-1]:
+                            steps[-1] += " — ahora se ve: " + " | ".join(f"«{t[:70]}»" for t in new)
+                    last_sig, last_texts = sig, texts
+                    shot = None
+                    if sees:
+                        try:
+                            shot = await asyncio.to_thread(control.capture, win.hwnd)
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("No pude capturar la ventana: %s", e)
+                    prompt = OPERATOR_STEP.format(window=control.describe(win.title, items, texts, shot),
+                                                  steps="\n".join(steps) or "(ninguno todavía)")
+                    images = [llm.Image("window", shot.jpeg, win.title[:60])] if shot else []
+                    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+                    reply = "".join([p async for p in llm.stream_chat(messages, {"temperature": 0.2, "top_p": 0.9, "max_tokens": 450}, images)])
+                    llm.pop_notices()
+                    step = control.parse(reply)
+                    log.info("Control %d%s: %r → %s", n, " (con imagen)" if shot else "", reply[:120], step and (step[0], [a[:60] for a in step[1]]))
+                    if esc.pressed or self.control_stop:
+                        result = f"{settings.user_name} lo paró" + (" con Esc" if esc.pressed else "")
+                        break
+                    if step is None:
+                        bad += 1
+                        if bad >= 3:
+                            result = "no supe qué paso dar"
+                            break
+                        continue
+                    verb, args = step
+                    if verb == "listo":
+                        ok, result = True, args[0] if args else "tarea hecha"
+                        break
+                    if verb == "no_puedo":
+                        result = "no se pudo: " + (args[0] if args else "sin motivo")
+                        break
+
+                    # ---- a qué se refiere y cómo describirlo
+                    item, xy, name, problem = None, None, "", ""
+                    coords = re.findall(r"-?\d+", args[0]) if args else []
+                    if verb in ("clic", "doble_clic") and len(coords) >= 2:
+                        if not shot:
+                            problem = "sin imagen de la ventana no hay clic por coordenadas: usa el número del control"
+                        else:
+                            xy = (int(coords[0]), int(coords[1]))
+                            name = await asyncio.to_thread(control.name_at, shot, *xy)
+                    elif verb in ("pulsar", "escribir", "doble_clic", "clic"):
+                        item = control.pick(items, args[0], "escribir" if verb == "escribir" else "pulsar") if args else None
+                        if item is None:
+                            problem = f"no hay ningún control «{args[0] if args else ''}»"
+                        elif verb == "escribir" and len(args) < 2:
+                            problem = "falta el texto: escribir N | texto"
+                        name = item.name if item else ""
+                    if not problem and verb == "escribir" and item and (item.kind, item.name) in written and len(args[1]) > 60:
+                        # un párrafo ya escrito no se repite (el modelo tendía a escribirlo otra vez)
+                        problem = f"ya escribiste ese texto en «{item.name or item.kind}»: si está bien, responde listo"
+                    elif verb == "tecla" and (not args or control._plain(args[0]) not in control.KEYS):
+                        problem = f"no conozco la tecla «{args[0] if args else ''}»"
+                    elif verb in ("atajo", "teclear", "rueda") and not args:
+                        problem = "le falta el dato"
+                    if problem:
+                        bad += 1
+                        steps.append(f"{n}. (paso no válido: {problem})")
+                        if bad >= 4:
+                            result = "se equivocó varias veces"
+                            break
+                        continue
+                    key = control._plain(args[0]) if verb == "tecla" else ""
+                    target = f"«{item.name or item.kind}»" if item else (f"({xy[0]},{xy[1]})" + (f" «{name[:40]}»" if name else "")) if xy else ""
+                    desc = {"pulsar": f"Pulsar {target}", "clic": f"Clic en {target}", "doble_clic": f"Doble clic en {target}",
+                            "escribir": f"Escribir «{args[1][:60]}» en {target}" if len(args) > 1 else "",
+                            "teclear": f"Teclear «{args[0][:60]}»", "tecla": f"Tecla {key}", "atajo": f"Atajo {args[0][:20]}",
+                            "rueda": f"Rueda {args[0][:10]}"}[verb]
+                    # el mismo paso puede repetirse dos veces (cada una de forma más directa); a la cuarta, se para
+                    if len(steps) >= 3 and all(s.split(" — ")[0].endswith(desc) for s in steps[-3:]):
+                        result = "se quedó repitiendo el mismo paso"
+                        break
+
+                    # ---- lo delicado se confirma, salvo que la orden del usuario ya lo pidiera
+                    kind = "enter" if key == "enter" or (verb == "atajo" and "enter" in control._plain(args[0])) else verb
+                    if control.needs_confirm(kind, name, last_typed, win.title) and not control.task_allows(task, name):
+                        if not await self._confirm(f"{desc} en «{win.title[:50]}»"):
+                            steps.append(f"{n}. {desc} — {settings.user_name} NO lo aprobó")
+                            result = f"{settings.user_name} no aprobó «{desc}»"
+                            actions.log_entry("controlar", f"{desc} en «{win.title}»", "negada", "")
+                            break
+                    await self.send_json({"type": "control_step", "n": n, "max": control.MAX_STEPS, "text": desc})
+
+                    # ---- hacerlo: si este mismo paso ya se probó sin efecto, se prueba de forma más directa
+                    # (accesibilidad → mensajes a la ventana → teclado y ratón de verdad, solo si no usas la PC)
+                    k = (verb, item.kind if item else "", item.name if item else "", xy, key, args[0][:40] if args else "")
+                    attempt = attempts[k] = attempts.get(k, -1) + 1
+
+                    def do():
+                        if verb == "pulsar":
+                            return control.press(item, win.hwnd, attempt)
+                        if verb == "escribir":
+                            return control.type_text(item, args[1][:3000], win.hwnd, attempt)
+                        if verb in ("clic", "doble_clic") and xy:
+                            return control.click_at(shot, *xy, win.hwnd, double=verb == "doble_clic", attempt=attempt)
+                        if verb in ("clic", "doble_clic"):
+                            return control.click_item(item, win.hwnd, double=verb == "doble_clic", attempt=attempt)
+                        if verb == "teclear":
+                            return control.type_here(args[0][:3000], win.hwnd, attempt)
+                        if verb == "tecla":
+                            return control.key(key, win.hwnd, attempt)
+                        if verb == "atajo":
+                            return control.hotkey(args[0], win.hwnd, attempt)
+                        return control.scroll(win.hwnd, "arriba" not in control._plain(args[0]), attempt)
+                    try:
+                        esc.sending = verb in ("tecla", "atajo", "teclear", "escribir")
+                        how = await asyncio.to_thread(do)
+                    except control.ControlError as e:
+                        steps.append(f"{n}. {desc} — no se pudo: {e}")
+                        actions.log_entry("controlar", f"{desc} en «{win.title}»", "paso", f"no se pudo: {e}")
+                        if "Cambiaste a otra ventana" in str(e):          # tomaste el control: se detiene
+                            result = str(e)
+                            break
+                        bad += 1
+                        if bad >= 4:
+                            result = str(e)
+                            break
+                        continue
+                    finally:
+                        esc.sending = False
+                    if verb == "escribir":
+                        last_typed = item
+                        if len(args[1]) > 60:
+                            written.add((item.kind, item.name))
+                    # Un texto ya escrito no se repite: sin esto, el modelo volvía a teclear el mismo párrafo.
+                    done_note = " — HECHO: ese texto ya está escrito ahí; no lo vuelvas a escribir" if verb in ("escribir", "teclear") else ""
+                    steps.append(f"{n}. {desc}{done_note}")
+                    actions.log_entry("controlar", f"{desc} en «{win.title}»", "paso", how)
+                    await asyncio.sleep(0.9)                 # que la ventana se actualice antes de mirarla otra vez
+                else:
+                    result = f"llegó al límite de {control.MAX_STEPS} pasos"
+        except Exception as e:  # noqa: BLE001
+            log.exception("El control de la ventana falló")
+            result = f"falló ({type(e).__name__})"
+        finally:
+            self.controlling = None
+            await asyncio.to_thread(control.release, win.hwnd)   # si la trajo al frente, te devuelve tu ventana
+        actions.log_entry("controlar", req.detail, "terminada" if ok else "sin terminar", result)
+        await self.send_json({"type": "control_end", "ok": ok, "text": result})
+        done = "; ".join(s.split(". ", 1)[-1] for s in steps) or "ninguno"
+        summary = (f"la tarea se completó: {result}. Pasos: {done}" if ok else
+                   f"la tarea NO se completó ({result}). No digas que está hecha. Pasos que sí se dieron: {done}")
+        self._later(ACTION_RESULT.format(user=settings.user_name, title=req.detail, result=summary))
+
+    async def _timer(self, req: actions.Request):
+        await asyncio.sleep(req.target["seconds"])
+        label = req.target["label"]
+        await self.send_json({"type": "notice", "message": "Se acabó el temporizador" + (f": {label}." if label else ".")})
+        self._later(TIMER_DONE.format(user=settings.user_name, what=req.detail))
+
+    def _spawn(self, coro):
+        task = asyncio.create_task(coro)
+        self.side.add(task)
+        task.add_done_callback(self.side.discard)
+
+    def _later(self, instruction: str):
+        """Un turno del personaje (contar un resultado, avisar del temporizador) en cuanto termine de hablar."""
+        async def wait_and_say():
+            limit = time.monotonic() + 90
+            while (self.busy or self.in_speech) and time.monotonic() < limit:
+                await asyncio.sleep(0.3)
+            if not self.closed and not self.busy and not self.in_speech:
+                self.turn = asyncio.create_task(self._guard(self._run_turn(None, instruction=instruction)))
+        self._spawn(wait_and_say())
+
+    async def _expire_actions(self):
+        now = time.monotonic()
+        for req in [r for r in self.pending.values() if now - r.created > ACTION_TTL]:
+            self.pending.pop(req.id, None)
+            actions.record(req, "caducada", "")
+            self.outcomes.append(f"«{req.detail}» no se hizo: nadie la aprobó")
+            await self.send_json({"type": "action_done", "id": req.id, "ok": False, "text": f"Caducó sin respuesta: {req.detail}"})
 
     @property
     def persona(self) -> dict:
@@ -354,7 +744,8 @@ class Session:
         adult = adult_active(self.persona, is_cloud=settings.is_cloud, user_adult=profile.is_adult())
         past = [f"{time.strftime('%d/%m/%Y', time.localtime(ts))}: {text}" for text, ts in store.summaries(8)]
         return build_system_prompt(self.persona, user_name=settings.user_name, memories=store.memories(), adult=adult,
-                                   about=profile.describe(settings.user_name), summaries=past)
+                                   about=profile.describe(settings.user_name), summaries=past, actions=self.actions_on(),
+                                   control=llm.can_control())
 
     # ------------------------------------------------------------ memoria a largo plazo
     async def _summarize(self):
@@ -381,7 +772,8 @@ class Session:
             store.add_summary(text[:900], rows[0][0], rows[-1][0], rows[-1][3])
             log.info("Recuerdo guardado (%d mensajes): %r", len(rows), text[:120])
 
-    def _messages(self, instruction: str | None = None) -> list[dict]:
+    def _messages(self, instruction: str | None = None, hint: tuple[str, list[str]] | None = None,
+                  refuse: str = "") -> list[dict]:
         """Prompt de sistema + historial + (instrucción). Todo lo que va delante del último mensaje se mantiene
         idéntico de un turno a otro —el sistema no lleva la hora y el historial no se desliza mensaje a mensaje,
         sino a saltos— para que el modelo reutilice lo que ya procesó y solo lea lo nuevo."""
@@ -397,7 +789,17 @@ class Session:
             messages.append({"role": "user", "content": instruction})
         last = next((m for m in reversed(messages) if m["role"] == "user"), None)
         if last is not None:
-            last["content"] = f"{turn_context(local_time(settings.timezone))}\n{last['content']}"
+            done = ""
+            if self.outcomes and not instruction:          # cómo acabaron sus acciones, una sola vez
+                done = f"\n(Tus acciones anteriores: {'; '.join(self.outcomes[-4:])}.)"
+                self.outcomes = []
+            if hint:                                        # orden clara: se le recuerda la etiqueta exacta
+                done += (f"\n(Esto es una petición de tu lista. Empieza tu respuesta con "
+                         f"[accion: {' | '.join([hint[0], *hint[1]])}] y di en una frase que lo haces.)")
+            if refuse:
+                done += (f"\n(Te pide algo en su PC, pero ahora no puedes hacerlo: {refuse}. Díselo con claridad en "
+                         "una frase; no digas que lo vas a hacer.)")
+            last["content"] = f"{turn_context(local_time(settings.timezone))}{done}\n{last['content']}"
         return messages
 
     # ------------------------------------------------------------ mirada en vivo
@@ -407,13 +809,14 @@ class Session:
         try:
             while not self.closed:
                 await asyncio.sleep(settings.watch_interval)
+                await self._expire_actions()
                 now = time.monotonic()
                 # Memoria: en un rato de calma, resume lo que ya salió de la ventana de corto plazo.
                 if (not self.busy and not self.in_speech and self.state == "idle" and now - self.last_talk > SUMMARY_QUIET
                         and now > self.summary_retry and len(store.unsummarized(self.anchor, SUMMARY_MIN)) >= SUMMARY_MIN):
                     self.turn = asyncio.create_task(self._guard(self._summarize()))
                     continue
-                if (not self.watch or self.busy or self.in_speech or self.run or self.state != "idle"
+                if (not self.watch or self.busy or self.in_speech or self.run or self.state != "idle" or self.controlling
                         or now - self.last_talk < WATCH_QUIET or now - self.last_comment < settings.watch_gap):
                     continue
                 clips = {src: [f for f in clip if now - f[1] <= WATCH_WINDOW] for src, clip in self.clips.items()}
@@ -480,14 +883,50 @@ class Session:
         elif msg_id is not None:
             store.delete_message(msg_id)
 
+    async def _say_checked(self, text: str, voice: str, speed: float) -> bytes:
+        """La frase en audio, comprobada: con la voz completa se escucha con Whisper y, si se comió una palabra, se
+        genera otra vez (hasta VOICE_RETRIES) y se queda la mejor. La voz ligera (Piper) no lo necesita."""
+        pcm = b"".join([c async for c in tts.stream_speech(text, voice, speed)])
+        if settings.voice_engine != "completa" or not self.stt.ready or not pcm:
+            return pcm
+        loop = asyncio.get_running_loop()
+        best, best_lost = pcm, None
+        # Si no está sonando nada (la primera frase), cada repetición se nota como espera: como mucho una.
+        retries = VOICE_RETRIES if self.client_playing else 1
+        for attempt in range(retries + 1):
+            got = await loop.run_in_executor(None, voicecheck.heard, self.stt.model, pcm)
+            lost = voicecheck.missing(text, got)
+            if best_lost is None or len(lost) < len(best_lost):
+                best, best_lost = pcm, lost
+            if not voicecheck.bad(lost):
+                break
+            log.info("Voz: faltó %s en %r (oído %r); repito", lost, text[:60], got[:60])
+            if attempt < retries:
+                pcm = b"".join([c async for c in tts.stream_speech(text, voice, speed)])
+        if best_lost and voicecheck.bad(best_lost):
+            log.info("Voz: tras %d intentos sigue faltando %s en %r", retries + 1, best_lost, text[:60])
+        return best
+
     async def _speak(self, queue: asyncio.Queue, t0: float):
         voice = settings.tts_voice or self.persona["voice"].get("tts_voice")      # la elegida en la bienvenida
         speed = float(self.persona["voice"].get("speed", 1.0))
-        tts_ok, idx = True, 0
-        while True:
+        tts_ok, idx, finish = True, 0, False
+        while not finish:
             sentence = await queue.get()
             if sentence is None:
                 return
+            # Una frase muy corta («¡Hola, Danny!») el modelo de voz la dice mal casi siempre: si la siguiente llega
+            # enseguida, van juntas (un solo subtítulo y un solo audio).
+            if len(sentence.text) < SHORT_SENTENCE and settings.voice_engine == "completa":
+                try:
+                    nxt = await asyncio.wait_for(queue.get(), SHORT_WAIT)
+                except asyncio.TimeoutError:
+                    nxt = False                             # la siguiente tarda: esta va sola
+                if nxt is None:
+                    finish = True                           # era la última frase de la respuesta
+                elif nxt:
+                    sentence = Sentence(f"{sentence.text} {nxt.text}", sentence.emotion or nxt.emotion,
+                                        [*sentence.gestures, *nxt.gestures])
             idx += 1
             if sentence.emotion:
                 self.emotion = sentence.emotion
@@ -498,7 +937,9 @@ class Session:
                 log.info("Primera frase a los %.2fs", time.perf_counter() - t0)
             if tts_ok:
                 try:
-                    async for chunk in tts.stream_speech(sentence.text, voice, speed):
+                    pcm = await self._say_checked(sentence.text, voice, speed)
+                    for k in range(0, len(pcm), 9600):
+                        chunk = pcm[k:k + 9600]
                         if not self.client_playing:
                             self.client_playing, self.play_started, self.audio_bytes = True, time.monotonic(), 0
                             log.info("Primer audio a los %.2fs", time.perf_counter() - t0)
@@ -518,8 +959,13 @@ class Session:
 
     async def close(self):
         self.closed = True
+        self.control_stop = True              # una tarea con ratón y teclado se para al cerrar la ventana
         if self.watcher:
             self.watcher.cancel()
+        for task in list(self.side):          # los temporizadores viven mientras la ventana está abierta
+            task.cancel()
+        for req in self.pending.values():
+            actions.record(req, "sin respuesta (se cerró la ventana)", "")
         if self.turn_running:
             self.turn.cancel()
             await asyncio.gather(self.turn, return_exceptions=True)

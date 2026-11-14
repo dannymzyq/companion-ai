@@ -283,7 +283,6 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
   async function fillModels() {
     const list = await api('/api/models');
     const entries = [...list.builtin.filter((m) => m.available).map((m) => ({ id: m.id, name: m.name, detail: m.note })),
-      ...(list.default.available ? [{ id: 'default', name: list.default.name, detail: 'El personaje original' }] : []),
       ...list.custom.map((m) => ({ id: m.id, name: m.name, detail: `Tu modelo · VRM ${m.spec} · ${m.size_mb} MB` }))];
     $('ob-models').replaceChildren(...entries.map((m) => {
       const row = document.createElement('div');

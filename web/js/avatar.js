@@ -1,4 +1,4 @@
-// El cuerpo de Mika: carga el modelo VRM y lo anima de forma procedural, sin animaciones grabadas, así que
+// El cuerpo del personaje: carga el modelo VRM y lo anima de forma procedural, sin animaciones grabadas, así que
 // sirve para cualquier VRM (se trabaja sobre el esqueleto humanoide normalizado que trae todo modelo).
 //   · vida propia: respiración, cambio de peso de una pierna a otra, brazos que cuelgan y se mecen, dedos
 //     relajados, parpadeo, mirada con pequeños desvíos y, de vez en cuando, un gesto ocioso
@@ -24,8 +24,11 @@ const SIDES = ['left', 'right'];
 const BONES = ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head',
   ...SIDES.flatMap((s) => ['Shoulder', 'UpperArm', 'LowerArm', 'Hand', 'UpperLeg', 'LowerLeg', 'Foot'].map((b) => s + b))];
 const FINGERS = ['Thumb', 'Index', 'Middle', 'Ring', 'Little'];
-// Cuánto sigue cada hueso a su objetivo (más bajo = más inercia): los brazos van algo por detrás del tronco.
-const RATE = (b) => (/Arm|Hand/.test(b) ? 9 : /Shoulder|Leg|Foot|hips/.test(b) ? 8 : 13);
+// Cada hueso sigue a su objetivo como un muelle: [frecuencia (rad/s), amortiguación]. Con amortiguación < 1 se pasa
+// un poco y vuelve, como un brazo de verdad; la mano, la que más (va «arrastrada» por el antebrazo).
+const SPRING = (b) => (/Hand/.test(b) ? [15, 0.58] : /LowerArm/.test(b) ? [13, 0.66] : /UpperArm/.test(b) ? [11.5, 0.72]
+  : /Shoulder/.test(b) ? [13, 0.85] : /head|neck/.test(b) ? [15, 0.78] : /Leg|Foot|hips/.test(b) ? [10, 0.95] : [13, 0.85]);
+const SPRINGS = Object.fromEntries(BONES.map((b) => [b, SPRING(b)]));
 
 const FACE_KEYS = ['happy', 'angry', 'sad', 'relaxed', 'surprised'];
 const VISEMES = ['aa', 'ih', 'ou', 'ee', 'oh'];
@@ -37,6 +40,9 @@ const damp = (rate, dt) => 1 - Math.exp(-rate * dt);
 const wave = (t, hz) => Math.sin(t * Math.PI * 2 * hz);
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (list, not) => { const l = list.filter((x) => x !== not); return l[Math.floor(Math.random() * l.length)]; };
+// Ruido suave (-1..1): para los movimientos ociosos, que con senos puros se notan repetitivos.
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return (x - Math.floor(x)) * 2 - 1; };
+const noise = (t, seed = 0) => { const i = Math.floor(t), f = t - i; return lerp(hash(i + seed * 57.3), hash(i + 1 + seed * 57.3), ease(f)); };
 
 function envelope(t, dur, edge = 0.22) {
   return ease(clamp(Math.min(t / (dur * edge), (dur - t) / (dur * edge))));
@@ -48,6 +54,8 @@ class Pose {
     for (const b of BONES) this.r[b] = [0, 0, 0];
     this.gaze = [0, 0];
     this.curl = { left: 0, right: 0 };     // dedos: 0 mano abierta · 1 puño
+    this.index = { left: 0, right: 0 };    // índice estirado aunque los demás se cierren (señalar, contar)
+    this.spread = { left: 0, right: 0 };   // dedos separados (palma abierta, susto)
     this.reset();
   }
   reset() {
@@ -56,34 +64,39 @@ class Pose {
     this.lift = 0;                          // sube o baja el cuerpo (m)
     this.shift = 0;                         // lo desplaza de lado (m)
     this.curl.left = this.curl.right = 0.3;
+    this.index.left = this.index.right = 0;
+    this.spread.left = this.spread.right = 0.15;
     this.shake = 0;                         // temblor (susto)
   }
   add(bone, v, w = 1) { const r = this.r[bone]; r[0] += v[0] * w; r[1] += v[1] * w; r[2] += v[2] * w; }
   set(bone, v, w = 1) { const r = this.r[bone]; r[0] = lerp(r[0], v[0], w); r[1] = lerp(r[1], v[1], w); r[2] = lerp(r[2], v[2], w); }
-  // Brazo entero escrito para el izquierdo; `side` lo refleja. u = brazo, l = antebrazo, h = mano, c = dedos.
-  arm(side, { u, l, h, c }, w = 1, mode = 'set') {
+  // Brazo entero escrito para el izquierdo; `side` lo refleja. u = brazo, l = antebrazo, h = mano, c = dedos,
+  // ix = índice estirado (0..1), sp = dedos separados (0..1).
+  arm(side, { u, l, h, c, ix, sp }, w = 1, mode = 'set') {
     const s = side === 'left' ? 1 : -1;
     const put = (bone, v) => v && this[mode](side + bone, [v[0], v[1] * s, v[2] * s], w);
     put('UpperArm', u); put('LowerArm', l); put('Hand', h);
     if (c !== undefined) this.curl[side] = lerp(this.curl[side], c, w);
+    if (ix !== undefined) this.index[side] = lerp(this.index[side], ix, w);
+    if (sp !== undefined) this.spread[side] = lerp(this.spread[side], sp, w);
   }
   both(pose, w = 1, mode = 'set') { this.arm('left', pose, w, mode); this.arm('right', pose, w, mode); }
   shoulders(up, w = 1) { this.add('leftShoulder', [0, 0, up], w); this.add('rightShoulder', [0, 0, -up], w); }
 }
 
 // ---------------------------------------------------------------- posturas de brazos
-const ARMS = {
+export const ARMS = {
   rest:    { u: [0.05, -0.12, -1.27], l: [0, -0.36, 0], h: [0, 0, -0.06], c: 0.3 },     // colgando, codo algo doblado
   ready:   { u: [-0.06, -0.2, -1.22], l: [0, -0.75, 0], h: [0, 0, 0], c: 0.22 },       // antebrazos algo levantados
-  explain: { u: [-0.24, -0.25, -1.18], l: [0, -1.4, 0], h: [-0.45, 0, 0.12], c: 0.12 }, // una mano delante, palma abierta
-  open:    { u: [-0.14, 0.02, -1.2], l: [0, -1.25, 0], h: [-0.7, 0, 0.16], c: 0.06 },   // antebrazos delante, palmas abiertas
-  chest:   { u: [-0.34, -0.8, -1.22], l: [0, -2.15, 0], h: [0, 0, 0.1], c: 0.25 },      // mano al pecho
-  point:   { u: [-0.7, -0.2, -1.12], l: [0, -1.85, 0], h: [0, 0, 0.18], c: 0.2 },       // mano levantada
+  explain: { u: [-0.24, -0.25, -1.18], l: [0, -1.4, 0], h: [-1.5, 0, 0.12], c: 0.1, sp: 0.5 }, // una mano delante, palma hacia arriba
+  open:    { u: [-0.14, 0.02, -1.2], l: [0, -1.25, 0], h: [-0.7, 0, 0.16], c: 0.05, sp: 0.8 },  // antebrazos delante, palmas abiertas
+  chest:   { u: [-0.3, -0.5, -1.22], l: [0, -1.95, 0], h: [0.1, 0, 0.12], c: 0.18, sp: 0.3 },  // mano al propio pecho (no al hombro)
+  point:   { u: [-0.42, -0.3, -1.16], l: [0, -1.55, 0], h: [0, 0, 0.12], c: 0.85, ix: 1 },      // mano delante, índice arriba (contar)
   front:   { u: [-0.16, -0.55, -1.24], l: [0, -1.4, 0], h: [0, 0, 0.1], c: 0.35 },      // manos juntas delante
   guard:   { u: [-0.42, -0.6, -1.12], l: [0, -2.3, 0], h: [0, 0, 0.1], c: 0.75 },       // encogida, puños al pecho
   chin:    { u: [-0.55, 0, -1.05], l: [0, -2.0, 0], h: [0, 0, 0], c: 0.55 },            // mano a la barbilla
   fists:   { u: [0.12, -0.1, -1.31], l: [0, -0.45, 0], h: [0, 0, 0], c: 0.95 },         // brazos tensos, puños
-  startle: { u: [-0.15, -0.2, -1.17], l: [0, -1.95, 0], h: [0, 0, 0], c: -0.1 },        // manos arriba, dedos abiertos
+  startle: { u: [-0.15, -0.2, -1.17], l: [0, -1.95, 0], h: [0, 0, 0], c: -0.1, sp: 1 }, // manos arriba, dedos abiertos
   limp:    { u: [0.02, -0.2, -1.33], l: [0, -0.2, 0], h: [0, 0, -0.1], c: 0.4 },        // caídos, sin fuerza
 };
 
@@ -106,9 +119,10 @@ const TALK = {
     p.add('head', [0.04, 0, (side === 'left' ? 1 : -1) * 0.05], w);
     p.add('chest', [0.02 + 0.02 * beat, 0, 0], w);
   },
-  cuenta(p, side, w, beat, t) {
+  cuenta(p, side, w, beat) {
     p.arm(side, ARMS.point, w);
-    p.add(side + 'Hand', [0, 0, (side === 'left' ? 1 : -1) * (0.12 * Math.sin(t * 7) + 0.25 * beat)], w);
+    p.add(side + 'LowerArm', [0, (side === 'left' ? -1 : 1) * 0.22 * beat, 0], w);      // marca cada punto con el índice
+    p.add(side + 'Hand', [-0.15 * beat, 0, 0], w);
     p.add('head', [-0.03, (side === 'left' ? 1 : -1) * 0.06, 0], w);
   },
   ambas(p, side, w, beat, t) {
@@ -344,9 +358,13 @@ export class Avatar {
     this.fidget = { next: 7 };
     this.thinkArm = 0;
     this.tilt = 1;
-    this.blink = { next: 2, t: -1, twice: false };
-    this.saccade = { next: 1.5, x: 0, y: 0 };
+    this.blink = { next: 2, t: -1, twice: false, last: -9, slow: 1 };
+    this.saccade = { next: 1.5, x: 0, y: 0, away: false };
     this.nod = { next: 3 };
+    this.spring = {};               // estado de los muelles de cada hueso: { x: [3], v: [3] }
+    this.headFollow = [0, 0];       // la cabeza acompaña, con retraso, a los ojos cuando miran lejos
+    this.breath = { phase: 0, inhaleT: 9, silent: 0 };          // respiración; inhaleT: segundos desde que tomó aire
+    this.prevState = 'idle';
     this._q = new THREE.Quaternion();
     this._q2 = new THREE.Quaternion();
     this._e = new THREE.Euler();
@@ -381,10 +399,11 @@ export class Avatar {
     for (const side of SIDES) {
       for (const f of FINGERS) {
         const segs = f === 'Thumb' ? ['Metacarpal', 'Proximal', 'Distal'] : ['Proximal', 'Intermediate', 'Distal'];
-        segs.forEach((seg, i) => { const n = node(side + f + seg); if (n) this.fingers[side].push({ node: n, thumb: f === 'Thumb', i, little: f === 'Little' }); });
+        segs.forEach((seg, i) => { const n = node(side + f + seg); if (n) this.fingers[side].push({ node: n, name: f, thumb: f === 'Thumb', i, little: f === 'Little' }); });
       }
     }
     this.hipsRest = this.bones.hips ? this.bones.hips.position.clone() : null;
+    this.spring = {};
     if (vrm.lookAt) vrm.lookAt.target = this.lookTarget;
     this.scene.add(vrm.scene);
     this._measureHead(vrm);
@@ -518,12 +537,20 @@ export class Avatar {
     if (!(state in this.stateW) || state === this.state) return;
     this.state = state;
     if (state === 'listening') this.tilt = Math.random() < 0.5 ? -1 : 1;
+    if (state === 'speaking') this.breath.inhaleT = 0;          // toma aire antes de hablar
+    if (Math.random() < 0.45) this._blinkSoon();                // al cambiar de actitud se suele parpadear
   }
   setEmotion(name) {
     if (!(name in EMOTIONS) || name === this.emotion) return;
     this.emotion = name;
     this.emoAge = 0;
     this.effects.setFeeling(name);
+    if (Math.random() < 0.5) this._blinkSoon();
+  }
+  // Parpadeo en cuanto se pueda (no dos casi seguidos).
+  _blinkSoon() {
+    const b = this.blink, t = this.clock.elapsedTime;
+    if (b.t < 0 && t - b.last > 0.6) b.next = t;
   }
   playGesture(name, side = Math.random() < 0.5 ? -1 : 1) {
     if (!(name in GESTURES)) return;
@@ -535,7 +562,7 @@ export class Avatar {
     const total = low + mid + high + 1e-5;
     // Topes medidos con el modelo de VRoid: sus visemas al 100 % abren la boca de forma exagerada.
     const target = {
-      aa: open * clamp(0.35 + 1.5 * mid / total) * 0.5,
+      aa: open * clamp(0.35 + 1.5 * mid / total) * 0.6,
       oh: open * clamp(1.3 * low / total) * 0.3,
       ee: open * clamp(2.2 * high / total) * 0.25,
       ih: open * clamp(1.6 * high / total) * 0.12,
@@ -543,7 +570,8 @@ export class Avatar {
     };
     const sum = VISEMES.reduce((s, k) => s + target[k], 0);
     if (sum > 0.7) for (const k of VISEMES) target[k] *= 0.7 / sum;
-    for (const k of VISEMES) this.mouth[k] = lerp(this.mouth[k], target[k], target[k] > this.mouth[k] ? 0.55 : 0.28);
+    // Abre rápido y cierra casi igual de rápido: entre sílabas la boca tiene que llegar a cerrarse.
+    for (const k of VISEMES) this.mouth[k] = lerp(this.mouth[k], target[k], target[k] > this.mouth[k] ? 0.6 : 0.4);
     this.voice = lerp(this.voice, open, open > this.voice ? 0.4 : 0.08);
   }
 
@@ -602,12 +630,24 @@ export class Avatar {
     // Reposo: brazos colgando cerca del cuerpo, codos algo doblados, dedos relajados.
     p.both(ARMS.rest);
 
-    // Respiración: pecho, hombros y, un poco, los brazos.
-    const breath = Math.sin(t * 1.45), breath2 = Math.sin(t * 1.45 - 0.6);
-    p.add('chest', [0.02 * breath, 0, 0]);
-    p.add('upperChest', [0.014 * breath, 0, 0]);
+    // Respiración: más rápida si está agitada, más lenta si está triste o tranquila; al hablar, más corta, y
+    // toma aire de golpe al empezar y en cada pausa (como una persona entre frases).
+    const br = this.breath;
+    const rate = { emocionada: 2.2, asustada: 2.6, nerviosa: 2.3, sorprendida: 1.9, triste: 1.1, enamorada: 1.15, carinosa: 1.2 }[this.emotion] || 1.45;
+    br.phase += dt * lerp(rate, 1.25, speaking) * (1 + 0.12 * noise(t * 0.2, 9));
+    if (speaking > 0.5) {
+      if (this.voice < 0.05) br.silent += dt;
+      else { if (br.silent > 0.35) br.inhaleT = 0; br.silent = 0; }
+    } else br.silent = 0;
+    br.inhaleT += dt;
+    const inhale = Math.sin(clamp(br.inhaleT / 0.45) * Math.PI) * (br.inhaleT < 0.45 ? 1 : 0);
+    const deep = 1 - 0.55 * speaking;
+    const breath = Math.sin(br.phase) * deep, breath2 = Math.sin(br.phase - 0.6) * deep;
+    p.add('chest', [0.02 * breath - 0.035 * inhale, 0, 0]);
+    p.add('upperChest', [0.014 * breath - 0.02 * inhale, 0, 0]);
     p.add('neck', [-0.01 * breath, 0, 0]);
-    p.shoulders(0.014 * breath2);
+    p.add('head', [-0.02 * inhale, 0, 0]);
+    p.shoulders(0.014 * breath2 + 0.03 * inhale);
     p.both({ u: [0, 0, 0.012 * breath2], l: [0, -0.015 * breath2, 0] }, 1, 'add');
 
     // Peso: descansa sobre una pierna y cada cierto tiempo cambia a la otra. La cadera se ladea, el tronco
@@ -632,13 +672,25 @@ export class Avatar {
       p.add(side + 'Foot', [-0.05 * free, 0, 0.02 * s]);
     }
 
-    // Balanceo lento de todo el cuerpo; los brazos lo siguen con retraso, como péndulos.
-    const sway = Math.sin(t * 0.42), sway2 = Math.sin(t * 0.27 + 1.3);
+    // Balanceo lento de todo el cuerpo, irregular (ruido, no senos: así no se nota que se repite); los brazos lo
+    // siguen con retraso, como péndulos, y los muelles de los huesos ponen la inercia.
+    const sway = noise(t * 0.35, 1), sway2 = noise(t * 0.22, 2);
     p.add('hips', [0, 0.03 * sway2, 0.008 * sway]);
     p.add('spine', [0.01 * sway2, -0.018 * sway2, -0.01 * sway]);
-    p.add('head', [0.014 * Math.sin(t * 0.9), 0.03 * Math.sin(t * 0.33), 0.012 * Math.sin(t * 0.51)]);
-    p.arm('left', { u: [0.022 * Math.sin(t * 0.63), 0, 0.014 * Math.sin(t * 0.42 - 0.9)], l: [0, -0.04 * (0.5 + 0.5 * Math.sin(t * 0.5)), 0] }, 1, 'add');
-    p.arm('right', { u: [0.022 * Math.sin(t * 0.57 + 1.7), 0, 0.014 * Math.sin(t * 0.42 - 2.1)], l: [0, -0.04 * (0.5 + 0.5 * Math.sin(t * 0.44 + 2)), 0] }, 1, 'add');
+    p.add('head', [0.016 * noise(t * 0.6, 3), 0.035 * noise(t * 0.3, 4), 0.014 * noise(t * 0.45, 5)]);
+    p.arm('left', { u: [0.022 * noise(t * 0.5, 6), 0, 0.014 * noise(t * 0.4, 7)], l: [0, -0.04 * (0.5 + 0.5 * noise(t * 0.45, 8)), 0] }, 1, 'add');
+    p.arm('right', { u: [0.022 * noise(t * 0.5, 10), 0, 0.014 * noise(t * 0.4, 11)], l: [0, -0.04 * (0.5 + 0.5 * noise(t * 0.45, 12)), 0] }, 1, 'add');
+    // Los dedos tampoco están quietos del todo.
+    p.curl.left += 0.06 * noise(t * 0.4, 13);
+    p.curl.right += 0.06 * noise(t * 0.4, 14);
+
+    // La cabeza acompaña a los ojos cuando miran lejos: primero van los ojos y la cabeza llega después.
+    const sc = this.saccade;
+    const hf = this.headFollow;
+    hf[0] = lerp(hf[0], sc.away ? sc.x : 0, damp(3, dt));
+    hf[1] = lerp(hf[1], sc.away ? sc.y : 0, damp(3, dt));
+    p.add('head', [-0.32 * hf[1], 0.38 * hf[0], 0.05 * hf[0]]);
+    p.add('neck', [-0.08 * hf[1], 0.12 * hf[0], 0]);
 
     // Sin nada que hacer: de vez en cuando mira a un lado, ladea la cabeza o mueve los hombros.
     if (idle > 0.9 && !this.gestures.length) {
@@ -680,7 +732,8 @@ export class Avatar {
     const free = 1 - busy;
     const tk = this.talk;
     const talking = speaking > 0.55 && free > 0.4;
-    if (!tk.name && talking && this.voice > 0.12 && t > tk.next) {
+    // Cada gesto nuevo arranca con un golpe de voz (énfasis), como cuando una persona remarca una palabra.
+    if (!tk.name && talking && this.voice > 0.12 && t > tk.next && (this.beat > 0.22 || t > tk.next + 1.2)) {
       tk.name = pick(TALK_NAMES, tk.last);
       tk.last = tk.name;
       tk.side = Math.random() < 0.6 ? 'right' : 'left';
@@ -727,21 +780,44 @@ export class Avatar {
   // dt = 0 coloca la pose de golpe (al cargar y en las capturas de prueba).
   _applyPose(dt) {
     const flip = this.isV0 ? -1 : 1;
+    // Cada hueso va hacia su objetivo como un muelle (con algo de inercia y un pequeño rebote), no a velocidad
+    // constante: así un brazo que sube se pasa un poco y se asienta, y la mano llega después que el antebrazo.
+    const steps = dt > 0.02 ? 2 : 1, h = dt / steps;
     for (const b in this.bones) {
       const r = this.pose.r[b];
-      this._e.set(r[0] * flip, r[1], r[2] * flip, 'XYZ');
-      this._q.setFromEuler(this._e);
-      this.bones[b].quaternion.slerp(this._q, dt ? damp(RATE(b), dt) : 1);
+      let st = this.spring[b];
+      if (!st || !dt) {
+        st = this.spring[b] = { x: [r[0], r[1], r[2]], v: [0, 0, 0] };
+      } else {
+        const [w, z] = SPRINGS[b];
+        for (let k = 0; k < steps; k++) {
+          for (let i = 0; i < 3; i++) {
+            st.v[i] += (w * w * (r[i] - st.x[i]) - 2 * z * w * st.v[i]) * h;
+            st.x[i] += st.v[i] * h;
+          }
+        }
+      }
+      this._e.set(st.x[0] * flip, st.x[1], st.x[2] * flip, 'XYZ');
+      this.bones[b].quaternion.setFromEuler(this._e);
     }
-    // Dedos: se cierran hacia la palma según `curl`; el meñique un poco más y el pulgar hacia dentro.
+    // Dedos: se cierran hacia la palma según `curl`; el meñique un poco más y el pulgar hacia dentro. `index`
+    // deja el índice estirado (y cierra los demás) y `spread` los separa en abanico, como una palma abierta.
+    const FAN = { Index: -1, Middle: -0.15, Ring: 0.6, Little: 1.2 };
     for (const side of SIDES) {
       const s = side === 'left' ? 1 : -1;
       const c = clamp(this.pose.curl[side], -0.15, 1);
+      const ix = clamp(this.pose.index[side]), sp = clamp(this.pose.spread[side]);
       for (const f of this.fingers[side]) {
-        if (f.thumb) this._e.set(0, -s * (0.1 + 0.42 * c) * (f.i === 0 ? 1 : 0.6), -s * 0.12 * c * flip, 'XYZ');
-        else this._e.set(0, 0, -s * c * [1.05, 1.25, 0.85][f.i] * (f.little ? 1.12 : 1) * flip, 'XYZ');
+        if (f.thumb) {
+          const ct = clamp(c + 0.4 * ix, -0.15, 1);
+          this._e.set(0, -s * (0.1 + 0.42 * ct - 0.12 * sp) * (f.i === 0 ? 1 : 0.6), -s * 0.12 * ct * flip, 'XYZ');
+        } else {
+          const cf = f.name === 'Index' ? lerp(c, -0.05, ix) : lerp(c, Math.max(c, 0.9), ix);
+          const fan = f.i === 0 ? s * 0.13 * sp * FAN[f.name] : 0;
+          this._e.set(0, fan, -s * cf * [1.05, 1.25, 0.85][f.i] * (f.little ? 1.12 : 1) * flip, 'XYZ');
+        }
         this._q.setFromEuler(this._e);
-        f.node.quaternion.slerp(this._q, dt ? damp(10, dt) : 1);
+        f.node.quaternion.slerp(this._q, dt ? damp(11, dt) : 1);
       }
     }
     if (this.bones.hips && this.hipsRest) {
@@ -763,16 +839,23 @@ export class Avatar {
     }
     for (const k of VISEMES) em.setValue(k, this.mouth[k]);
 
-    // Parpadeo: más seguido si está nerviosa o enamorada, casi nada si está asustada o sorprendida.
+    // Parpadeo: más seguido si está nerviosa o enamorada, casi nada si está asustada o sorprendida. Como uno de
+    // verdad: se cierra rápido (~65 ms), se queda un instante y se abre más despacio; si está tierna o
+    // relajada, a veces es un parpadeo lento.
     const b = this.blink;
     const rate = EMOTIONS[this.emotion].blink || 1;
-    if (b.t < 0 && t > b.next) b.t = 0;
+    if (b.t < 0 && t > b.next) {
+      b.t = 0;
+      b.slow = ['carinosa', 'enamorada', 'timida', 'triste'].includes(this.emotion) && Math.random() < 0.35 ? 1.9 : 1;
+    }
     let blink = 0;
     if (b.t >= 0) {
       b.t += dt;
-      blink = Math.sin(clamp(b.t / 0.15) * Math.PI);
-      if (b.t >= 0.15) {
+      const close = 0.065 * b.slow, hold = 0.03 * b.slow, open = 0.13 * b.slow;
+      blink = b.t < close ? ease(b.t / close) : b.t < close + hold ? 1 : 1 - ease(clamp((b.t - close - hold) / open));
+      if (b.t >= close + hold + open) {
         b.t = -1;
+        b.last = t;
         b.twice = !b.twice && Math.random() < 0.18;            // a veces parpadea dos veces seguidas
         b.next = t + (b.twice ? 0.09 : (2.2 + Math.random() * 4) / rate);
       }
@@ -785,9 +868,13 @@ export class Avatar {
     const s = this.saccade;
     const dart = EMOTIONS[this.emotion].dart || 0;
     if (t > s.next) {
-      const away = Math.random() < 0.25 + 0.5 * dart;
+      // Al hablar desvía la mirada más a menudo (como quien piensa lo que dice); al escuchar, casi nada.
+      const st = this.stateW;
+      const away = Math.random() < (0.25 + 0.5 * dart) * (1 + 0.6 * st.speaking - 0.6 * st.listening);
       s.x = (Math.random() - 0.5) * (away ? 0.5 + 0.4 * dart : 0.08);
       s.y = (Math.random() - 0.5) * (away ? 0.25 : 0.05);
+      if (away && !s.away && Math.random() < 0.45) this._blinkSoon();      // un desvío grande suele llevar parpadeo
+      s.away = away;
       s.next = t + (away ? 0.5 + Math.random() * 0.7 : 1.2 + Math.random() * 2.5) / (1 + 2 * dart);
     }
     this._v.copy(this.camera.position);

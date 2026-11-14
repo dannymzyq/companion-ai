@@ -1,18 +1,17 @@
-"""Modelos 3D: el de fábrica (models/<personaje>.vrm) y los VRM propios que sube el usuario (models/custom/).
+"""Modelos 3D: los incluidos (models/avatar1.vrm, avatar2.vrm y la esfera, que no tiene archivo) y los VRM propios
+que sube el usuario (models/custom/).
 
-El modelo de fábrica nunca se sobrescribe: los propios se guardan aparte y se puede volver a él cuando se quiera.
-La elección se recuerda en data/settings.json.
+Los incluidos nunca se sobrescriben: los propios se guardan aparte y se puede volver a ellos cuando se quiera.
+La elección se recuerda en data/settings.json. El modelo de Mika se retiró el 13 nov 2026 (decisión del usuario);
+los nombres son genéricos y sin género, como las voces.
 """
-import json
 import re
 from pathlib import Path
 
 from . import vrm
 from .config import settings
 
-DEFAULT_ID = "default"
 CUSTOM_DIR = settings.models_dir / "custom"
-STATE_FILE = settings.data_dir / "settings.json"
 ID_RE = re.compile(r"^[a-z0-9_-]{1,60}$")
 MAX_MB = 200
 
@@ -24,28 +23,30 @@ class ModelError(ValueError):
 from .state import load as _state, save as _save  # noqa: E402
 
 
-# Personajes incluidos. «default» es el del personaje (models/<nombre>.vrm); la esfera no tiene archivo: la
-# dibuja la interfaz (web/js/orb.js). Cualquier voz se puede usar con cualquiera de ellos.
+# Personajes incluidos. La esfera no tiene archivo: la dibuja la interfaz (web/js/orb.js). Cualquier voz se puede
+# usar con cualquiera de ellos.
 BUILTIN = [
-    {"id": "chica", "name": "Chica", "file": "chica.vrm", "note": "Personaje incluido"},
-    {"id": "chico", "name": "Chico", "file": "chico.vrm", "note": "Personaje incluido"},
-    {"id": "esfera", "name": "Esfera", "file": None, "note": "Cambia de color con lo que siente"},
+    {"id": "avatar1", "name": "Avatar 1", "file": "avatar1.vrm", "note": "Personaje incluido"},
+    {"id": "avatar2", "name": "Avatar 2", "file": "avatar2.vrm", "note": "Personaje incluido"},
+    {"id": "avatar3", "name": "Avatar 3", "file": None, "note": "Una esfera que cambia de color con lo que siente"},
 ]
 BUILTIN_IDS = {b["id"] for b in BUILTIN}
+DEFAULT_ID = BUILTIN[0]["id"]
+# Lo que se guardaba antes: el modelo de Mika («default») y los nombres viejos pasan a los nuevos.
+LEGACY = {"default": DEFAULT_ID, "chica": "avatar1", "chico": "avatar2", "esfera": "avatar3"}
 
 
 def _builtin(model_id: str) -> dict | None:
     return next((b for b in BUILTIN if b["id"] == model_id), None)
 
 
-def default_path(persona_name: str) -> Path | None:
-    path = settings.models_dir / f"{persona_name.lower()}.vrm"
-    return path if path.is_file() else None
+def _available(b: dict) -> bool:
+    return not b["file"] or (settings.models_dir / b["file"]).is_file()
 
 
-def kind(persona_name: str) -> str:
+def kind(persona_name: str = "") -> str:
     """'orb' si el personaje activo es la esfera; 'vrm' en los demás casos."""
-    b = _builtin(active_id(persona_name))
+    b = _builtin(active_id())
     return "orb" if b and not b["file"] else "vrm"
 
 
@@ -69,38 +70,38 @@ def custom_list() -> list[dict]:
     return out
 
 
-def active_id(persona_name: str) -> str:
-    wanted = _state().get("model", DEFAULT_ID)
+def active_id(persona_name: str = "") -> str:
+    wanted = str(_state().get("model") or DEFAULT_ID)
+    wanted = LEGACY.get(wanted, wanted)
     b = _builtin(wanted)
-    if b and (not b["file"] or (settings.models_dir / b["file"]).is_file()):
+    if b and _available(b):
         return wanted
-    if wanted != DEFAULT_ID and not b and ID_RE.match(wanted) and _custom_path(wanted).is_file():
+    if not b and ID_RE.match(wanted) and _custom_path(wanted).is_file():
         return wanted
-    return DEFAULT_ID
+    return next((x["id"] for x in BUILTIN if _available(x)), DEFAULT_ID)
 
 
-def active_path(persona_name: str) -> Path | None:
-    current = active_id(persona_name)
+def active_path(persona_name: str = "") -> Path | None:
+    current = active_id()
     b = _builtin(current)
     if b:
         return settings.models_dir / b["file"] if b["file"] else None
-    return default_path(persona_name) if current == DEFAULT_ID else _custom_path(current)
+    return _custom_path(current)
 
 
-def listing(persona_name: str) -> dict:
-    return {"active": active_id(persona_name),
-            "default": {"id": DEFAULT_ID, "name": persona_name, "available": default_path(persona_name) is not None},
-            "builtin": [{"id": b["id"], "name": b["name"], "note": b["note"],
-                         "available": not b["file"] or (settings.models_dir / b["file"]).is_file()} for b in BUILTIN],
+def listing(persona_name: str = "") -> dict:
+    return {"active": active_id(),
+            "builtin": [{"id": b["id"], "name": b["name"], "note": b["note"], "available": _available(b)} for b in BUILTIN],
             "custom": custom_list()}
 
 
 def select(model_id: str):
+    model_id = LEGACY.get(model_id, model_id)
     b = _builtin(model_id)
     if b:
-        if b["file"] and not (settings.models_dir / b["file"]).is_file():
+        if not _available(b):
             raise ModelError("Ese personaje no está instalado")
-    elif model_id != DEFAULT_ID and not _custom_path(model_id).is_file():
+    elif not _custom_path(model_id).is_file():
         raise ModelError("Ese modelo no existe")
     _save(model=model_id)
 
@@ -112,7 +113,7 @@ def add(filename: str, data: bytes) -> dict:
     except (vrm.VRMError, ValueError, UnicodeDecodeError) as e:
         raise ModelError(f"VRM inválido: {e}") from e
     stem = re.sub(r"[^a-z0-9_-]+", "-", Path(filename or "modelo").stem.lower()).strip("-")[:48] or "modelo"
-    if stem == DEFAULT_ID or stem in BUILTIN_IDS:
+    if stem in BUILTIN_IDS or stem in LEGACY:
         stem = f"{stem}-propio"
     CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
     model_id, n = stem, 2
@@ -124,8 +125,10 @@ def add(filename: str, data: bytes) -> dict:
 
 
 def remove(model_id: str):
-    path = _custom_path(model_id)             # el de fábrica no pasa por aquí: su id no es un archivo de custom/
-    if model_id == DEFAULT_ID or not path.is_file():
+    if model_id in BUILTIN_IDS or model_id in LEGACY:      # los incluidos no se borran
+        raise ModelError("Solo se pueden quitar los modelos propios")
+    path = _custom_path(model_id)
+    if not path.is_file():
         raise ModelError("Solo se pueden quitar los modelos propios")
     path.unlink()
     if _state().get("model") == model_id:

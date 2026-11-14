@@ -15,8 +15,14 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - El panel de navegador de Claude bloquea el micrófono: ahí la interfaz se prueba escribiendo; el avatar,
   con `scripts\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
   Para el micrófono de verdad, `scripts\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).
-- Modelo: `models\base\mika_base.vrm` es el original y no se toca; `models\mika.vrm` se genera con
-  `scripts\vestir_vrm.py`. No abras la ventana del companion sin avisar: el usuario suele estar jugando.
+- Modelos incluidos (decisión del usuario, 13 nov 2026): `avatar1` (`models\avatar1.vrm`, por defecto), `avatar2`
+  y `avatar3` (la esfera), con nombres genéricos sin género. El modelo de Mika está retirado: no lo vuelvas a
+  ofrecer. `models.LEGACY` traduce lo guardado antes (default/chica/chico/esfera). `mika.vrm`, `mika_base.vrm`,
+  `chica.vrm` y `chico.vrm` siguen en disco sin usarse; no los borres sin que el usuario lo pida.
+  No abras la ventana del companion sin avisar: el usuario suele estar jugando.
+- Animación (`web/js/avatar.js`): muelles por hueso (`SPRING`), ruido suave en lo ocioso, dedos por separado
+  (`ix` índice, `sp` abanico en `ARMS`). Para probar poses desde la consola: `await import('/js/avatar.js')` da
+  `ARMS` editable en vivo; `avatar.sheet([...])` hace la hoja de contactos.
 
 - **El usuario puede tener el companion abierto.** No reinicies ni apagues el servidor real (puerto 8200): pídele
   que lo haga él (`detener.ps1`, o `Companion.bat`, que lo reinicia solo si el código o `.env` son más nuevos).
@@ -56,6 +62,34 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Dos motores de voz (`settings.voice_engine`): `completa` = `voz\servidor.py` · `ligera` = Piper en el procesador
   (`companion/tts_light.py`, modelos en `models\piper`, sin memoria de vídeo). Una voz nueva en `voices.json`
   necesita también su `light`.
+- Acciones en la PC (`companion/actions.py`, decisión del usuario del 13 nov 2026): el modelo solo las PIDE con
+  `[accion: nombre | dato]`; se ejecutan tras «Permitir» en la tarjeta, un «sí» del usuario o «permitir siempre».
+  Catálogo cerrado y de poco riesgo: no añadas borrar, enviar, comprar, cambiar ajustes ni comandos libres sin
+  que el usuario lo pida. Solo cuentan las de turnos con mensaje del usuario (nunca de la mirada en vivo, el
+  saludo o un resultado). `actions.guess` reconoce órdenes claras del usuario. Prueba: `scripts\prueba_acciones.py`
+  con `COMPANION_ACTIONS_DRY=1` (no abre nada). Nunca pruebes acciones reales en la PC del usuario sin pedírselo.
+- Autorización (decisión del usuario, 13 nov 2026): su orden basta, sin tarjeta (`actions.config()["ask"]`
+  apagado por defecto). Se mantienen: confirmar pasos delicados que la orden no pedía (`control.task_allows`) y
+  tarjeta si la acción la eligió el modelo con pantalla o cámara compartidas. No quites esos dos frenos.
+- Usar ventanas (`companion/control.py`, acción `controlar`): EN SEGUNDO PLANO (decisión del usuario, 13 nov:
+  puede estar jugando). Cada paso escala por `attempt`: accesibilidad → mensajes a la ventana (PostMessage) →
+  teclado y ratón reales solo si el usuario no los usa (`real_input`: 4 s sin tocar nada, nada a pantalla
+  completa). Nunca traigas la ventana al frente al empezar. La captura es PrintWindow (la propia ventana, nunca
+  la pantalla con el juego). Windows ignora SetForegroundWindow desde segundo plano: `bring_front` lo resuelve y
+  lo comprueba. Solo con E4B, modelos mayores o la nube (`llm.can_control`).
+  `scripts\prueba_control_real.py --si` usa el teclado y ratón reales: solo cuando el usuario lo pida.
+  Pruébalo SOLO con `scripts\prueba_control.py`: ventana propia fuera de pantalla, `COMPANION_CONTROL_ONLY`
+  (solo esa ventana) y `COMPANION_CONTROL_NO_INPUT=1` (sin teclado ni ratón reales; una vez se probó sin él y
+  trajo la ventana al frente, quitándole el foco al usuario). Gemma 4 E4B cae en el texto trampa de la ventana:
+  la confirmación de pasos delicados es la red de seguridad, no la quites.
+- Voz fiel al subtítulo (13 nov 2026): `Session._say_checked` genera la frase entera, la escucha con Whisper
+  (`voicecheck`, compara por cómo suena: «Danny»=«Dani», «cinco»=«5») y la repite si falta una palabra.
+  `voz\servidor.py`: NFE 32, ritmo 0,9, duración mínima para frases cortas. Para medir cambios de voz usa un
+  servidor aparte en el puerto 8211 (`TTS_URL`), nunca el 8210 del usuario.
+- Pronunciación (13 nov 2026): `pronounce.for_voice` reescribe solo el texto de la voz (inglés → escrito a la
+  española según `voices\pronunciacion.json`; «qu»+e/i → «k»). Whisper no sirve para juzgar si algo suena a
+  inglés (corrige hacia la marca): `calibrar_pronunciacion.py` solo comprueba que se entienda. Una vocal con
+  tilde al principio («Ápel») hace que F5 se la coma: mejor sin tilde («Apel»).
 - Voces nuevas a partir de grabaciones: `scripts\importar_voces.py <carpeta>` y luego `scripts\grabar_muestras.py`.
 - El nodo de voz se queda con memoria de vídeo por cada voz que llega a usar (medido el 12 nov 2026: de ~5 a
   9,5 GB tras probar 15 voces) y no la suelta hasta reiniciarse; con la tarjeta llena, cada frase pasa de 1 s a
@@ -65,7 +99,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   («Hola,») el nodo las dice mal: evítalas en textos fijos.
 - Voces: catálogo en `voices.json`; muestras en `voices\` (`<voz>_es.wav` + `.json` con `ref_text`), que el
   servidor de voz lee en cada petición. Origen y licencias en `voices\CREDITOS.md`.
-- Personajes incluidos: `models.BUILTIN` (chica, chico, esfera) + `default` (Mika). La esfera no es un VRM:
+- Personajes incluidos: `models.BUILTIN` (avatar1, avatar2, avatar3 = la esfera). La esfera no es un VRM:
   `web/js/orb.js`; una emoción o gesto nuevo hay que añadirlo también ahí.
 - Memoria: `store.py` (messages, memories, summaries); los resúmenes los hace `Session._summarize` en ratos de calma.
 
@@ -77,7 +111,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   de `ADULT_HARD_LIMITS`.
 - Nunca subas ni muestres `.env`, modelos `.vrm` ni `data/`.
 - Las poses de `web/js/avatar.js` están en convención VRM 1.0; los VRM 0.x se corrigen invirtiendo X y Z al aplicar.
-- Etiquetas del LLM: `[emo:…]`, `[gesto:…]`, `[recordar: …]`. Si añades una emoción o gesto, hazlo en
+- Etiquetas del LLM: `[emo:…]`, `[gesto:…]`, `[recordar: …]`, `[accion: …]`. Si añades una emoción o gesto, hazlo en
   `companion/prompt.py` y en `web/js/avatar.js` a la vez (y los efectos de la emoción, en `web/js/effects.js`).
 - Poses del avatar: se revisan con `window.companion.avatar.sheet([...])` (hoja de contactos) en el panel de
   navegador contra el servidor de prueba. Los brazos se escriben para el izquierdo y se reflejan.

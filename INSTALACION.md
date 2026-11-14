@@ -106,7 +106,7 @@ Se abre la ventana del companion. Para arrancar solo el servidor, sin ventana, a
 1. **Tus datos**: cómo quieres que te llame, año de nacimiento y género (o prefieres no decirlo).
 2. **Cerebro**: pega una clave de API (Gemini tiene capa gratuita: <https://aistudio.google.com/apikey>) o
    elige «usar un modelo en esta PC» para no usar ninguna clave.
-3. **Personaje**: Chica, Chico, Esfera, Mika o un VRM tuyo, con vista previa.
+3. **Personaje**: Avatar 1, Avatar 2, Avatar 3 (una esfera) o un VRM tuyo, con vista previa.
 4. **Voz**: voz completa o ligera (viene marcada la recomendada para tu PC) y una de las nueve voces; el
    botón ▶ deja oír cada una. El personaje toma el nombre de la voz.
 5. **Micrófono y cámara**: permite el acceso y elige los dispositivos.

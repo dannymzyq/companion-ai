@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from fastapi.responses import Response
 
-from . import llm, models, profile, state, store, tts, voz_proc
+from . import actions, llm, models, profile, state, store, tts, voz_proc
 from .config import settings
 from .prompt import adult_active, load_persona
 from .session import Session
@@ -117,7 +117,7 @@ def public_config() -> dict:
                 "error": transcriber.error},
         "model": model_path() is not None or models.kind(persona["name"]) == "orb",
         "model_id": models.active_id(persona["name"]), "model_kind": models.kind(persona["name"]),
-        "barge_in": settings.barge_in,
+        "barge_in": settings.barge_in, "actions": _actions_state(),
         "started": STARTED,               # iniciar.ps1 lo compara con la fecha del código para saber si reiniciar
     }
 
@@ -149,6 +149,30 @@ async def set_config(body: ConfigIn):
         elif body.provider == "local":    # volver a pulsar «Local» repite la elección del modelo que cabe
             _background(llm.warm_local())
     return await full_config()
+
+
+# ---------------------------------------------------------------- acciones en la PC
+def _actions_state() -> dict:
+    c = actions.config()
+    return {**c, "available": llm.can_act(), "catalog": {k: v["title"] for k, v in actions.CATALOG.items()}}
+
+
+@app.get("/api/actions")
+async def get_actions():
+    """Ajustes › Acciones: si están encendidas, cuáles se permiten siempre y el registro de lo que se hizo."""
+    return {**_actions_state(), "history": actions.history(30)}
+
+
+class ActionsIn(BaseModel):
+    enabled: bool | None = None
+    forget_always: str | None = None      # deja de permitir siempre esa acción (vuelve a preguntar)
+    ask: bool | None = None               # pedir permiso en una tarjeta antes de cada acción
+
+
+@app.post("/api/actions", dependencies=[Depends(same_origin)])
+async def set_actions(body: ActionsIn):
+    actions.save(enabled=body.enabled, forget_always=body.forget_always, ask=body.ask)
+    return {**_actions_state(), "history": actions.history(30)}
 
 
 @app.delete("/api/memory", dependencies=[Depends(same_origin)])

@@ -1,6 +1,6 @@
 """Convierte el texto que va llegando del LLM en frases listas para la voz.
 
-Las etiquetas [emo:...], [gesto:...] y [recordar: ...] nunca se leen en voz alta: se separan del texto y
+Las etiquetas [emo:...], [gesto:...], [recordar: ...] y [accion: ...] nunca se leen en voz alta: se separan del texto y
 viajan junto a la frase para que el avatar cambie de expresión y se mueva en el momento justo.
 (Misma idea que el filtro de etiquetas de waifuv3: mac-backend/voice_agent/agent.py.)
 """
@@ -41,6 +41,7 @@ class TagStream:
         self.emotion: str | None = None
         self.gestures: list[str] = []
         self.memories: list[str] = []
+        self.actions: list[tuple[str, list[str]]] = []
         self.count = 0
         self.spoken: list[str] = []   # frases emitidas (texto limpio)
 
@@ -91,6 +92,10 @@ class TagStream:
             self.gestures.append(_plain(value))
         elif kind == "recordar" and value:
             self.memories.append(value[:300])
+        elif kind == "accion" and value:             # [accion: nombre | dato | dato] → se pide permiso después
+            parts = [p.strip() for p in value.split("|")]
+            if parts[0]:
+                self.actions.append((parts[0], parts[1:]))
 
     def _text(self, text: str, out: list[Sentence]):
         self.cur += text
