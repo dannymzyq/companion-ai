@@ -1,4 +1,4 @@
-# Arranca el companion y abre su ventana.   Doble clic en Companion.bat, o:
+﻿# Arranca el companion y abre su ventana.   Doble clic en Companion.bat, o:
 #   powershell -ExecutionPolicy Bypass -File iniciar.ps1
 param([switch]$SinVentana)      # solo arranca el servidor, sin abrir la ventana
 $ErrorActionPreference = "Stop"
@@ -48,6 +48,15 @@ if ((Test-Vivo) -and (Test-Anticuado)) {
 
 if (-not (Test-Vivo)) {
     New-Item -ItemType Directory -Force "data" | Out-Null
+    # Se guardan los registros de las tres veces anteriores (companion.1.log es la última): si se cerró por un
+    # error y se vuelve a abrir, el motivo no se pierde.
+    foreach ($nombre in "companion", "companion.out") {
+        $base = Join-Path $raiz "data\$nombre"
+        foreach ($n in 3, 2, 1) {
+            $antes = if ($n -eq 1) { "$base.log" } else { "$base.$($n - 1).log" }
+            if (Test-Path $antes) { Move-Item -Force $antes "$base.$n.log" -ErrorAction SilentlyContinue }
+        }
+    }
     Start-Process -FilePath "$raiz\.venv\Scripts\python.exe" -ArgumentList "-m", "companion" -WorkingDirectory $raiz `
         -WindowStyle Hidden -RedirectStandardOutput "$raiz\data\companion.out.log" -RedirectStandardError "$raiz\data\companion.log"
     $listo = $false

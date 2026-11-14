@@ -92,16 +92,21 @@ def _is_gemini() -> bool:
     return settings.cloud_preset == "gemini"
 
 
-def gemini_models() -> list[str]:
-    """Modelos de la nube en orden de uso. Solo Gemini tiene relevo; con otro proveedor es el modelo elegido."""
+def gemini_models(background: bool = False) -> list[str]:
+    """Modelos de la nube en orden de uso. Solo Gemini tiene relevo; con otro proveedor es el modelo elegido.
+    `background`: trabajo de fondo (resúmenes, pasos al usar una ventana): primero BACKGROUND_MODEL."""
     if not _is_gemini():
         return [settings.cloud_model] if settings.cloud_model else []
-    return [settings.gemini_model, *[m for m in settings.gemini_fallback if m != settings.gemini_model]]
+    chain = [settings.gemini_model, *[m for m in settings.gemini_fallback if m != settings.gemini_model]]
+    if background and settings.background_model:
+        chain = [settings.background_model, *[m for m in chain if m != settings.background_model]]
+    return chain
 
 
-async def complete(messages: list[dict], max_tokens: int = 220) -> str:
+async def complete(messages: list[dict], max_tokens: int = 220, background: bool = True) -> str:
     """Respuesta completa, sin voz ni etiquetas (resúmenes para la memoria a largo plazo)."""
-    return "".join([p async for p in stream_chat(messages, {"temperature": 0.3, "top_p": 0.9, "max_tokens": max_tokens})])
+    sampling = {"temperature": 0.3, "top_p": 0.9, "max_tokens": max_tokens}
+    return "".join([p async for p in stream_chat(messages, sampling, background=background)])
 
 
 def _usable(model: str) -> bool:
@@ -140,31 +145,47 @@ async def observe(messages: list[dict], sampling: dict, images: list[Image]) -> 
     return "".join([p async for p in _ollama(_images_ollama(messages, images), sampling)])
 
 
-async def stream_chat(messages: list[dict], sampling: dict, images: list[Image] | None = None) -> AsyncIterator[str]:
+async def stream_chat(messages: list[dict], sampling: dict, images: list[Image] | None = None,
+                      background: bool = False) -> AsyncIterator[str]:
     """`images`: lo que el usuario comparte en este turno (cámara, pantalla o ventana). Se adjuntan a su último
-    mensaje; no se guardan en el historial."""
-    stream = _cloud(messages, sampling, images) if settings.is_cloud else _ollama(_images_ollama(messages, images), sampling)
+    mensaje; no se guardan en el historial. `background`: trabajo de fondo (ver gemini_models)."""
+    stream = (_cloud(messages, sampling, images, background) if settings.is_cloud
+              else _ollama(_images_ollama(messages, images), sampling))
     async for piece in stream:
         yield piece
 
 
-async def _cloud(messages: list[dict], sampling: dict, images) -> AsyncIterator[str]:
+async def _cloud(messages: list[dict], sampling: dict, images, background: bool = False) -> AsyncIterator[str]:
     """Gemini con relevo: si un modelo agotó su cuota gratuita se pasa al siguiente y, al final, al local."""
     global _local_announced
-    if not settings.gemini_api_key or not gemini_models():
+    chain = gemini_models(background)
+    if not settings.gemini_api_key or not chain:
         raise LLMError("Falta la clave del cerebro en la nube. Ponla en Ajustes › Cerebro, o usa el cerebro local.")
     payload = _images_openai(messages, images)
-    for model in gemini_models():
+    for model in chain:
         if not _usable(model):
             continue
+        sent = False
         try:
             async for piece in _gemini(model, payload, sampling):
+                sent = True
                 yield piece
-            _local_announced = False
+            if not background:
+                _local_announced = False
             return
+        except LLMError as e:
+            # El modelo de fondo puede no estar disponible para esa clave (o no admitir imágenes): sigue el relevo.
+            if background and model == settings.background_model and model != settings.gemini_model and not sent:
+                log.warning("El modelo de fondo %s falló (%s); sigo con el relevo normal durante una hora", model, e)
+                _block(model, 3600)
+                continue
+            raise
         except QuotaExceeded as q:
             _block(model, q.wait)
-            nxt = next((m for m in gemini_models() if _usable(m)), None)
+            nxt = next((m for m in chain if _usable(m)), None)
+            if background:
+                log.warning("Cuota de %s agotada en trabajo de fondo; sigue: %s", model, nxt or "local")
+                continue
             if q.daily:
                 log.warning("Cuota diaria gratuita de %s agotada (%.1f h); sigue: %s", model, q.wait / 3600, nxt or "local")
                 _notices.append(f"Se agotó la cuota gratuita de hoy de {model}. "
@@ -335,7 +356,16 @@ _slow_turns = 0                           # turnos lentos seguidos
 
 
 def local_models() -> list[str]:
-    return [settings.ollama_model, *[m for m in settings.ollama_fallback if m != settings.ollama_model]]
+    """El modelo elegido y, detrás, a cuáles pasar si va lento. Si es del catálogo, los más pequeños que ven lo
+    mismo (12B → E4B → E2B); si no, los de OLLAMA_FALLBACK."""
+    from .profile import LOCAL_MODELS
+    chosen = settings.ollama_model
+    ids = [m["id"] for m in LOCAL_MODELS]
+    if chosen in ids:
+        i = ids.index(chosen)
+        vision = LOCAL_MODELS[i]["vision"]
+        return [chosen, *[m["id"] for m in LOCAL_MODELS[i + 1:] if m["vision"] or not vision]]
+    return [chosen, *[m for m in settings.ollama_fallback if m != chosen]]
 
 
 def local_model() -> str:

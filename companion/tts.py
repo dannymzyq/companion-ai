@@ -1,5 +1,5 @@
-"""Voz. Dos motores: «completa» = cliente del nodo GPU de waifuv3 (POST /v1/audio/speech, contrato 1.6, PCM en
-streaming; voces clonadas, ~5 GB de vídeo) y «ligera» = Piper en el procesador (tts_light.py)."""
+"""Voz. Dos motores: «completa» = servidor de voz propio (voz/servidor.py, F5-TTS con voces clonadas; POST
+/v1/audio/speech, PCM en streaming) y «ligera» = Piper en el procesador (tts_light.py)."""
 import logging
 from typing import AsyncIterator
 
@@ -16,12 +16,16 @@ class TTSError(Exception):
     pass
 
 
+class _NotReady(Exception):
+    """El servidor de voz todavía carga o no responde: merece esperar y repetir."""
+
+
 def _headers() -> dict:
     return {"Authorization": f"Bearer {settings.tts_token}"} if settings.tts_token else {}   # el servidor propio no pide token
 
 
 async def node_available() -> bool:
-    """¿Responde el nodo de voz de waifuv3 (la voz completa)?"""
+    """¿Responde el servidor de la voz completa?"""
     try:
         r = await _client.get(f"{settings.tts_url}/health", headers=_headers(), timeout=3)
         data = r.json()                    # «loading»: recién arrancado, todavía cargando el modelo
@@ -31,7 +35,7 @@ async def node_available() -> bool:
 
 
 async def available() -> bool:
-    """¿Hay voz con el motor elegido? (ligera: Piper aquí mismo · completa: el nodo de waifuv3)"""
+    """¿Hay voz con el motor elegido? (ligera: Piper aquí mismo · completa: el servidor de voz)"""
     if settings.voice_engine == "ligera":
         from . import tts_light
         return tts_light.installed()
@@ -49,17 +53,40 @@ async def stream_speech(text: str, voice: str, speed: float = 1.0, engine: str |
         return
     body = {"model": "local", "input": text[:1500], "voice": voice, "response_format": "pcm",
             "stream": True, "speed": speed}
+    for attempt in (1, 2):
+        sent = False
+        try:
+            async for chunk in _full(body):
+                sent = True
+                yield chunk
+            return
+        except _NotReady as e:
+            # Recién arrancado, el servidor de voz tarda unos segundos en cargar; si se cayó, se vuelve a levantar.
+            # Antes la frase (a menudo el saludo) se quedaba sin voz.
+            from . import voz_proc
+            if sent or attempt == 2:
+                raise TTSError(str(e)) from None
+            log.info("La voz no está lista (%s): espero a que cargue", e)
+            if not await voz_proc.recover():
+                raise TTSError(str(e)) from None
+
+
+async def _full(body: dict) -> AsyncIterator[bytes]:
     carry = b""
     try:
         async with _client.stream("POST", f"{settings.tts_url}/v1/audio/speech", json=body, headers=_headers()) as r:
             if r.status_code != 200:
                 detail = (await r.aread()).decode("utf-8", "replace")[:200]
-                raise TTSError(f"El nodo de voz respondió {r.status_code}: {detail}")
+                if r.status_code == 503:
+                    raise _NotReady(f"el servidor de voz respondió 503: {detail}")
+                raise TTSError(f"El servidor de voz respondió {r.status_code}: {detail}")
             async for chunk in r.aiter_bytes():
                 data = carry + chunk
                 cut = len(data) - (len(data) % 2)
                 carry = data[cut:]
                 if cut:
                     yield data[:cut]
+    except httpx.ConnectError as e:
+        raise _NotReady(f"no hay conexión con el servidor de voz ({type(e).__name__})") from e
     except httpx.HTTPError as e:
-        raise TTSError(f"No hay conexión con el nodo de voz ({type(e).__name__})") from e
+        raise TTSError(f"Se cortó la conexión con el servidor de voz ({type(e).__name__})") from e

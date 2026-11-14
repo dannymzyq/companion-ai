@@ -1,14 +1,11 @@
-"""Convierte grabaciones propias (mp3/wav) en muestras para el nodo de voz. De las grabaciones de cada voz
+"""Convierte grabaciones propias (mp3/wav) en muestras para el servidor de voz. De las grabaciones de cada voz
 elige el mejor tramo de frases completas de 5 a 8,5 s, lo transcribe con Whisper
-(el nodo necesita el texto exacto de la muestra) y escribe voices/<voz>_es.wav + .json.
+(el servidor necesita el texto exacto de la muestra) y escribe voices/<voz>_es.wav + .json, que voz/servidor.py
+lee directamente.
 
-    .venv\\Scripts\\python.exe scripts\\importar_voces.py <carpeta con las grabaciones> [--instalar] [--voz=mika=Mika]
-
---instalar copia además las muestras a la carpeta de voces del nodo (pc-gpu\\voices de waifuv3).
+    .venv\\Scripts\\python.exe scripts\\importar_voces.py <carpeta con las grabaciones> [--voz=mika=Mika]
 """
 import json
-import shutil
-import site
 import sys
 import wave
 from pathlib import Path
@@ -19,9 +16,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 OUT = ROOT / "voices"
-NODO = Path("D:/waifuv3/waifu/pc-gpu/voices")
 SR = 24000
-# Muestras cortas: el nodo guarda en la memoria de vídeo algo por cada voz que usa, más cuanto más larga es la
+# Muestras cortas: el servidor de voz guarda en la memoria de vídeo algo por cada voz que usa, más cuanto más larga es la
 # muestra, y con muestras de 11 s y la tarjeta llena cada frase pasaba de 1 s a 14 s (12 nov 2026).
 MAX_S, MIN_S = 8.5, 5.0
 
@@ -112,9 +108,6 @@ def main():
         (OUT / f"{name}.json").write_text(json.dumps(
             {"engine": "f5", "ref_seconds": min(12, round(secs + 0.05, 1)), "nfe_step": 32, "stream_nfe_step": 16,
              "ref_text": text}, ensure_ascii=False, indent=1), encoding="utf-8")
-        if "--instalar" in sys.argv and NODO.is_dir():
-            for ext in (".wav", ".json"):
-                shutil.copy2(OUT / f"{name}{ext}", NODO / f"{name}{ext}")
         print(f"{voz:8} ← {origen} ({total:.0f} s) · tramo de {secs:.1f} s · tono {f0(y):.0f} Hz · {text!r}")
 
 

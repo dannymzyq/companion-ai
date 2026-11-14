@@ -40,6 +40,10 @@ La primera instalación descarga entre 6 y 15 GB según la PC y puede tardar de 
 repetir cuantas veces haga falta: lo que ya está instalado se salta. Si el companion está abierto y hay que
 rehacer su entorno, el instalador lo cierra.
 
+Instala las mismas versiones que se probaron: uv va en una versión fija y se comprueba su suma SHA-256, y las
+librerías salen de `requirements.lock` y `voz\requirements.lock`. Si alguna de esas versiones ya no se puede
+descargar, avisa e instala las últimas compatibles con `requirements.txt`.
+
 ### Qué instala y dónde
 
 | Qué | Dónde | Tamaño |
@@ -83,7 +87,8 @@ cuenta con la tarjeta de la PC:
 | 8 GB | ligera (completa si el cerebro es la nube) | Gemma 4 E2B |
 | 12 GB o más | completa | Gemma 4 E4B |
 
-Los modelos «solo texto» no pueden mirar la cámara ni la pantalla. Esta tabla sale del cálculo de memoria;
+Con 16 GB se ofrece también Gemma 4 12B (unos 10,6 GB): más listo, pero con un juego abierto ya no cabe, así que
+no viene marcado. Los modelos «solo texto» no pueden mirar la cámara ni la pantalla. Esta tabla sale del cálculo de memoria;
 solo se ha probado en una tarjeta de 16 GB.
 
 ## 3. Ejecutar
@@ -164,12 +169,15 @@ archivo, así que normalmente no hace falta tocarlo. Lo más útil:
 | «Ollama no está abierto en esta PC» | Ábrelo desde el menú Inicio, o vuelve a ejecutar `iniciar.ps1` |
 | No te oye | Revisa el micrófono elegido en Ajustes; la barra debe moverse al hablar |
 | El companion no arranca | Mira las últimas líneas de `data\companion.log` |
+| Se cerró solo y al volver a abrirlo no sé por qué | El registro de la vez anterior queda en `data\companion.1.log` (y `.2`, `.3`) |
 | Algo quedó a medias en la instalación | Vuelve a ejecutar el instalador: retoma donde se quedó |
 
 ## 6. Actualizar y desinstalar
 
 - **Actualizar**: reemplaza los archivos del proyecto y vuelve a ejecutar el instalador. `Companion.bat`
   reinicia solo el servidor si el código es más nuevo.
+- **Actualizar las librerías** (para quien desarrolla): instálalas en `.venv` o `voz\.venv`, prueba que todo va
+  bien y fija las versiones nuevas con `powershell -ExecutionPolicy Bypass -File scripts\fijar_versiones.ps1`.
 - **Liberar espacio**: `runtime\cache` se puede borrar sin problema.
 - **Desinstalar**: cierra el companion y borra la carpeta. Ollama y sus modelos se quitan aparte
   (Configuración de Windows › Aplicaciones, y `ollama rm <modelo>`).

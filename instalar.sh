@@ -48,8 +48,14 @@ if [ ! -x "$UV" ]; then
     Darwin-x86_64) T=uv-x86_64-apple-darwin ;;
     *) echo "Sistema no previsto: $(uname -s) $(uname -m)"; exit 1 ;;
   esac
-  echo "Descargando uv (gestor de Python) de github.com/astral-sh/uv..."
-  curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/$T.tar.gz" | tar -xz -C runtime --strip-components=1
+  UV_VERSION=0.13.8   # la misma que instalar.ps1; se comprueba con la suma SHA-256 que publica uv
+  echo "Descargando uv $UV_VERSION (gestor de Python) de github.com/astral-sh/uv..."
+  base="https://github.com/astral-sh/uv/releases/download/$UV_VERSION/$T.tar.gz"
+  curl -fsSL "$base" -o runtime/uv.tar.gz
+  suma="$(curl -fsSL "$base.sha256" | cut -d' ' -f1)"
+  real="$( (sha256sum runtime/uv.tar.gz 2>/dev/null || shasum -a 256 runtime/uv.tar.gz) | cut -d' ' -f1)"
+  if [ -z "$suma" ] || [ "$suma" != "$real" ]; then rm -f runtime/uv.tar.gz; echo "La descarga de uv no coincide con su suma SHA-256"; exit 1; fi
+  tar -xzf runtime/uv.tar.gz -C runtime --strip-components=1 && rm -f runtime/uv.tar.gz
 fi
 "$UV" python install 3.13
 

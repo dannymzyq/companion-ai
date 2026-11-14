@@ -1,6 +1,8 @@
 """Historial y recuerdos en SQLite (data/companion.db). Todo queda en esta PC."""
+import re
 import sqlite3
 import time
+import unicodedata
 
 from .config import settings
 
@@ -75,6 +77,38 @@ def summaries(limit: int = 10) -> list[tuple[str, float]]:
     """Los últimos resúmenes, del más antiguo al más reciente: (texto, fecha de esa conversación)."""
     rows = _db.execute("SELECT text, ts FROM summaries ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return list(reversed(rows))
+
+
+_STOP = set("""ahora algo algun alguna algunos antes aqui asi aunque bien cada casi como con contra cosa cosas cual
+cuando de del desde donde dijo dice durante ella ellas ellos entre era eran esa ese eso esta estaba estado estar este
+esto estos fue fueron gusta habia hablar hablaron hace hacer hasta hoy mas mismo mucho muy nada nadie nos nosotros nunca
+otra otro para pero poco porque puede pues que quien quiere sabe sido siempre sobre solo tambien tanto tener tiene todo
+todos tras tuvo una unas uno unos usted vamos vez yo""".split())
+
+
+def _keys(text: str) -> set[str]:
+    """Palabras con contenido, sin tildes y recortadas a 5 letras (así «viaje» encuentra «viajes»)."""
+    s =unicodedata.normalize("NFD", text.lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return {w[:5] for w in re.findall(r"[a-zñ0-9]{4,}", s) if w not in _STOP}
+
+
+def relevant_summaries(query: str, skip_recent: int = 8, limit: int = 2, ignore: str = "") -> list[tuple[str, float]]:
+    """Resúmenes antiguos (más allá de los `skip_recent` que ya van siempre en el prompt) que tratan de lo mismo que
+    `query`: comparten al menos dos palabras poco comunes. No cuentan las de `ignore` (los nombres del usuario y del
+    personaje, que salen en todos) ni las que aparecen en más del 10 % de los resúmenes (mínimo 2): con la
+    historia real del 13 nov 2026 así sale en ~6 % de los mensajes; contando todas las palabras, en un tercio.
+    Del más parecido al menos: (texto, fecha)."""
+    words = _keys(query or "") - _keys(ignore)
+    if len(words) < 2:
+        return []
+    every = [(_keys(t), t, ts) for t, ts in _db.execute("SELECT text, ts FROM summaries ORDER BY id DESC").fetchall()]
+    common = {w for w in words if sum(w in k for k, _, _ in every) > max(2, len(every) // 10)}
+    words -= common
+    if len(words) < 2:
+        return []
+    scored = sorted(((len(words & k), ts, t) for k, t, ts in every[skip_recent:]), reverse=True)   # a igualdad, el más reciente
+    return [(t, ts) for n, ts, t in scored if n >= 2][:limit]
 
 
 def delete_memory(fact: str):

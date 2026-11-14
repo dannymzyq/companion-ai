@@ -1,4 +1,4 @@
-# Prepara el companion: entorno Python, dependencias y librerías 3D de la interfaz.
+﻿# Prepara el companion: entorno Python, dependencias y librerías 3D de la interfaz.
 #   powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 param(
     [string]$Python = "",          # ruta a un Python 3.11–3.13 (por defecto, el de ComfyUI)

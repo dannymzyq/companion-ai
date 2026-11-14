@@ -1,4 +1,4 @@
-# Instalador del companion (Windows). Deja TODO dentro de esta carpeta: Python, entornos, modelos y la app.
+﻿# Instalador del companion (Windows). Deja TODO dentro de esta carpeta: Python, entornos, modelos y la app.
 #   powershell -ExecutionPolicy Bypass -File instalar.ps1 [-Voz auto|completa|ligera|ambas] [-SinOllama] [-SinModeloLocal]
 #
 # Que instala (lo que ya esta, se salta):
@@ -28,11 +28,16 @@ Paso "Python propio (runtime\)"
 $uv = Join-Path $raiz "runtime\uv.exe"
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $raiz "runtime\python"
 $env:UV_CACHE_DIR = Join-Path $raiz "runtime\cache"
+# Versión fija de uv y su suma SHA-256 publicada (la probada en esta PC): una descarga dañada o cambiada no se usa.
+$uvVersion = "0.13.8"
+$uvSuma = "529e78a9cec6cd7e3e014f7ecd8bda0c113969d4ed0f2efeedb85c30943325b8"
 if (-not (Test-Path $uv)) {
     New-Item -ItemType Directory -Force "runtime" | Out-Null
     $zip = Join-Path $raiz "runtime\uv.zip"
-    Write-Host "Descargando uv (gestor de Python, ~20 MB) de github.com/astral-sh/uv..."
-    Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip -UseBasicParsing
+    Write-Host "Descargando uv $uvVersion (gestor de Python, ~20 MB) de github.com/astral-sh/uv..."
+    Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/download/$uvVersion/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip -UseBasicParsing
+    $real = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+    if ($real -ne $uvSuma) { Remove-Item $zip -Force; throw "La descarga de uv no coincide con su suma SHA-256: no la uso." }
     Expand-Archive -Path $zip -DestinationPath (Join-Path $raiz "runtime") -Force
     Remove-Item $zip -Force
 }
@@ -59,7 +64,17 @@ function Entorno($carpeta) {
 Paso "Entorno del companion (.venv)"
 Entorno (Join-Path $raiz ".venv")
 $py = Join-Path $raiz ".venv\Scripts\python.exe"
-& $uv pip install --python $py -r requirements.txt; Comprobar "dependencias del companion"
+# requirements.lock: las versiones exactas probadas (sale de requirements.txt; se rehace con scripts\fijar_versiones.ps1).
+# Si alguna ya no se puede bajar, se instala lo último compatible con requirements.txt.
+function Dependencias($python, $lock, $lista, $que) {
+    if (Test-Path $lock) {
+        & $uv pip install --python $python -r $lock
+        if ($LASTEXITCODE -eq 0) { return }
+        Write-Warning "No pude instalar las versiones fijas de $lock; pruebo con las últimas compatibles."
+    }
+    & $uv pip install --python $python -r $lista; Comprobar $que
+}
+Dependencias $py "requirements.lock" "requirements.txt" "dependencias del companion"
 
 Paso "Interfaz y app de escritorio"
 & "$raiz\scripts\setup.ps1" -SoloWeb
@@ -80,7 +95,7 @@ if ($Voz -in "completa", "ambas") {
     Entorno (Join-Path $raiz "voz\.venv")
     $pyVoz = Join-Path $raiz "voz\.venv\Scripts\python.exe"
     & $uv pip install --python $pyVoz torch==2.12.1 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130; Comprobar "PyTorch"
-    & $uv pip install --python $pyVoz -r voz\requirements.txt; Comprobar "F5-TTS"
+    Dependencias $pyVoz "voz\requirements.lock" "voz\requirements.txt" "F5-TTS"
     & $py scripts\preparar_recursos.py --completa; Comprobar "descargar el modelo de la voz completa"
 }
 

@@ -17,8 +17,8 @@ El personaje toma el nombre de la voz elegida. Las voces no llevan etiqueta de g
 Las siete grabaciones las entregó el usuario el 12 nov 2026 (dos archivos de ~55 s por voz). El origen y los
 derechos de esas voces los conoce él: aquí no consta ninguna licencia, así que no deben redistribuirse sin
 comprobarlo. `scripts\importar_voces.py` eligió de cada pareja el tramo de frases completas más claro que cabe
-en los 12 s que usa el nodo de voz, lo transcribió con Whisper (el nodo necesita el texto exacto) y lo guardó
-aquí como `<voz>_es.wav` + `.json`; con `--instalar` los copia a `pc-gpu\voices` de waifuv3.
+en los 12 s que usa el servidor de voz, lo transcribió con Whisper (necesita el texto exacto) y lo guardó
+aquí como `<voz>_es.wav` + `.json`, que `voz\servidor.py` lee directamente.
 
 Los tonos son la frecuencia media medida ese día: «muestra» en el tramo recortado, «clonada» en una frase nueva
 dicha por el nodo de voz con esa muestra.

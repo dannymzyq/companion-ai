@@ -11,10 +11,10 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-
-from fastapi.responses import Response
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import actions, llm, models, profile, state, store, tts, voz_proc
 from .config import settings
@@ -73,6 +73,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Companion", version="0.1.0", lifespan=lifespan)
+# Solo se atiende a quien llama al servidor por su nombre de esta PC. Sin esto, una página web con un truco de DNS
+# («DNS rebinding»: su dominio pasa a apuntar a 127.0.0.1) podría leer /api/memory como si fuera la interfaz.
+LOCAL_HOSTS = ["127.0.0.1", "localhost", *([settings.host] if settings.host not in ("127.0.0.1", "localhost", "0.0.0.0") else [])]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
 
 
 @app.middleware("http")

@@ -34,6 +34,10 @@ PRESETS = {
 # Modelos locales ligeros que se ofrecen. vram = memoria de vídeo que ocupan (medida); min_gpu = tarjeta mínima
 # para usarlos junto a la voz y el oído, que también viven en la GPU.
 LOCAL_MODELS = [                          # de mayor a menor
+    # 8,0 GB en disco y 10,6 GB cargado; con la voz propia (~1 GB) cabe en 16 GB y va a 58-93 tokens/s (medido el
+    # 13 nov 2026). No se recomienda sola (recommend False): con un juego abierto ya no cabe y se desborda a la RAM.
+    {"id": "gemma4:12b", "name": "Gemma 4 12B", "size_gb": 8.0, "vram_gb": 10.6, "vision": True, "recommend": False,
+     "note": "El más listo, para tarjetas de 16 GB. Ocupa unos 10,6 GB: con un juego abierto puede ir lento. Ve imágenes."},
     {"id": "gemma4:e4b-it-qat", "name": "Gemma 4 E4B", "size_gb": 6.1, "vram_gb": 4.8, "vision": True,
      "note": "El más capaz de los ligeros. Ve imágenes."},
     {"id": "gemma4:e2b-it-qat", "name": "Gemma 4 E2B", "size_gb": 4.3, "vram_gb": 3.3, "vision": True, "control": False,
@@ -43,6 +47,8 @@ LOCAL_MODELS = [                          # de mayor a menor
     {"id": "gemma3:1b-it-qat", "name": "Gemma 3 1B", "size_gb": 1.0, "vram_gb": 1.4, "vision": False, "actions": False,
      "note": "El más pequeño: funciona incluso sin tarjeta gráfica. Respuestas sencillas. No ve imágenes."},
 ]
+
+TOP_RECOMMENDED = next(m["id"] for m in LOCAL_MODELS if m.get("recommend", True))   # el mayor que se llega a recomendar
 
 # Memoria de vídeo (GB) de lo que convive con el modelo local, medida en esta PC (RTX 5070 Ti, nov 2026).
 VOICE_ENGINES = {
@@ -83,7 +89,8 @@ def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bo
 
     def best(key: str) -> str:
         # con 0,3 GB de holgura: un modelo que cabe justo se desborda en cuanto se abre otra cosa
-        return next((m["id"] for m in LOCAL_MODELS if m["vram_gb"] + 0.3 <= room[key]), LOCAL_MODELS[-1]["id"])
+        return next((m["id"] for m in LOCAL_MODELS if m.get("recommend", True) and m["vram_gb"] + 0.3 <= room[key]),
+                    LOCAL_MODELS[-1]["id"])
     # Pareja recomendada si el cerebro es local: la voz completa solo si a su lado cabe un modelo que vea
     # imágenes; si no, mejor la ligera con un modelo más capaz.
     sees = {m["id"]: m["vision"] for m in LOCAL_MODELS}
@@ -167,8 +174,9 @@ def apply():
     if s.get("local_model"):
         ids = [m["id"] for m in LOCAL_MODELS]
         settings.ollama_model = s["local_model"]
-        # respaldo si va lento: los del catálogo más pequeños que el elegido (uno propio: todos los del catálogo)
-        settings.ollama_fallback = ids[ids.index(s["local_model"]) + 1:] if s["local_model"] in ids else ids
+        # respaldo si va lento: los del catálogo más pequeños que el elegido (uno propio: los que piden menos vídeo)
+        settings.ollama_fallback = (ids[ids.index(s["local_model"]) + 1:] if s["local_model"] in ids else
+                                    [m["id"] for m in LOCAL_MODELS if m["vram_gb"] < model_vram(s["local_model"])])
     settings.voice_engine = voice_engine()
     v = voice()
     settings.tts_voice = v["tts_voice"] if v else _ENV_VOICE

@@ -1,4 +1,4 @@
-# Descarga Electron (el entorno de la app de escritorio: ventana propia y avatar flotante) desde su
+﻿# Descarga Electron (el entorno de la app de escritorio: ventana propia y avatar flotante) desde su
 # publicación oficial en GitHub y comprueba la suma SHA-256 antes de descomprimirlo.
 #   powershell -ExecutionPolicy Bypass -File scripts\instalar_escritorio.ps1
 param([string]$Version = "45.3.0")

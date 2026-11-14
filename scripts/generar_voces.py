@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 S = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("piper")      # carpeta con piper-voices/*.onnx (de huggingface.co/rhasspy/piper-voices)
-OUT = Path(__file__).resolve().parent.parent / "voices"            # después hay que copiar *.wav y *.json a pc-gpu/voices del nodo de voz
+OUT = Path(__file__).resolve().parent.parent / "voices"            # voz/servidor.py las lee de aquí directamente
 OUT.mkdir(exist_ok=True)
 TEXT = ("Hola, ¿cómo estás? Hoy quiero contarte algo curioso. Ayer, mientras llovía muchísimo, un pequeño zorro gris "
         "cruzó el jardín y se quedó mirando fijamente la ventana. ¡Qué sorpresa tan agradable!")

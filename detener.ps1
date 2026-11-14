@@ -1,4 +1,4 @@
-# Apaga el servidor del companion (la ventana se cierra a mano).
+﻿# Apaga el servidor del companion (la ventana se cierra a mano).
 $puerto = 8200
 if (Test-Path "$PSScriptRoot\.env") {
     $linea = Get-Content "$PSScriptRoot\.env" | Where-Object { $_ -match '^\s*PORT\s*=\s*(\d+)' } | Select-Object -First 1

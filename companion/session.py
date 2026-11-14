@@ -22,8 +22,8 @@ import numpy as np
 
 from . import actions, llm, profile, store, tts, voicecheck
 from .config import settings
-from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, OPERATOR, OPERATOR_COORDS, OPERATOR_STEP, SUMMARIZE, TIMER_DONE, adult_active,
-                     build_system_prompt, local_time, sampling_for, turn_context)
+from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
+                     local_time, sampling_for, turn_context)
 from .tags import Sentence, TagStream
 from .vad import FRAME, FRAME_MS, StreamingVAD
 
@@ -44,6 +44,7 @@ WATCH_QUIET = 5.0                         # silencio mínimo tras lo último que
 WATCH_WINDOW = 9.0                        # solo cuentan imágenes de los últimos segundos
 WATCH_MOTION = 0.018                      # cambio mínimo entre imágenes (0..1) para que valga la pena mirar
 SUMMARY_MIN, SUMMARY_QUIET = 8, 12.0      # se resume cuando hay al menos 8 mensajes viejos y 12 s de calma
+SYSTEM_SUMMARIES = 8                      # resúmenes más recientes que van siempre en el prompt de sistema
 _SILENCE_TAG =re.compile(r"\[\s*silencio", re.I)
 _SILENCE_ONLY = re.compile(r"(\[[^\]]*\]|\W)*silencio(\[[^\]]*\]|\W)*", re.I)
 FRAME_MAX_AGE = 6.0                       # una imagen más vieja que esto ya no cuenta como «lo que ve ahora»
@@ -61,6 +62,45 @@ CONFIRM_TTL = 60.0                       # un paso delicado sin confirmar en 1 m
 
 GREETING = ("(El usuario acaba de abrir la aplicación y todavía no ha dicho nada. Salúdale con naturalidad, "
             "en una sola frase corta, según la hora.)")
+_FACT = re.compile(r"^\W*dato\s*:\s*(.+)$", re.I)
+_PRIVATE = re.compile(r"\d[\d \-.]{5,}\d|contraseñ|password|clave|pin\b|tarjeta|cuenta bancaria|dni|pasaporte", re.I)
+
+
+# Temporizadores: viven en el servidor, no en la conexión. Si la ventana se recarga o se reconecta mientras
+# corren, avisan en la conexión que esté abierta cuando acaben (o en la siguiente que se abra).
+_open: list["Session"] = []
+_timers: set[asyncio.Task] = set()
+_missed: list[actions.Request] = []
+
+
+def _start_timer(req: actions.Request):
+    task = asyncio.create_task(_run_timer(req))
+    _timers.add(task)
+    task.add_done_callback(_timers.discard)
+
+
+async def _run_timer(req: actions.Request):
+    await asyncio.sleep(req.target["seconds"])
+    s = next((x for x in reversed(_open) if not x.closed), None)
+    if s is None:
+        _missed.append(req)
+    else:
+        await s._timer_done(req)
+
+
+def split_summary(text: str) -> tuple[str, list[str]]:
+    """El resumen de un tramo de conversación y los datos duraderos (líneas «DATO: …») que el modelo sacó de él.
+    Un dato que parece privado (números largos, claves, documentos) no se guarda."""
+    summary, facts = [], []
+    for line in re.sub(r"\[[^\]]*\]", "", text).splitlines():
+        m = _FACT.match(line.strip())
+        if m:
+            fact = m.group(1).strip().strip("«»\"' ")
+            if 8 <= len(fact) <= 200 and not _PRIVATE.search(fact) and len(facts) < 3:
+                facts.append(fact)
+        elif line.strip():
+            summary.append(line.strip())
+    return " ".join(summary).strip(), facts
 
 
 class Session:
@@ -490,7 +530,7 @@ class Session:
         self.outcomes.append(f"se hizo «{req.detail}»")
         await self.send_json({"type": "action_done", "id": req.id, "ok": True, "text": result})
         if req.name == "temporizador":
-            self._spawn(self._timer(req))
+            _start_timer(req)
         if actions.CATALOG[req.name]["report"]:
             self._later(ACTION_RESULT.format(user=settings.user_name, title=req.detail, result=result))
 
@@ -518,198 +558,15 @@ class Session:
         return bool(f) and time.monotonic() - f[1] < 15
 
     async def _control(self, req: actions.Request):
-        from . import control
-        win, task = req.target["window"], req.target["task"]
-        self.controlling, self.control_stop = {"title": win.title, "task": task}, False
-        await self.send_json({"type": "control_start", "title": win.title[:60], "task": task, "max": control.MAX_STEPS})
-        steps: list[str] = []
-        result, ok, bad, last_typed = "", False, 0, None
-        # ¿cambió algo? · pasos seguidos sin efecto · cuántas veces se probó cada paso (cada vez, de forma más directa)
-        last_sig, still, attempts, last_texts, written = None, 0, {}, [], set()
-        limit = time.monotonic() + control.MAX_SECONDS
-        sees = self._sharing_screen() and llm.sees_images()
-        system = OPERATOR.format(user=settings.user_name, task=task,
-                                 sees=", una imagen de la ventana" if sees else "",
-                                 coords=OPERATOR_COORDS if sees else "")
-        try:
-            # En segundo plano: la ventana NO se trae al frente. Solo un paso que necesite el teclado o el ratón de
-            # verdad lo hace, y únicamente si no estás usando la PC (control.real_input).
-            with control.EscWatch() as esc:
-                for n in range(1, control.MAX_STEPS + 1):
-                    if esc.pressed or self.control_stop or self.closed:
-                        result = f"{settings.user_name} lo paró" + (" con Esc" if esc.pressed else "")
-                        break
-                    if time.monotonic() > limit:
-                        result = "se acabó el tiempo máximo de la tarea"
-                        break
-                    if not control.user32.IsWindow(win.hwnd):
-                        result = "la ventana se cerró"
-                        break
-                    if win.hwnd in control._fronted and control.user32.GetForegroundWindow() != win.hwnd:
-                        result = f"{settings.user_name} cambió a otra ventana, así que me detuve"
-                        break
-                    items, texts = await asyncio.to_thread(control.snapshot, win.hwnd)
-                    sig = control.signature(items, texts)
-                    if last_sig is not None and sig == last_sig and steps and "no se pudo" not in steps[-1]:
-                        steps[-1] += " — no cambió nada en la ventana"
-                        still += 1
-                        if still >= 4:
-                            result = "varios pasos seguidos sin cambiar nada en la ventana"
-                            break
-                    elif last_sig is not None:
-                        still = 0
-                        # qué apareció de nuevo: así el modelo nota «sonando…» o «guardado» y sabe que ya está
-                        new = [t for t in texts if t not in last_texts][:3]
-                        if new and steps and "no se pudo" not in steps[-1]:
-                            steps[-1] += " — ahora se ve: " + " | ".join(f"«{t[:70]}»" for t in new)
-                    last_sig, last_texts = sig, texts
-                    shot = None
-                    if sees:
-                        try:
-                            shot = await asyncio.to_thread(control.capture, win.hwnd)
-                        except Exception as e:  # noqa: BLE001
-                            log.warning("No pude capturar la ventana: %s", e)
-                    prompt = OPERATOR_STEP.format(window=control.describe(win.title, items, texts, shot),
-                                                  steps="\n".join(steps) or "(ninguno todavía)")
-                    images = [llm.Image("window", shot.jpeg, win.title[:60])] if shot else []
-                    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
-                    reply = "".join([p async for p in llm.stream_chat(messages, {"temperature": 0.2, "top_p": 0.9, "max_tokens": 450}, images)])
-                    llm.pop_notices()
-                    step = control.parse(reply)
-                    log.info("Control %d%s: %r → %s", n, " (con imagen)" if shot else "", reply[:120], step and (step[0], [a[:60] for a in step[1]]))
-                    if esc.pressed or self.control_stop:
-                        result = f"{settings.user_name} lo paró" + (" con Esc" if esc.pressed else "")
-                        break
-                    if step is None:
-                        bad += 1
-                        if bad >= 3:
-                            result = "no supe qué paso dar"
-                            break
-                        continue
-                    verb, args = step
-                    if verb == "listo":
-                        ok, result = True, args[0] if args else "tarea hecha"
-                        break
-                    if verb == "no_puedo":
-                        result = "no se pudo: " + (args[0] if args else "sin motivo")
-                        break
+        from . import control_task                  # el bucle de pasos vive en control_task.py
+        await control_task.run(self, req)
 
-                    # ---- a qué se refiere y cómo describirlo
-                    item, xy, name, problem = None, None, "", ""
-                    coords = re.findall(r"-?\d+", args[0]) if args else []
-                    if verb in ("clic", "doble_clic") and len(coords) >= 2:
-                        if not shot:
-                            problem = "sin imagen de la ventana no hay clic por coordenadas: usa el número del control"
-                        else:
-                            xy = (int(coords[0]), int(coords[1]))
-                            name = await asyncio.to_thread(control.name_at, shot, *xy)
-                    elif verb in ("pulsar", "escribir", "doble_clic", "clic"):
-                        item = control.pick(items, args[0], "escribir" if verb == "escribir" else "pulsar") if args else None
-                        if item is None:
-                            problem = f"no hay ningún control «{args[0] if args else ''}»"
-                        elif verb == "escribir" and len(args) < 2:
-                            problem = "falta el texto: escribir N | texto"
-                        name = item.name if item else ""
-                    if not problem and verb == "escribir" and item and (item.kind, item.name) in written and len(args[1]) > 60:
-                        # un párrafo ya escrito no se repite (el modelo tendía a escribirlo otra vez)
-                        problem = f"ya escribiste ese texto en «{item.name or item.kind}»: si está bien, responde listo"
-                    elif verb == "tecla" and (not args or control._plain(args[0]) not in control.KEYS):
-                        problem = f"no conozco la tecla «{args[0] if args else ''}»"
-                    elif verb in ("atajo", "teclear", "rueda") and not args:
-                        problem = "le falta el dato"
-                    if problem:
-                        bad += 1
-                        steps.append(f"{n}. (paso no válido: {problem})")
-                        if bad >= 4:
-                            result = "se equivocó varias veces"
-                            break
-                        continue
-                    key = control._plain(args[0]) if verb == "tecla" else ""
-                    target = f"«{item.name or item.kind}»" if item else (f"({xy[0]},{xy[1]})" + (f" «{name[:40]}»" if name else "")) if xy else ""
-                    desc = {"pulsar": f"Pulsar {target}", "clic": f"Clic en {target}", "doble_clic": f"Doble clic en {target}",
-                            "escribir": f"Escribir «{args[1][:60]}» en {target}" if len(args) > 1 else "",
-                            "teclear": f"Teclear «{args[0][:60]}»", "tecla": f"Tecla {key}", "atajo": f"Atajo {args[0][:20]}",
-                            "rueda": f"Rueda {args[0][:10]}"}[verb]
-                    # el mismo paso puede repetirse dos veces (cada una de forma más directa); a la cuarta, se para
-                    if len(steps) >= 3 and all(s.split(" — ")[0].endswith(desc) for s in steps[-3:]):
-                        result = "se quedó repitiendo el mismo paso"
-                        break
-
-                    # ---- lo delicado se confirma, salvo que la orden del usuario ya lo pidiera
-                    kind = "enter" if key == "enter" or (verb == "atajo" and "enter" in control._plain(args[0])) else verb
-                    if control.needs_confirm(kind, name, last_typed, win.title) and not control.task_allows(task, name):
-                        if not await self._confirm(f"{desc} en «{win.title[:50]}»"):
-                            steps.append(f"{n}. {desc} — {settings.user_name} NO lo aprobó")
-                            result = f"{settings.user_name} no aprobó «{desc}»"
-                            actions.log_entry("controlar", f"{desc} en «{win.title}»", "negada", "")
-                            break
-                    await self.send_json({"type": "control_step", "n": n, "max": control.MAX_STEPS, "text": desc})
-
-                    # ---- hacerlo: si este mismo paso ya se probó sin efecto, se prueba de forma más directa
-                    # (accesibilidad → mensajes a la ventana → teclado y ratón de verdad, solo si no usas la PC)
-                    k = (verb, item.kind if item else "", item.name if item else "", xy, key, args[0][:40] if args else "")
-                    attempt = attempts[k] = attempts.get(k, -1) + 1
-
-                    def do():
-                        if verb == "pulsar":
-                            return control.press(item, win.hwnd, attempt)
-                        if verb == "escribir":
-                            return control.type_text(item, args[1][:3000], win.hwnd, attempt)
-                        if verb in ("clic", "doble_clic") and xy:
-                            return control.click_at(shot, *xy, win.hwnd, double=verb == "doble_clic", attempt=attempt)
-                        if verb in ("clic", "doble_clic"):
-                            return control.click_item(item, win.hwnd, double=verb == "doble_clic", attempt=attempt)
-                        if verb == "teclear":
-                            return control.type_here(args[0][:3000], win.hwnd, attempt)
-                        if verb == "tecla":
-                            return control.key(key, win.hwnd, attempt)
-                        if verb == "atajo":
-                            return control.hotkey(args[0], win.hwnd, attempt)
-                        return control.scroll(win.hwnd, "arriba" not in control._plain(args[0]), attempt)
-                    try:
-                        esc.sending = verb in ("tecla", "atajo", "teclear", "escribir")
-                        how = await asyncio.to_thread(do)
-                    except control.ControlError as e:
-                        steps.append(f"{n}. {desc} — no se pudo: {e}")
-                        actions.log_entry("controlar", f"{desc} en «{win.title}»", "paso", f"no se pudo: {e}")
-                        if "Cambiaste a otra ventana" in str(e):          # tomaste el control: se detiene
-                            result = str(e)
-                            break
-                        bad += 1
-                        if bad >= 4:
-                            result = str(e)
-                            break
-                        continue
-                    finally:
-                        esc.sending = False
-                    if verb == "escribir":
-                        last_typed = item
-                        if len(args[1]) > 60:
-                            written.add((item.kind, item.name))
-                    # Un texto ya escrito no se repite: sin esto, el modelo volvía a teclear el mismo párrafo.
-                    done_note = " — HECHO: ese texto ya está escrito ahí; no lo vuelvas a escribir" if verb in ("escribir", "teclear") else ""
-                    steps.append(f"{n}. {desc}{done_note}")
-                    actions.log_entry("controlar", f"{desc} en «{win.title}»", "paso", how)
-                    await asyncio.sleep(0.9)                 # que la ventana se actualice antes de mirarla otra vez
-                else:
-                    result = f"llegó al límite de {control.MAX_STEPS} pasos"
-        except Exception as e:  # noqa: BLE001
-            log.exception("El control de la ventana falló")
-            result = f"falló ({type(e).__name__})"
-        finally:
-            self.controlling = None
-            await asyncio.to_thread(control.release, win.hwnd)   # si la trajo al frente, te devuelve tu ventana
-        actions.log_entry("controlar", req.detail, "terminada" if ok else "sin terminar", result)
-        await self.send_json({"type": "control_end", "ok": ok, "text": result})
-        done = "; ".join(s.split(". ", 1)[-1] for s in steps) or "ninguno"
-        summary = (f"la tarea se completó: {result}. Pasos: {done}" if ok else
-                   f"la tarea NO se completó ({result}). No digas que está hecha. Pasos que sí se dieron: {done}")
-        self._later(ACTION_RESULT.format(user=settings.user_name, title=req.detail, result=summary))
-
-    async def _timer(self, req: actions.Request):
-        await asyncio.sleep(req.target["seconds"])
+    async def _timer_done(self, req: actions.Request, late: bool = False):
+        if late:
+            await asyncio.sleep(1.5)          # que la interfaz reciba antes su saludo («hello»)
         label = req.target["label"]
-        await self.send_json({"type": "notice", "message": "Se acabó el temporizador" + (f": {label}." if label else ".")})
+        await self.send_json({"type": "notice", "message": ("Mientras la ventana estaba cerrada se acabó el temporizador" if late
+                                                            else "Se acabó el temporizador") + (f": {label}." if label else ".")})
         self._later(TIMER_DONE.format(user=settings.user_name, what=req.detail))
 
     def _spawn(self, coro):
@@ -742,7 +599,7 @@ class Session:
 
     def _system(self) -> str:
         adult = adult_active(self.persona, is_cloud=settings.is_cloud, user_adult=profile.is_adult())
-        past = [f"{time.strftime('%d/%m/%Y', time.localtime(ts))}: {text}" for text, ts in store.summaries(8)]
+        past = [f"{time.strftime('%d/%m/%Y', time.localtime(ts))}: {text}" for text, ts in store.summaries(SYSTEM_SUMMARIES)]
         return build_system_prompt(self.persona, user_name=settings.user_name, memories=store.memories(), adult=adult,
                                    about=profile.describe(settings.user_name), summaries=past, actions=self.actions_on(),
                                    control=llm.can_control())
@@ -757,9 +614,10 @@ class Session:
         self.phase, self.turn_text, self.turn_audio, self.sent_sentences = "llm", None, None, []
         name = self.persona["name"]
         dialog = "\n".join(f"{settings.user_name if role == 'user' else name}: {text}" for _, role, text, _ in rows)
+        known = "; ".join(store.memories(40)) or "nada todavía"
         try:
             text = await llm.complete([{"role": "user", "content": SUMMARIZE.format(
-                user=settings.user_name, name=name, dialog=dialog[:12000])}])
+                user=settings.user_name, name=name, dialog=dialog[:12000], known=known[:2000])}], max_tokens=320)
         except llm.LLMError as e:
             log.warning("No pude resumir la conversación: %s", e)
             self.summary_retry = time.monotonic() + 300
@@ -767,10 +625,12 @@ class Session:
         finally:
             self.phase = "idle"
             llm.pop_notices()
-        text = re.sub(r"\[[^\]]*\]", "", text).strip()
-        if len(text) > 20:
-            store.add_summary(text[:900], rows[0][0], rows[-1][0], rows[-1][3])
-            log.info("Recuerdo guardado (%d mensajes): %r", len(rows), text[:120])
+        summary, facts = split_summary(text)
+        for fact in facts:
+            store.add_memory(fact)
+        if len(summary) > 20:
+            store.add_summary(summary[:900], rows[0][0], rows[-1][0], rows[-1][3])
+            log.info("Recuerdo guardado (%d mensajes, %d datos nuevos): %r", len(rows), len(facts), summary[:120])
 
     def _messages(self, instruction: str | None = None, hint: tuple[str, list[str]] | None = None,
                   refuse: str = "") -> list[dict]:
@@ -790,6 +650,14 @@ class Session:
         last = next((m for m in reversed(messages) if m["role"] == "user"), None)
         if last is not None:
             done = ""
+            if not instruction:
+                # Conversaciones antiguas (las 8 últimas ya van en el prompt de sistema) que tratan de lo mismo que lo
+                # que acaba de decir. Van aquí, no en el sistema, para que el modelo local reutilice su caché.
+                old = store.relevant_summaries(last["content"], skip_recent=SYSTEM_SUMMARIES,
+                                               ignore=f"{settings.user_name} {self.persona['name']}")
+                if old:
+                    done += "".join(f"\n(Recuerdas de una conversación del {time.strftime('%d/%m/%Y', time.localtime(ts))}: {t})"
+                                    for t, ts in old)
             if self.outcomes and not instruction:          # cómo acabaron sus acciones, una sola vez
                 done = f"\n(Tus acciones anteriores: {'; '.join(self.outcomes[-4:])}.)"
                 self.outcomes = []
@@ -949,20 +817,25 @@ class Session:
                 except tts.TTSError as e:
                     tts_ok = False
                     log.warning("Sin voz: %s", e)
-                    await self.send_json({"type": "error", "message": "La voz no está disponible (nodo GPU apagado). "
-                                                                      "Sigo respondiendo en texto."})
+                    await self.send_json({"type": "error", "message": "La voz no está disponible ahora (mira data\\voz.log, "
+                                                                      "o pasa a la voz ligera en Ajustes). Sigo en texto."})
             self.sent_sentences.append(sentence.text)
             await self.send_json({"type": "sentence_end", "id": idx})
 
     def start(self):
         self.watcher = asyncio.create_task(self._watch_loop())
+        _open.append(self)
+        while _missed:                        # temporizadores que acabaron sin ninguna ventana abierta
+            self._spawn(self._timer_done(_missed.pop(0), late=True))
 
     async def close(self):
         self.closed = True
+        if self in _open:
+            _open.remove(self)
         self.control_stop = True              # una tarea con ratón y teclado se para al cerrar la ventana
         if self.watcher:
             self.watcher.cancel()
-        for task in list(self.side):          # los temporizadores viven mientras la ventana está abierta
+        for task in list(self.side):          # respuestas pendientes de esta conexión (los temporizadores siguen)
             task.cancel()
         for req in self.pending.values():
             actions.record(req, "sin respuesta (se cerró la ventana)", "")

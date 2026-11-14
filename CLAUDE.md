@@ -11,7 +11,14 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   En esta PC `.venv` sigue hecho con el Python de ComfyUI: `instalar.ps1` sin `-NoRehacer` lo rehace con el
   propio, pero para eso detiene el companion (hazlo solo si el usuario lo pide).
 - Servidor: `.venv\Scripts\python.exe -m companion` (puerto 8200). `iniciar.ps1 -SinVentana` lo arranca sin abrir la ventana.
+- Pruebas rápidas (segundos, sin GPU ni servidores, datos en una carpeta temporal): `.venv\Scripts\python.exe -m
+  unittest discover -s tests -t .`. Córrelas tras cada cambio; cubren los frenos de acciones y control.
 - Pruebas sin micrófono: `scripts\prueba_componentes.py` y `scripts\prueba_ws.py` (ver README).
+- Los `.ps1` llevan BOM UTF-8: Windows PowerShell 5.1 lee sin ella los acentos como ANSI. Mantenla al crearlos.
+- Versiones fijas: el instalador usa `requirements.lock` y `voz\requirements.lock` (uv 0.13.8 con su SHA-256).
+  Tras cambiar dependencias y probar, rehazlos con `scripts\fijar_versiones.ps1`.
+- Registros: `iniciar.ps1` guarda las tres sesiones anteriores (`data\companion.1.log`…) y `voz_proc` la anterior
+  de la voz (`voz.1.log`). Llevan lo que transcribe del usuario: no los muestres ni los subas.
 - El panel de navegador de Claude bloquea el micrófono: ahí la interfaz se prueba escribiendo; el avatar,
   con `scripts\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
   Para el micrófono de verdad, `scripts\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).
@@ -29,8 +36,14 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   Nunca llames a `DELETE /api/memory` contra él: borra su conversación y sus recuerdos. Las pruebas van
   contra el servidor aislado de `scripts\_prueba.py` (puerto 8201, `data\prueba`); con `--local` usan Ollama.
 - Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,1 GB + escritorio ~2,5 GB. El modelo local tiene que
-  caber en lo que queda: `gemma4:e4b-it-qat` (4,8 GB) con respaldo `gemma4:e2b-it-qat`; `gemma4:12b` no cabe y se
-  desborda a la RAM (lento, se cae). `llm.py` mide la velocidad de cada turno y cambia de modelo si va lento.
+  caber en lo que queda: `gemma4:e4b-it-qat` (4,8 GB, el recomendado) con respaldo `gemma4:e2b-it-qat`.
+  `gemma4:12b` (10,6 GB) cabe desde que la voz es la propia (58–93 tokens/s, 13 nov 2026) y está en el catálogo
+  con `recommend: False` (con un juego abierto no cabe); el usuario lo tiene elegido. `llm.py` mide la velocidad
+  de cada turno y baja de modelo si va lento (12B → E4B → E2B, `llm.local_models`).
+- Estado del servidor de voz: `tts.stream_speech` espera a que cargue (503) y `voz_proc.recover` lo relanza si
+  se cayó. Los temporizadores viven en el servidor (`session._start_timer`), no en la conexión.
+- El servidor rechaza peticiones cuyo Host no sea `127.0.0.1`/`localhost` (`TrustedHostMiddleware`, contra DNS
+  rebinding). Un cliente de pruebas tiene que usar uno de esos nombres.
 - Compartir pantalla: `desktop\main.js` abre `picker.html` (pantallas y ventanas). En las pruebas se comparte
   la ventana `desktop\tarjeta-prueba.html`, nunca una ventana real.
 - App de escritorio: `desktop\` (Electron descargado por `scripts\instalar_escritorio.ps1`). `scripts\prueba_escritorio.py`
@@ -38,7 +51,11 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   No envíes a ningún LLM una captura real de la pantalla del usuario en una prueba.
 - Cuota: la capa gratuita de Gemini da 20 peticiones al día por modelo en `gemini-3.6-flash`; cada prueba de
   conversación gasta varias. `llm.py` hace el relevo de modelos (`GEMINI_FALLBACK`: Flash-Lite y luego
-  `gemma-4-26b-a4b-it`, con la misma clave) y, al final, a Ollama.
+  `gemma-4-26b-a4b-it`, con la misma clave) y, al final, a Ollama. El trabajo de fondo (resúmenes y pasos del
+  control) va con `background=True`: primero `BACKGROUND_MODEL` (`gemma-4-26b-a4b-it`), luego el relevo.
+- Memoria: los 8 resúmenes más recientes van en el prompt de sistema; los antiguos que comparten dos palabras con
+  el mensaje van en el último mensaje (`store.relevant_summaries`). El resumen también saca líneas «DATO:»
+  (`session.split_summary`, que descarta lo que parece privado).
 
 ## Dependencias externas
 - Voz completa: servidor propio `voz\servidor.py` (F5-TTS, puerto 8210, sin token, solo 127.0.0.1), con su
@@ -56,8 +73,8 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   la interfaz (decisión del usuario, 12 nov 2026); `speaks` en `voices.json` solo decide cómo habla de sí.
   Nunca llames a `POST /api/setup/reset` contra el servidor real: con `data` borra todo lo del usuario.
 - Recursos: `profile.resources` reparte la memoria de vídeo (escritorio 2 GB + oído 1,1 GB + voz) y recomienda
-  voz y modelo local; `profile.LOCAL_MODELS` es el catálogo (E4B, E2B, Qwen 3 1.7B, Gemma 3 1B; los dos últimos
-  no ven imágenes). El modelo local que elige el usuario es el que se carga (`llm.choose_local`): no lo cambies
+  voz y modelo local; `profile.LOCAL_MODELS` es el catálogo (12B, E4B, E2B, Qwen 3 1.7B, Gemma 3 1B; los dos
+  últimos no ven imágenes; `TOP_RECOMMENDED` es el mayor que se llega a recomendar). El modelo local que elige el usuario es el que se carga (`llm.choose_local`): no lo cambies
   por otro «que quepa» sin avisar; solo `_too_slow` baja de modelo, y lo dice. Prueba: `scripts\prueba_recursos.py`.
 - Dos motores de voz (`settings.voice_engine`): `completa` = `voz\servidor.py` · `ligera` = Piper en el procesador
   (`companion/tts_light.py`, modelos en `models\piper`, sin memoria de vídeo). Una voz nueva en `voices.json`
@@ -71,7 +88,8 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Autorización (decisión del usuario, 13 nov 2026): su orden basta, sin tarjeta (`actions.config()["ask"]`
   apagado por defecto). Se mantienen: confirmar pasos delicados que la orden no pedía (`control.task_allows`) y
   tarjeta si la acción la eligió el modelo con pantalla o cámara compartidas. No quites esos dos frenos.
-- Usar ventanas (`companion/control.py`, acción `controlar`): EN SEGUNDO PLANO (decisión del usuario, 13 nov:
+- Usar ventanas (`companion/control.py` las piezas, `companion/control_task.py` el bucle de pasos; acción
+  `controlar`): EN SEGUNDO PLANO (decisión del usuario, 13 nov:
   puede estar jugando). Cada paso escala por `attempt`: accesibilidad → mensajes a la ventana (PostMessage) →
   teclado y ratón reales solo si el usuario no los usa (`real_input`: 4 s sin tocar nada, nada a pantalla
   completa). Nunca traigas la ventana al frente al empezar. La captura es PrintWindow (la propia ventana, nunca

@@ -94,8 +94,10 @@ enseña esa cuenta y marca cada modelo: «cabe junto a la voz completa», «solo
 | 8 GB | ligera (completa si el cerebro es la nube) | Gemma 4 E2B (3,3 GB) |
 | 12 GB o más | completa | Gemma 4 E4B (4,8 GB) |
 
-El modelo que eliges es el que se carga, aunque no quepa (se avisa); si después responde lento, el companion
-pasa al siguiente más pequeño que tengas descargado y lo dice. Los modelos de solo texto no pueden mirar la
+Con 16 GB también se ofrece **Gemma 4 12B** (10,6 GB, el más listo), pero no se recomienda solo: con un juego
+abierto ya no cabe. El modelo que eliges es el que se carga, aunque no quepa (se avisa); si después responde
+lento, el companion pasa al siguiente más pequeño que tengas descargado y que vea imágenes (12B → E4B → E2B) y
+lo dice. Los modelos de solo texto no pueden mirar la
 cámara ni la pantalla. Todo se cambia en Ajustes › Cerebro › «Modelo local» y Ajustes › Voz.
 
 **Que diga todo el subtítulo** (`companion/voicecheck.py`, 13 nov 2026): el modelo de voz es aleatorio y a veces se
@@ -123,7 +125,16 @@ recuerdos (`POST /api/setup/reset`), y deja el companion como recién instalado.
   borrar uno a uno.
 - **Largo plazo, conversaciones**: cuando un tramo sale de la ventana de corto plazo (o al volver otro día), en
   un rato de calma se resume en 2–4 frases con su fecha. Los ocho resúmenes más recientes acompañan cada
-  conversación, así recuerda de qué hablaron la semana pasada. Cada resumen es una petición más al cerebro.
+  conversación, así recuerda de qué hablaron la semana pasada. Los más antiguos no se pierden: si lo que dices
+  comparte al menos dos palabras poco comunes con alguno («¿te acuerdas de mi viaje a Cusco?»; no cuentan los
+  nombres ni las palabras que salen en muchos resúmenes), los dos que más se parecen van con tu mensaje
+  (`store.relevant_summaries`; no en el prompt de sistema, para no romper la caché). Con la historia real eso
+  pasa en ~6 % de los mensajes.
+- **Datos sacados de los resúmenes**: el mismo resumen devuelve hasta tres datos duraderos nuevos («DATO: …»), que
+  se guardan como los de `[recordar: …]`. Los que parecen privados (números largos, claves, documentos) se
+  descartan. Antes el modelo casi nunca escribía `[recordar: …]` (9 datos en 633 mensajes).
+- Con la nube, cada resumen va primero a `BACKGROUND_MODEL` (`gemma-4-26b-a4b-it`, con mucha más cuota), para no
+  gastar las 20 peticiones diarias de la conversación.
 - «Olvidar todo» borra las tres cosas.
 
 ## Modo flotante
@@ -155,7 +166,7 @@ Aunque esté apagado, sí aparece una tarjeta en dos casos:
 | Abrir una web, o buscar en Google | «Abre youtube.com», «busca recetas de pan» |
 | Abrir una carpeta | «Abre la carpeta de descargas» |
 | Buscar archivos por nombre en tus carpetas personales (te cuenta lo que encuentra) | «Busca mi archivo de la factura de octubre» |
-| Temporizador (de 1 s a 12 h; avisa al terminar mientras la ventana esté abierta) | «Pon un temporizador de 10 minutos para la pasta» |
+| Temporizador (de 1 s a 12 h; avisa al terminar, y si la ventana se recargó entretanto, al volver a abrirse, mientras el companion siga encendido) | «Pon un temporizador de 10 minutos para la pasta» |
 | Música y vídeo: pausa, siguiente, anterior | «Pasa la canción» |
 | Volumen: subir, bajar, silenciar | «Baja el volumen» |
 
@@ -208,7 +219,11 @@ tu ratón:
 - **No maneja** consolas, Configuración, el Administrador de tareas, gestores de contraseñas, Claude ni el propio
   companion.
 - **Modelos:** necesita Gemma 4 E4B, un modelo local más grande o la nube; con E2B se atasca repitiendo pasos,
-  así que con él queda apagado.
+  así que con él queda apagado. Con la nube cada paso es una petición: van primero a `BACKGROUND_MODEL`
+  (`gemma-4-26b-a4b-it`, con mucha más cuota), porque con las 20 diarias de Flash una tarea de 10 pasos se
+  llevaba media cuota del día. Si ese modelo falla, sigue el relevo normal.
+- **Código:** el bucle de pasos está en `companion/control_task.py`; las piezas (leer la ventana, pulsar,
+  escribir, los frenos), en `companion/control.py`.
 - **Nada a pantalla completa:** no maneja una ventana a pantalla completa, ni usa el teclado o ratón de verdad
   mientras haya algo a pantalla completa delante. Así se evitan los juegos, cuyos antitrampas pueden castigar la
   entrada simulada.
@@ -265,13 +280,14 @@ F5-TTS) 1,0 GB · oído (Whisper large-v3-turbo) 1,1 GB · cerebro (`gemma4:e4b-
 navegador y la ventana 2–3 GB. Quedan unos 6 GB libres. Con el nodo de waifuv3 que se usaba antes la voz ocupaba
 de 5 a 9 GB, porque cargaba también Chatterbox.
 
-El modelo local comparte los 16 GB de la GPU con la voz de Mika (~5,2 GB) y con Whisper (~1,1 GB), además del
-escritorio y el navegador (~2,5 GB). Si no cabe, Windows lo desborda a la RAM sin avisar y responde diez veces
-más lento, o el motor de Ollama se cae: eso era lo que pasaba con `gemma4:12b`.
+Si el modelo no cabe, Windows lo desborda a la RAM sin avisar y responde diez veces más lento, o el motor de
+Ollama se cae. Eso le pasaba a `gemma4:12b` con el nodo de waifuv3; con la voz propia (~1 GB) ya cabe en 16 GB,
+siempre que no haya un juego usando la tarjeta.
 
-| Modelo (11 nov 2026) | Memoria de vídeo | Velocidad | Primera frase (con imagen) |
+| Modelo | Memoria de vídeo | Velocidad | Primera frase (con imagen) |
 | --- | --- | --- | --- |
-| `gemma4:12b` | ~10,6 GB: no cabe | 9–19 tokens/s | 3–9 s, minutos con historial; se cae |
+| `gemma4:12b` (13 nov 2026, voz propia) | ~10,6 GB | 58–93 tokens/s | 0,4–1,8 s (sin imagen) |
+| `gemma4:12b` (11 nov 2026, nodo de waifuv3) | ~10,6 GB: no cabía | 9–19 tokens/s | 3–9 s, minutos con historial; se caía |
 | `gemma4:e4b-it-qat` (por defecto) | ~4,8 GB | 110–150 tokens/s | 0,3–0,6 s |
 | `gemma4:e2b-it-qat` (respaldo) | ~3,3 GB | 170–250 tokens/s | 0,2–0,6 s |
 
@@ -281,7 +297,8 @@ más lento, o el motor de Ollama se cae: eso era lo que pasaba con `gemma4:12b`.
   cargado ese. (Tener los dos a la vez, o volver a probar el grande a mitad de la charla, provocaba pausas de
   7 a 13 s.) La elección no cambia hasta reiniciar o hasta que pulses «Local» otra vez en Ajustes.
 - Después de cada respuesta se mide la velocidad real. Si baja de 30 tokens/s dos turnos seguidos, o de 15 en
-  uno (la GPU se llenó: un juego, ComfyUI), Mika avisa y pasa al modelo de `OLLAMA_FALLBACK`.
+  uno (la GPU se llenó: un juego, ComfyUI), Mika avisa y pasa al siguiente más pequeño del catálogo que vea lo
+  mismo (con un modelo propio, a los de `OLLAMA_FALLBACK` o a los del catálogo que piden menos vídeo).
 - Ollama atiende una sola petición a la vez y no suelta una ya empezada hasta terminar de leer sus imágenes.
   Por eso la mirada en vivo usa imágenes pequeñas: si hablas justo cuando Mika está mirando, tu turno espera
   unas décimas, no varios segundos.
@@ -323,6 +340,7 @@ más lento, o el motor de Ollama se cae: eso era lo que pasaba con `gemma4:12b`.
 | `OLLAMA_FALLBACK` | Modelo local más pequeño para cuando el principal no cabe, por defecto `gemma4:e2b-it-qat` |
 | `OLLAMA_NUM_CTX`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_TIMEOUT` | Contexto (8192), tiempo que el modelo queda cargado (15m) y espera máxima sin respuesta (45 s) |
 | `WATCH_INTERVAL`, `WATCH_GAP`, `WATCH_MODEL` | Mirada en vivo: segundos entre miradas (7), mínimo entre comentarios (20) y modelo que la hace con la nube (`gemma-4-26b-a4b-it`) |
+| `BACKGROUND_MODEL` | Con la nube, modelo que hace primero el trabajo de fondo: resúmenes de la memoria y cada paso al usar una ventana (`gemma-4-26b-a4b-it`). Si falla, sigue el relevo normal |
 | `PERSONA` | Personalidad y voz (`personas/mika.json`) |
 | `END_SILENCE_MS` | Silencio que marca el fin de tu turno (más bajo = responde antes, pero corta más) |
 | `BARGE_IN` | `false` si usas altavoces y Mika se interrumpe con su propia voz |
@@ -337,9 +355,29 @@ estaba en marcha, `Companion.bat` lo reinicia solo cuando `.env` o el código so
   seguirte) siempre que el personaje lo permita en su ficha (`adult.enabled` en `personas/mika.json`).
   Con el cerebro en la nube nunca se activa (`companion/prompt.py: adult_active`).
 - Los límites duros del modo +18 de waifuv3 se mantienen tal cual.
-- El servidor solo escucha en `127.0.0.1` y rechaza peticiones de otras páginas web.
+- El servidor solo escucha en `127.0.0.1` y rechaza peticiones de otras páginas web: cambios y conversación
+  solo desde su propio origen, y cualquier petición que no llame al servidor por `127.0.0.1` o `localhost` (una
+  página con un truco de DNS, «DNS rebinding») recibe un 400, también al leer los recuerdos.
+
+## Registros
+
+- `data\companion.log`: lo que hizo el companion en esta sesión. Cada arranque guarda las tres anteriores
+  (`companion.1.log` es la última), así que si se cerró por un error, el motivo sigue ahí. Llevan lo que
+  transcribe de lo que dices: están solo en esta PC, como todo `data\`.
+- `data\voz.log` (y `voz.1.log`, la vez anterior): el servidor de la voz completa. Si se cae, el companion lo
+  vuelve a arrancar en la siguiente frase; al arrancar, la primera frase espera a que cargue (hasta un minuto)
+  en vez de quedarse sin voz.
 
 ## Pruebas
+
+**Rápidas** (44 pruebas en unos 3 s, sin GPU, micrófono, Ollama, nube ni servidores; no tocan nada tuyo):
+etiquetas, pronunciación, comprobación de la voz, acciones y los frenos del control de ventanas, recomendación
+por tarjeta, relevo de modelos, memoria, seguridad local, voz que espera al cargar, temporizadores y el bucle de
+control con piezas simuladas. Conviene correrlas después de cada cambio:
+
+```powershell
+.venv\Scripts\python.exe -m unittest discover -s tests -t .
+```
 
 Las pruebas de conversación levantan su propio servidor (puerto 8201, datos en `data\prueba`): no tocan tu
 conversación, tus recuerdos ni tus modelos, y no reinician el companion real. Gastan cuota de Gemini, salvo con
@@ -349,7 +387,7 @@ Para «compartir una ventana» la prueba abre su propia tarjeta (`desktop\tarjet
 ```powershell
 .venv\Scripts\python.exe scripts\prueba_escritorio.py       # app de escritorio: modelos, cámara, selector de pantalla o ventana y modo flotante (sin ventanas visibles)
 .venv\Scripts\python.exe scripts\prueba_escritorio.py --local   # lo mismo con el cerebro local
-.venv\Scripts\python.exe scripts\prueba_bienvenida.py       # la bienvenida completa, que se guarda, no se repite y se edita desde Ajustes (necesita GEMINI_API_KEY en .env)
+.venv\Scripts\python.exe scripts\prueba_bienvenida.py       # la bienvenida completa, que se guarda, no se repite y se edita desde Ajustes (sin GEMINI_API_KEY en .env, por el camino del modelo local)
 .venv\Scripts\python.exe scripts\prueba_acciones.py         # acciones con permiso, en modo simulado: no abre ni pulsa nada en la PC (cerebro local)
 .venv\Scripts\python.exe scripts\prueba_control.py [modelo] # usar una ventana: solo su propio reproductor falso, fuera de pantalla, sin teclado ni ratón de verdad
 .venv\Scripts\python.exe scripts\prueba_control.py --mensajes # ídem solo con mensajes a la ventana (escribir y reproducir en segundo plano)

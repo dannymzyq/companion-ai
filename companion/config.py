@@ -59,6 +59,9 @@ class Settings:
     watch_gap: float = field(default_factory=lambda: float(os.getenv("WATCH_GAP", "20")))             # s entre comentarios
     # Con el cerebro en la nube la mirada usa solo este modelo (cuota aparte de la conversación).
     watch_model: str = field(default_factory=lambda: os.getenv("WATCH_MODEL", "gemma-4-26b-a4b-it").strip())
+    # Trabajo de fondo en la nube (resúmenes de la memoria y cada paso al usar una ventana): primero con este modelo,
+    # de cuota mucho mayor, para no gastar las 20 peticiones diarias de la conversación. Si falla, sigue el relevo normal.
+    background_model: str = field(default_factory=lambda: os.getenv("BACKGROUND_MODEL", "gemma-4-26b-a4b-it").strip())
 
     persona_path: Path = field(default_factory=lambda: _path(os.getenv("PERSONA", "personas/mika.json")))
     user_name: str = field(default_factory=lambda: os.getenv("USER_NAME", "").strip() or os.getenv("USERNAME", "amigo"))

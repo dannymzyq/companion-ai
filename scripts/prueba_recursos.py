@@ -65,7 +65,7 @@ async def main():
         print(f"   {m['id']:20} {m['vram_gb']:4} GB · cabe con {[k for k, v in m['fits'].items() if v] or 'ninguna'}"
               f"{'' if m.get('installed', True) else ' · sin descargar'}")
     for gb in (0, 4, 6, 8, 12, 16, 24):     # la misma cuenta en otras tarjetas (sin tocar nada)
-        x = profile.resources({"total": gb * 1024, "used": 0} if gb else None, is_cloud=False, local_model=profile.LOCAL_MODELS[0]["id"], node_ok=True)
+        x = profile.resources({"total": gb * 1024, "used": 0} if gb else None, is_cloud=False, local_model=profile.TOP_RECOMMENDED, node_ok=True)
         y = profile.resources({"total": gb * 1024, "used": 0} if gb else None, is_cloud=True, local_model="", node_ok=True)
         print(f"   tarjeta de {gb:2} GB → local: voz {x['recommended_pair']:8} + {x['recommended_model']:18} · en la nube: voz {y['recommended_engine']}")
 

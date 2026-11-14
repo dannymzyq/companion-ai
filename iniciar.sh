@@ -22,6 +22,10 @@ if command -v ollama >/dev/null 2>&1 && ! curl -fsS http://127.0.0.1:11434/api/t
 fi
 if ! vivo; then
   mkdir -p data
+  for n in 3 2 1; do   # se guardan los registros de las tres veces anteriores (companion.1.log es la última)
+    if [ "$n" = 1 ]; then antes=data/companion.log; else antes="data/companion.$((n - 1)).log"; fi
+    [ -f "$antes" ] && mv -f "$antes" "data/companion.$n.log"
+  done
   nohup .venv/bin/python -m companion >data/companion.log 2>&1 &
   echo $! >data/companion.pid
   for _ in $(seq 1 40); do sleep 0.5; vivo && break; done
