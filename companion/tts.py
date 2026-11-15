@@ -53,6 +53,23 @@ async def stream_speech(text: str, voice: str, speed: float = 1.0, engine: str |
         return
     body = {"model": "local", "input": text[:1500], "voice": voice, "response_format": "pcm",
             "stream": True, "speed": speed}
+    sent = False
+    try:
+        async for chunk in _full_with_retry(body):
+            sent = True
+            yield chunk
+    except TTSError as e:
+        # La voz completa no pudo cargar (p. ej. PyTorch no ve la tarjeta): la frase suena con la ligera en vez de
+        # quedarse muda. Si ya sonó algo, no se mezclan las dos voces.
+        from . import tts_light
+        if sent or not tts_light.installed():
+            raise
+        log.warning("La voz completa no está disponible (%s): esta frase va con la ligera", e)
+        async for chunk in tts_light.stream_speech(text, voice, speed):
+            yield chunk
+
+
+async def _full_with_retry(body: dict) -> AsyncIterator[bytes]:
     for attempt in (1, 2):
         sent = False
         try:

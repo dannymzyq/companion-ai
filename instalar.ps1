@@ -110,7 +110,21 @@ if ($Voz -in "completa", "ambas") {
     Paso torch "Voz completa (voz\): PyTorch, varios GB"
     Entorno (Join-Path $raiz "voz\.venv")
     $pyVoz = Join-Path $raiz "voz\.venv\Scripts\python.exe"
-    & $uv pip install --python $pyVoz torch==2.12.1 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130; Comprobar "PyTorch"
+    # PyTorch para CUDA 13 (cu130) solo funciona con un driver de NVIDIA 580 o más nuevo; con uno anterior PyTorch
+    # no ve la tarjeta (cudaErrorNotSupported) y la voz completa no arranca (laptop con RTX 3050, 15 nov 2026).
+    # Ahí va el de CUDA 12.6, que vale para drivers desde la serie 525 y para las tarjetas hasta las RTX 40.
+    # La versión local (+cu130 / +cu126) hace que uv cambie la que ya hubiera instalada si no es la buena.
+    $cudaDriver = 0.0
+    $cabecera = (& nvidia-smi 2>$null | Select-Object -First 4) -join " "
+    if ($cabecera -match 'CUDA (?:UMD )?Version:\s*(\d+\.\d+)') { $cudaDriver = [double]::Parse($Matches[1], [cultureinfo]::InvariantCulture) }
+    $cu = if ($cudaDriver -ge 13.0 -or $cudaDriver -eq 0) { "cu130" } else { "cu126" }
+    if ($cu -eq "cu126") {
+        $cap = (& nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null | Select-Object -First 1)
+        Write-Host "El driver de NVIDIA admite CUDA $cudaDriver (menos de 13): PyTorch para CUDA 12.6."
+        if ("$cap" -match '^\s*1[2-9]\.') { Write-Host "Tu tarjeta (RTX 50) necesita un driver de NVIDIA 580 o más nuevo para la voz completa: actualízalo y vuelve a instalar." }
+    }
+    $torchPaquetes = "torch==2.12.1 torchaudio==2.11.0" -split ' ' | ForEach-Object { "$_+$cu" }
+    & $uv pip install --python $pyVoz @torchPaquetes --index-url "https://download.pytorch.org/whl/$cu"; Comprobar "PyTorch"
     Paso f5 "Voz completa: F5-TTS y su modelo"
     Dependencias $pyVoz "voz\requirements.lock" "voz\requirements.txt" "F5-TTS"
     & $py scripts\preparar_recursos.py --completa; Comprobar "descargar el modelo de la voz completa"

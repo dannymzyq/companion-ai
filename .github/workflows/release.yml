@@ -13,6 +13,8 @@ permissions:
 jobs:
   instalador:
     runs-on: windows-latest
+    outputs:
+      mac: ${{ steps.notas.outputs.mac }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,14 +29,20 @@ jobs:
         shell: powershell
         run: ./scripts/crear_instalador.ps1
 
+      # Una versión cuyo título en CHANGELOG.md dice «(solo Windows)» no crea la app para Mac (una corrección que
+      # solo afecta a Windows).
       - name: Notas de la versión
+        id: notas
         shell: powershell
         run: |
           $texto = Get-Content CHANGELOG.md -Raw -Encoding UTF8
-          $m = [regex]::Match($texto, "(?ms)^## $([regex]::Escape($env:VERSION))\b[^\n]*\n(.*?)(?=^## |\z)")
-          $notas = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "Versión $env:VERSION." }
+          $m = [regex]::Match($texto, "(?ms)^## $([regex]::Escape($env:VERSION))\b([^\n]*)\n(.*?)(?=^## |\z)")
+          $notas = if ($m.Success) { $m.Groups[2].Value.Trim() } else { "Versión $env:VERSION." }
+          $mac = -not ($m.Success -and $m.Groups[1].Value -match '(?i)solo Windows')
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "mac=$($mac.ToString().ToLower())" -Encoding ascii   # sin BOM
           $notas += "`n`n**Instalar o actualizar en Windows:** descarga ``Companion-Setup-$env:VERSION.exe`` y ábrelo. Si ya lo tienes instalado, encuentra la carpeta y copia solo lo que cambió (tus datos, voces y personajes se conservan)."
-          $notas += "`n`n**Mac con Apple Silicon (macOS 14 o posterior):** descarga ``Companion-$env:VERSION-mac.dmg``, arrastra Companion a Aplicaciones y ábrelo. No está firmada por un desarrollador de Apple: la primera vez ve a Ajustes del Sistema › Privacidad y seguridad › «Abrir igualmente». El .dmg llega unos minutos después del .exe, cuando termina su prueba en un Mac."
+          if ($mac) { $notas += "`n`n**Mac con Apple Silicon (macOS 14 o posterior):** descarga ``Companion-$env:VERSION-mac.dmg``, arrastra Companion a Aplicaciones y ábrelo. No está firmada por un desarrollador de Apple: la primera vez ve a Ajustes del Sistema › Privacidad y seguridad › «Abrir igualmente». El .dmg llega unos minutos después del .exe, cuando termina su prueba en un Mac." }
+          else { $notas += "`n`nEsta corrección es solo para Windows: en el Mac sigue valiendo el .dmg de la versión anterior." }
           [IO.File]::WriteAllText("notas.md", $notas, (New-Object Text.UTF8Encoding $false))
 
       - name: Publicar el Release
@@ -46,6 +54,7 @@ jobs:
   # La app para Mac se crea y se prueba en un Mac de GitHub (mac.yml) y se añade al mismo Release.
   mac:
     needs: instalador
+    if: needs.instalador.outputs.mac == 'true'
     uses: ./.github/workflows/mac.yml
     with:
       publicar: true

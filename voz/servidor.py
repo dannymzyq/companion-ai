@@ -12,6 +12,8 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import sys
 import re
 import time
 from contextlib import asynccontextmanager
@@ -149,6 +151,11 @@ def cargar():
         # VOZ_DISPOSITIVO=cpu|mps|cuda lo fija (la prueba en un Mac virtual de GitHub: su GPU se cuelga con Metal).
         dispositivo = os.getenv("VOZ_DISPOSITIVO") or (
             "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")   # mps: la GPU de un Mac
+        if dispositivo == "cpu" and not os.getenv("VOZ_DISPOSITIVO") and sys.platform != "darwin" and shutil.which("nvidia-smi"):
+            # Hay tarjeta NVIDIA pero PyTorch no la ve (casi siempre: un driver anterior al CUDA de esta versión de
+            # PyTorch). En el procesador F5 tarda decenas de segundos por frase: mejor avisar y que suene la ligera.
+            raise RuntimeError("PyTorch no puede usar la tarjeta NVIDIA (el driver es más antiguo que el CUDA de "
+                               f"PyTorch {torch.__version__}). Vuelve a ejecutar el instalador o actualiza el driver.")
         ckpt = next(MODELO.glob("model_*.safetensors"))
 
         def preparar(disp: str):

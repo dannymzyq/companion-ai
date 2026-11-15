@@ -18,7 +18,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   datos), luego `instalar_paquete.ps1` → `copiar_programa.ps1` (solo lo cambiado; borra lo que la versión anterior
   instaló y la nueva no trae; nunca toca lo que no está en un manifiesto) → `instalar.ps1` de la carpeta.
   Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`. Publicar una
-  etiqueta es publicar un Release: solo cuando el usuario lo pida.
+  etiqueta es publicar un Release: solo cuando el usuario lo pida. Si el título de la versión en `CHANGELOG.md`
+  dice «(solo Windows)», el Release no crea la app para Mac.
+- PyTorch de la voz completa (15 nov 2026): `instalar.ps1` lee en `nvidia-smi` el CUDA que admite el driver; con 13
+  o más pone `+cu130` (las RTX 50 lo necesitan), con menos `+cu126` (con cu130, un driver anterior al 580 daba
+  `cudaErrorNotSupported` en la laptop de la RTX 3050). `voz\servidor.py` no carga en el procesador si hay tarjeta
+  NVIDIA que PyTorch no ve: da error y `tts.stream_speech` dice la frase con la voz ligera.
 - App para Mac con Apple Silicon (15 nov 2026, decisión del usuario: «básico primero», sin firma de Apple):
   `scripts\crear_app_mac.sh` (solo en macOS) crea `dist\Companion-X.Y.Z-mac.dmg`: Electron darwin-arm64 con
   `desktop\` en `Resources/app` (arranca por `desktop\mac.js`) y lo de git + `manifest.json` en `Resources/programa`.

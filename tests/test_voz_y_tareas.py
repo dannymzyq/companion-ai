@@ -7,7 +7,7 @@ from unittest import mock
 
 from tests import ROOT  # noqa: F401  (fija el entorno de prueba)
 
-from companion import actions, control, control_task, llm, session, tts, voz_proc
+from companion import actions, control, control_task, llm, session, tts, tts_light, voz_proc
 from companion.config import settings
 
 
@@ -38,9 +38,22 @@ class VozCargando(unittest.IsolatedAsyncioTestCase):
             raise tts._NotReady("no hay conexión con el servidor de voz")
             yield b""                                   # noqa: unreachable (es un generador)
 
-        with mock.patch.object(tts, "_full", full), mock.patch.object(voz_proc, "recover", mock.AsyncMock(return_value=False)):
+        with mock.patch.object(tts, "_full", full), mock.patch.object(voz_proc, "recover", mock.AsyncMock(return_value=False)),                 mock.patch.object(tts_light, "installed", return_value=False):
             with self.assertRaises(tts.TTSError):
                 _ = [c async for c in tts.stream_speech("Hola.", "mika_es")]
+
+    async def test_si_no_carga_suena_la_ligera(self):
+        # PyTorch sin la tarjeta (driver antiguo): el servidor de voz da error y la frase va con Piper.
+        async def full(body):
+            raise tts._NotReady("no hay conexión con el servidor de voz")
+            yield b""                                   # noqa: unreachable (es un generador)
+
+        async def ligera(text, voice, speed=1.0):
+            yield b"\x02\x00" * 4
+
+        with mock.patch.object(tts, "_full", full), mock.patch.object(voz_proc, "recover", mock.AsyncMock(return_value=False)),                 mock.patch.object(tts_light, "installed", return_value=True), mock.patch.object(tts_light, "stream_speech", ligera):
+            pcm = b"".join([c async for c in tts.stream_speech("Hola de nuevo, Ana.", "mika_es")])
+        self.assertEqual(pcm, b"\x02\x00" * 4)
 
     async def test_relanza_si_se_cayo(self):
         muerto = types.SimpleNamespace(poll=lambda: 1, returncode=1)

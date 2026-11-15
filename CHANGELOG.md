@@ -4,6 +4,15 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.5.1 — 2026-11-15 (solo Windows)
+
+- **La voz completa arranca con drivers de NVIDIA anteriores a la serie 580** (laptop con RTX 3050). El
+  instalador ponía siempre PyTorch para CUDA 13, que esos drivers no admiten: PyTorch no veía la tarjeta
+  («cudaErrorNotSupported») y la voz intentaba cargar en el procesador sin llegar a sonar. Ahora mira qué CUDA
+  admite el driver y, si es menor que 13, instala PyTorch para CUDA 12.6. Al actualizar se cambia solo.
+- Si la voz completa no puede cargar, la frase suena con la voz ligera en vez de quedarse muda, y el registro de
+  la voz (`voz.log`) explica el motivo.
+
 ## 0.5.0 — 2026-11-15
 
 - **App para Mac con Apple Silicon** (macOS 14 o posterior): `Companion-0.5.0-mac.dmg`. Arrastra Companion a
