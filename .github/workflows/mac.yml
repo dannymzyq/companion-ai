@@ -74,7 +74,9 @@ jobs:
         working-directory: ${{ env.CASA }}
         env:
           VOICE_ENGINE: ligera
-        run: .venv/bin/python scripts/prueba_componentes.py
+        run: |
+          set -o pipefail
+          .venv/bin/python scripts/prueba_componentes.py 2>&1 | tee -a "$RUNNER_TEMP/pruebas.log"
 
       - name: Voz completa (F5-TTS con PyTorch para Mac)
         working-directory: ${{ env.CASA }}
@@ -85,13 +87,15 @@ jobs:
           bash instalar.sh --voz=completa --sin-ollama
           # En el procesador: la GPU paravirtual del Mac de GitHub se cuelga con Metal (en un Mac de verdad va en la GPU).
           VOZ_DISPOSITIVO=cpu voz/.venv/bin/python -m uvicorn servidor:app --app-dir voz --host 127.0.0.1 --port 8211 > "$RUNNER_TEMP/voz.log" 2>&1 &
-          for i in $(seq 1 180); do
+          for i in $(seq 1 600); do        # hasta 20 min: en el procesador de un Mac virtual F5 carga despacio
             if curl -fsS http://127.0.0.1:8211/health | grep -q '"tts": *"f5'; then break; fi
             if curl -fsS http://127.0.0.1:8211/health | grep -q '"error": *"[^"]'; then break; fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:8211/health; echo
-          .venv/bin/python scripts/prueba_componentes.py
+          curl -fsS http://127.0.0.1:8211/health | grep -q '"tts": *"f5' || { echo "La voz completa no cargó"; exit 1; }
+          set -o pipefail
+          .venv/bin/python scripts/prueba_componentes.py 2>&1 | tee -a "$RUNNER_TEMP/pruebas.log"
 
       - name: Cerrar
         if: always()
