@@ -128,7 +128,8 @@ def ollama(modelo: str):
 
 def recomendar():
     from companion import llm, profile
-    r = profile.resources(llm.gpu_memory(), is_cloud=False, local_model=profile.TOP_RECOMMENDED, node_ok=True)
+    r = profile.resources(llm.gpu_memory(), is_cloud=False, local_model=profile.TOP_RECOMMENDED, node_ok=True,
+                          others=profile.measured_others())
     print(r["recommended_pair"], r["recommended_model"], r["total_gb"])
 
 

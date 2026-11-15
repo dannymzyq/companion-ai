@@ -66,7 +66,9 @@ jobs:
 
       - name: Pruebas rápidas
         working-directory: ${{ env.CASA }}
-        run: .venv/bin/python -m unittest discover -s tests -t .
+        run: |
+          set -o pipefail
+          .venv/bin/python -m unittest discover -s tests -t . 2>&1 | tee "$RUNNER_TEMP/pruebas.log"
 
       - name: Voz ligera, detección de voz y oído (Whisper en el procesador)
         working-directory: ${{ env.CASA }}
@@ -101,7 +103,7 @@ jobs:
         run: |
           # También como anotaciones: se ven en el resumen de la ejecución sin iniciar sesión en GitHub.
           # (En una máquina de GitHub, sin datos de nadie: solo lo que dicen las pruebas.)
-          for f in "$RUNNER_TEMP/electron.log" "$CASA/data/instalacion.log" "$CASA/data/companion.log" "$RUNNER_TEMP/voz.log"; do
+          for f in "$RUNNER_TEMP/pruebas.log" "$RUNNER_TEMP/electron.log" "$CASA/data/instalacion.log" "$CASA/data/companion.log" "$RUNNER_TEMP/voz.log"; do
             [ -f "$f" ] || continue
             echo "==== $f"; tail -80 "$f"
             texto="$(tail -40 "$f" | cut -c1-300 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"

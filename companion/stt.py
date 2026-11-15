@@ -28,6 +28,9 @@ def _add_cuda_dlls():
             os.environ["PATH"] = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
+on_gpu = False                            # ¿el oído ya está cargado en la tarjeta? (profile.measured_others)
+
+
 class Transcriber:
     def __init__(self, model: str, device: str, compute: str, language: str, hint: str = ""):
         self.model_name, self.want_device, self.compute = model, device, compute
@@ -55,6 +58,8 @@ class Transcriber:
                 model = WhisperModel(self.model_name, device="cuda", compute_type=self.compute)
                 list(model.transcribe(silence, language=self.language, beam_size=1)[0])   # fuerza la carga de las DLL
                 self.model, self.device = model, "cuda"
+                global on_gpu
+                on_gpu = True
                 log.info("Whisper %s en GPU (%s)", self.model_name, self.compute)
                 return
             except Exception as e:  # noqa: BLE001

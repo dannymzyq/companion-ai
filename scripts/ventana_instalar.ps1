@@ -159,10 +159,10 @@ try {
         if ($l) { $p = $l -split ","; $gpu = @{ Nombre = $p[0].Trim(); GB = [math]::Round([double]$p[1] / 1024) } }
     }
 } catch { }
-$completaRecomendada = $gpu -and $gpu.GB -ge 6
+$completaRecomendada = $gpu -and $gpu.GB -ge 3.5      # una NVIDIA de 4 GB: la completa y el oído ocupan ~2,6 GB
 $script:libre = 0
 $e.VozAutoNota.Text = if ($completaRecomendada) { "En tu PC: las dos. Suena la completa y, si a la tarjeta le falta memoria (modelo local grande, un juego), pasa sola a la ligera." }
-                      else { "En tu PC: solo voz ligera (la completa necesita una NVIDIA de 6 GB o más)." }
+                      else { "En tu PC: solo voz ligera (la completa necesita una NVIDIA de 4 GB o más)." }
 if (-not $gpu) { $e.VozAmbas.IsEnabled = $false }
 
 function Version-Instalada([string]$dir) {

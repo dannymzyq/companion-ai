@@ -18,6 +18,10 @@ nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica 
   Todavía no funcionan en el Mac: usar una aplicación por ti, controlar la música ni escuchar el sonido de lo
   compartido. La app no está firmada por un desarrollador de Apple: la primera vez, Ajustes del Sistema ›
   Privacidad y seguridad › «Abrir igualmente».
+- **Voz completa en tarjetas de 4 GB**: para decidir si cabe, el companion ahora mide lo que usan los demás
+  programas en la tarjeta (antes suponía 2 GB fijos). En una laptop con una RTX 3050 de 4 GB y el cerebro en la
+  nube ya suena la completa; si un juego llena la tarjeta, pasa sola a la ligera. El instalador pone las dos
+  voces desde 4 GB.
 
 ## 0.4.0 — 2026-11-15
 

@@ -66,7 +66,7 @@ bash instalar.sh                                             # Git Bash (llama a
 | Voz completa: PyTorch + F5-TTS y su modelo (solo con tarjeta NVIDIA) | `voz\.venv`, `voz\modelos` | 4,9 GB |
 | Cerebro local: Ollama y el modelo recomendado para la tarjeta | programa del sistema (lo único fuera de la carpeta) | 1–6 GB |
 
-Opciones: `-Voz auto|completa|ligera|ambas` (auto: las dos con una NVIDIA de 6 GB o más; si no, solo la ligera), `-SinOllama` (solo cerebro en la nube),
+Opciones: `-Voz auto|completa|ligera|ambas` (auto: las dos con una NVIDIA de 4 GB o más; si no, solo la ligera), `-SinOllama` (solo cerebro en la nube),
 `-SinModeloLocal`, `-NoRehacer` (no rehace un `.venv` creado con un Python de fuera; rehacerlo detiene el
 companion). En bash: `--voz=…`, `--sin-ollama`, `--sin-modelo-local`, `--instalar-ollama`.
 Probado en Windows 11 y, en macOS, en un Mac de GitHub con Apple Silicon (`.github/workflows/mac.yml`: abre la
@@ -127,13 +127,16 @@ La primera vez se abre un asistente de cinco pasos. Cada paso se guarda al pulsa
 
 ### Qué cabe en cada PC
 
-La voz, el oído (Whisper, 1,1 GB) y el modelo local comparten la memoria de vídeo. De la tarjeta se descuentan
-unos 2 GB del escritorio, el oído y la voz elegida; lo que queda es para el modelo. El paso del modelo local
+La voz, el oído (Whisper, 1,1 GB) y el modelo local comparten la memoria de vídeo. De la tarjeta se descuenta
+lo que usan los demás programas (medido con `nvidia-smi`: en una laptop con el escritorio en la gráfica
+integrada son unos cientos de MB; si no se puede medir, 2 GB), el oído y la voz elegida; lo que queda es para el
+modelo. Por eso la voz completa funciona con la nube en una tarjeta de 4 GB. El paso del modelo local
 enseña esa cuenta y marca cada modelo: «cabe junto a la voz completa», «solo con la voz ligera» o «no cabe».
 
 | Tarjeta | Voz recomendada | Modelo local recomendado |
 | --- | --- | --- |
-| Sin NVIDIA o 4 GB | ligera | Gemma 3 1B (1,4 GB; solo texto) |
+| Sin NVIDIA | ligera | Gemma 3 1B (1,4 GB; solo texto) |
+| 4 GB | completa con la nube si los demás programas dejan sitio; si no, la ligera | Gemma 3 1B (1,4 GB; solo texto) |
 | 6 GB | completa con la nube; con el modelo local, pasa sola a la ligera | Qwen 3 1.7B (2,4 GB; solo texto) |
 | 8 GB | completa con la nube; con el modelo local, pasa sola a la ligera | Gemma 4 E2B (3,3 GB) |
 | 12 GB o más | completa | Gemma 4 E4B (4,8 GB) |

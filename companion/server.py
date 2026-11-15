@@ -211,7 +211,9 @@ async def get_setup():
     gpu = await asyncio.to_thread(llm.gpu_memory)
     installed = await llm.installed_local()
     node_ok = voz_proc.installed() or await tts.node_available()
-    res =profile.resources(gpu, is_cloud=settings.is_cloud, local_model=settings.ollama_model, node_ok=node_ok, installed=installed)
+    others = await asyncio.to_thread(profile.measured_others)
+    res = profile.resources(gpu, is_cloud=settings.is_cloud, local_model=settings.ollama_model, node_ok=node_ok,
+                            installed=installed, others=others)
 
     def fits(vram: float) -> dict:        # ¿cabe junto a cada voz? (sin tarjeta NVIDIA corre en el procesador)
         return {k: gpu is not None and vram <= room + 0.2 for k, room in res["room"].items()}

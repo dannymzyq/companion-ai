@@ -132,7 +132,10 @@ class CambioDeVoz(unittest.TestCase):
         self.antes = (settings.llm_provider, settings.ollama_model, settings.voice_engine, settings.voice_reason,
                       profile._gpu_total, profile._squeezed)
         self.parches = [mock.patch.object(tts_light, "installed", return_value=True),
-                        mock.patch.object(voz_proc, "installed", return_value=True)]
+                        mock.patch.object(voz_proc, "installed", return_value=True),
+                        # sin medir la tarjeta de verdad (la de esta PC): lo de los demás programas lo pone cada prueba
+                        mock.patch.object(profile, "measured_others", side_effect=lambda: self.otros)]
+        self.otros = None                 # None: la estimación fija (DESKTOP_GB)
         for p in self.parches:
             p.start()
         state.save(voice_engine="completa", voice_auto=None)
@@ -174,6 +177,24 @@ class CambioDeVoz(unittest.TestCase):
     def test_elegida_la_ligera_no_se_toca(self):
         state.save(voice_engine="ligera")
         self.assertEqual(self.motor(16, "gemini"), ("ligera", ""))
+
+    def test_laptop_de_4_gb_con_la_nube_usa_la_completa(self):
+        # RTX 3050 de 4 GB con el escritorio en la gráfica integrada: los demás programas ocupan poco (medido)
+        self.otros = 0.4
+        self.assertEqual(self.motor(4, "gemini"), ("completa", ""))
+
+    def test_laptop_de_4_gb_con_un_juego_pasa_a_la_ligera(self):
+        self.otros = 2.0
+        self.assertEqual(self.motor(4, "gemini")[0], "ligera")
+
+    def test_lo_nuestro_no_cuenta_como_de_otros(self):
+        from companion import stt, voz_proc
+        self.parches[-1].stop()
+        try:
+            with mock.patch.object(llm, "gpu_memory", return_value={"used": 2048, "total": 4096}),                     mock.patch.object(stt, "on_gpu", True), mock.patch.object(voz_proc, "running", return_value=False),                     mock.patch.object(profile, "_ollama_on_gpu", return_value=0.0):
+                self.assertEqual(profile.measured_others(), round(2.0 - profile.EAR_GB, 1))
+        finally:
+            self.parches[-1].start()
 
     def test_sin_memoria_pasa_a_la_ligera_y_vuelve_con_la_nube(self):
         profile._gpu_total = 16.0

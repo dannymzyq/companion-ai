@@ -95,9 +95,9 @@ $rec = (& $py scripts\preparar_recursos.py --recomendar) -split '\s+'
 $vozRec, $modeloRec, $gb = $rec[0], $rec[1], $rec[2]
 if ($gb -eq "0.0" -or $gb -eq "0") { Write-Host "Sin tarjeta NVIDIA: voz ligera y el modelo local más pequeño." }
 else { Write-Host "Tarjeta de $gb GB -> voz recomendada: $vozRec, modelo local recomendado: $modeloRec" }
-# Las dos voces desde 6 GB: la completa cabe con el cerebro en la nube, y si con el modelo local no cabe, el
-# companion pasa solo a la ligera (profile.engine_now). Con menos, solo la ligera.
-if ($Voz -eq "auto") { $Voz = if ([double]$gb -ge 5.5) { "ambas" } else { "ligera" } }
+# Las dos voces desde 4 GB: la completa y el oído ocupan unos 2,6 GB y caben con el cerebro en la nube; si no
+# caben (modelo local, un juego), el companion pasa solo a la ligera (profile.engine_now). Con menos, solo la ligera.
+if ($Voz -eq "auto") { $Voz = if ([double]$gb -ge 3.5) { "ambas" } else { "ligera" } }
 
 Paso oido "El oído (Whisper)"
 & $py scripts\preparar_recursos.py --oido; Comprobar "descargar el oído"

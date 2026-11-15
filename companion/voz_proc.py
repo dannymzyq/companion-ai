@@ -64,6 +64,11 @@ def start():
     log.info("Servidor de voz arrancado (pid %s); tarda unos segundos en cargar", _proc.pid)
 
 
+def running() -> bool:
+    """¿Está en marcha el servidor de voz que arrancamos nosotros?"""
+    return _proc is not None and _proc.poll() is None
+
+
 def stop():
     global _proc
     if _proc and _proc.poll() is None:

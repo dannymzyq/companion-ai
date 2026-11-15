@@ -60,7 +60,7 @@ VOICE_ENGINES = {
                "note": "Voces sintéticas (Piper). Corre en el procesador: no usa memoria de vídeo. Suena más artificial y no es la voz clonada."},
 }
 EAR_GB = 1.1                              # Whisper large-v3-turbo
-DESKTOP_GB = 2.0                          # Windows, el navegador y la propia ventana
+DESKTOP_GB = 2.0                          # Windows, el navegador y la propia ventana (si no se puede medir)
 
 
 def voice_engine() -> str:
@@ -92,11 +92,53 @@ def gpu_total_gb() -> float:
     return _gpu_total
 
 
-def full_voice_fits(is_cloud: bool, local_model: str, total: float | None = None) -> bool:
-    """¿Caben la voz completa, el oído, el escritorio y (si el cerebro es local) el modelo en la tarjeta?"""
-    total = gpu_total_gb() if total is None else total
+_others: float | None = None              # lo último medido de los demás programas en la tarjeta (GB)
+
+
+def _ollama_on_gpu() -> float:
+    """GB que ocupa ahora en la tarjeta el modelo local (Ollama /api/ps)."""
+    try:
+        import httpx
+        r = httpx.get(f"{settings.ollama_url}/api/ps", timeout=1.0)
+        return sum(m.get("size_vram", 0) for m in r.json().get("models", [])) / 2**30
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def measured_others() -> float | None:
+    """GB que ocupan en la tarjeta los DEMÁS programas (escritorio, navegador, un juego), medidos: lo usado
+    (nvidia-smi) menos lo nuestro (oído en la GPU y modelo local cargado). DESKTOP_GB era una estimación hecha en
+    la PC de 16 GB: en una laptop de 4 GB, con el escritorio en la gráfica integrada, son unos cientos de MB, y con
+    ella la voz completa nunca parecía caber (15 nov 2026). Con la voz completa en marcha no se mide (se queda con
+    más memoria de la que dice VOICE_ENGINES y parecería de otros): vale la última medida. None si no se puede."""
+    global _others
+    from . import llm, stt, voz_proc
+    running = voz_proc.running()
+    if running and _others is not None:
+        return _others
+    g = llm.gpu_memory()
+    if not g:
+        return None
+    ours = (EAR_GB if stt.on_gpu else 0.0) + _ollama_on_gpu() + (VOICE_ENGINES["completa"]["vram_gb"] if running else 0.0)
+    _others = round(max(0.3, g["used"] / 1024 - ours), 1)
+    return _others
+
+
+def _need_full(others: float | None, model: float) -> float:
+    """GB que hacen falta para la voz completa junto al oído, los demás programas y el modelo local. Con lo
+    medido se deja 0,2 GB de holgura; con la estimación fija se toleraba 0,3 GB de más."""
+    base = EAR_GB + VOICE_ENGINES["completa"]["vram_gb"] + model
+    return base + (DESKTOP_GB - 0.3 if others is None else others + 0.2)
+
+
+def full_voice_fits(is_cloud: bool, local_model: str, total: float | None = None, others: float | None = None) -> bool:
+    """¿Caben la voz completa, el oído, los demás programas y (si el cerebro es local) el modelo en la tarjeta?
+    Sin `total` se mira la tarjeta de verdad, con lo que los demás programas ocupan ahora."""
+    if total is None:
+        total = gpu_total_gb()
+        others = measured_others() if others is None else others
     need = 0.0 if is_cloud else model_vram(local_model)
-    return total >= EAR_GB + DESKTOP_GB + VOICE_ENGINES["completa"]["vram_gb"] + need - 0.3
+    return total >= _need_full(others, need)
 
 
 def engine_now() -> tuple[str, str]:
@@ -126,16 +168,19 @@ def model_vram(model_id: str, installed: dict | None = None) -> float:
     return known if known else round((installed or {}).get(model_id, 6.0) * 1.2 + 1.0, 1)
 
 
-def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bool, installed: dict | None = None) -> dict:
+def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bool, installed: dict | None = None,
+              others: float | None = None) -> dict:
     """Qué cabe en esta PC. La voz, el oído y el modelo local comparten la memoria de vídeo: de la tarjeta se
-    descuenta el escritorio, el oído y la voz elegida, y lo que queda es para el modelo local."""
+    descuenta lo que usan los demás programas (`others`, medido; si no, DESKTOP_GB), el oído y la voz elegida, y
+    lo que queda es para el modelo local."""
     total = round((gpu or {}).get("total", 0) / 1024, 1)
-    base = EAR_GB + DESKTOP_GB
+    desktop = DESKTOP_GB if others is None else others
+    base = EAR_GB + desktop
     room = {k: round(max(0.0, total - base - v["vram_gb"]), 1) for k, v in VOICE_ENGINES.items()}
     tier = "alto" if total >= 8 else "medio" if total >= 6 else "bajo"     # desde 8 GB cabe la voz completa con un modelo local
     # Voz recomendada: la completa solo si, además de ella, cabe el cerebro que se va a usar.
     need = 0.0 if is_cloud else model_vram(local_model, installed)
-    full_fits = total >= base + VOICE_ENGINES["completa"]["vram_gb"] + need - 0.3
+    full_fits = total >= _need_full(others, need)
     engine = "completa" if node_ok and full_fits else "ligera"
 
     def best(key: str) -> str:
@@ -146,7 +191,7 @@ def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bo
     # imágenes; si no, mejor la ligera con un modelo más capaz.
     sees = {m["id"]: m["vision"] for m in LOCAL_MODELS}
     pair = "completa" if node_ok and total and sees[best("completa")] else "ligera"
-    return {"total_gb": total, "tier": tier, "ear_gb": EAR_GB, "desktop_gb": DESKTOP_GB, "room": room,
+    return {"total_gb": total, "tier": tier, "ear_gb": EAR_GB, "desktop_gb": desktop, "room": room,
             "engines": {k: {**v, "id": k} for k, v in VOICE_ENGINES.items()},
             "recommended_engine": engine, "recommended_model": best(pair), "recommended_pair": pair,
             "best": {k: best(k) for k in VOICE_ENGINES}}

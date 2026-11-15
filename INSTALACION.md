@@ -17,8 +17,8 @@ No hace falta tener Python, Node ni nada más instalado: el instalador trae su p
 
 **Mac con Apple Silicon:** usa `Companion-X.Y.Z-mac.dmg` del Release (arrastra Companion a Aplicaciones y ábrelo;
 la primera vez, Ajustes del Sistema › Privacidad y seguridad › «Abrir igualmente», porque no está firmada por un
-desarrollador de Apple). La app instala todo en `~/Library/Application Support/Companion` con `instalar.sh`. En
-16 GB o más se instalan las dos voces; con 8 GB, solo la ligera. Usar ventanas por ti, controlar la música y
+desarrollador de Apple). La app instala todo en `~/Library/Application Support/Companion` con `instalar.sh`. Se instalan las dos voces;
+con poca memoria libre suena la ligera. Usar ventanas por ti, controlar la música y
 escuchar el sonido de lo compartido solo existen en Windows.
 
 En Linux existen `instalar.sh` e `iniciar.sh`, pero **no están probados**; allí no hay app de escritorio y el
@@ -85,7 +85,7 @@ descargar, avisa e instala las últimas compatibles con `requirements.txt`.
 | `-Voz auto` | `--voz=auto` | Por defecto: elige la voz según la tarjeta |
 | `-Voz ligera` | `--voz=ligera` | Solo la voz ligera (sin tarjeta NVIDIA o con poca memoria) |
 | `-Voz completa` | `--voz=completa` | Solo la voz completa |
-| `-Voz ambas` | `--voz=ambas` | Las dos: suena la completa y, si a la tarjeta le falta memoria, pasa sola a la ligera (lo normal con una NVIDIA de 6 GB o más) |
+| `-Voz ambas` | `--voz=ambas` | Las dos: suena la completa y, si a la tarjeta le falta memoria, pasa sola a la ligera (lo normal con una NVIDIA de 4 GB o más) |
 | `-SinOllama` | `--sin-ollama` | No instala Ollama ni descarga un modelo: solo cerebro en la nube |
 | `-SinModeloLocal` | `--sin-modelo-local` | Instala Ollama pero no descarga ningún modelo |
 | `-AccesosDirectos` | | Accesos en el escritorio y el menú Inicio, y la entrada en Aplicaciones instaladas |
@@ -105,7 +105,8 @@ cuenta con la tarjeta de la PC:
 
 | Tarjeta NVIDIA | Voz | Modelo local |
 | --- | --- | --- |
-| Ninguna o 4 GB | ligera | Gemma 3 1B (solo texto) |
+| Ninguna | ligera | Gemma 3 1B (solo texto) |
+| 4 GB | completa con la nube si los demás programas dejan sitio; si no, ligera | Gemma 3 1B (solo texto) |
 | 6 GB | ligera (completa si el cerebro es la nube) | Qwen 3 1.7B (solo texto) |
 | 8 GB | ligera (completa si el cerebro es la nube) | Gemma 4 E2B |
 | 12 GB o más | completa | Gemma 4 E4B |

@@ -41,11 +41,14 @@ MAX_STEPS, MAX_SECONDS = 25, 300
 MAX_CONTROLS, MAX_INPUTS, MAX_TEXTS, WALK_BUDGET_S = 160, 30, 40, 5.0
 SHOT_WIDTH = 1280                          # la captura se reduce a este ancho como mucho
 
-user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
-try:                                       # coordenadas en píxeles reales también con el escalado de Windows
-    user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
-except Exception:  # noqa: BLE001
-    pass
+if os.name == "nt":
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    try:                                   # coordenadas en píxeles reales también con el escalado de Windows
+        user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:  # noqa: BLE001
+        pass
+else:                                      # en el Mac no se maneja ninguna ventana, pero los frenos se prueban igual
+    user32 = kernel32 = None
 
 _com = []
 
