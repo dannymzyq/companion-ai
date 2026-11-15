@@ -149,8 +149,95 @@ def desinstalar(base: Path):
     comprobar("borra datos y carpeta", r.get("estado") == "listo" and not raiz.exists(), r)
 
 
+def incremental(base: Path):
+    """copiar_programa.ps1 entre dos versiones sintéticas: copia lo cambiado y lo nuevo, borra lo que la nueva ya no
+    trae y no toca lo que no es del paquete (datos del usuario)."""
+    import hashlib
+
+    def paquete(carpeta: Path, version: str, archivos: dict):
+        (carpeta / "scripts").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "scripts" / "comun_instalacion.ps1", carpeta / "scripts" / "comun_instalacion.ps1")
+        lista = []
+        for rel, texto in archivos.items():
+            f = carpeta / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(texto, encoding="utf-8")
+            lista.append({"p": rel, "h": hashlib.sha256(f.read_bytes()).hexdigest().upper(), "s": f.stat().st_size})
+        (carpeta / "manifest.json").write_text(json.dumps({"version": version, "files": lista}), encoding="utf-8")
+
+    destino = base / "Program Files" / "Companion"
+    v1, v2 = base / "v1", base / "v2"
+    paquete(v1, "1.0.0", {"a.txt": "igual", "b.txt": "versión 1", "viejo.txt": "se quita en la 2", "sub/c.txt": "c"})
+    paquete(v2, "1.1.0", {"a.txt": "igual", "b.txt": "versión 2", "sub/c.txt": "c", "sub/nuevo.txt": "nuevo"})
+
+    def copiar(origen):
+        r = subprocess.run([*PS, str(ROOT / "scripts" / "copiar_programa.ps1"), "-Origen", str(origen), "-Destino", str(destino)],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        return r.returncode, (r.stdout + r.stderr).strip().splitlines()[-1:] or [""]
+    codigo, salida = copiar(v1)
+    comprobar("primera copia", codigo == 0 and (destino / "viejo.txt").is_file(), salida)
+    (destino / "data").mkdir(exist_ok=True)
+    (destino / "data" / "mio.txt").write_text("datos del usuario", encoding="utf-8")
+    a_antes = (destino / "a.txt").stat().st_mtime_ns
+    time.sleep(0.05)
+    codigo, salida = copiar(v2)
+    ok = (codigo == 0 and (destino / "b.txt").read_text(encoding="utf-8") == "versión 2" and not (destino / "viejo.txt").exists()
+          and (destino / "sub" / "nuevo.txt").is_file() and (destino / "data" / "mio.txt").is_file()
+          and (destino / "a.txt").stat().st_mtime_ns == a_antes
+          and json.loads((destino / "manifest.json").read_text(encoding="utf-8"))["version"] == "1.1.0")
+    comprobar("actualización incremental", ok and "2 archivos nuevos o cambiados, 1 quitados, 2 iguales" in salida[0], salida)
+    (destino / ".git").mkdir()
+    codigo, salida = copiar(v2)
+    comprobar("no toca una copia con git", codigo != 0, salida)
+
+
+def paquete_real(base: Path):
+    """El .exe de un Release, de verdad: instala en «Program Files/Companion» dentro de data (ruta con espacios),
+    con la voz ligera y sin Ollama; luego se abre otra vez sobre la misma carpeta, que no debe copiar ni descargar nada."""
+    r = subprocess.run([*PS, str(ROOT / "scripts" / "crear_instalador.ps1"), "-Salida", str(base / "dist")],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    exe = next((base / "dist").glob("Companion-Setup-*.exe"), None)
+    comprobar("crear el instalador", r.returncode == 0 and exe is not None, r.stdout.strip()[-200:] or r.stderr[-300:])
+    if not exe:
+        return
+    destino = base / "Program Files" / "Companion"
+    for c in ("runtime/cache", "models/whisper", "desktop/electron", "web/vendor"):     # lo grande, enlazado
+        enlazar(ROOT / c, destino / c)
+
+    def instalar(fotos: str) -> dict:
+        entorno = {**os.environ, "COMPANION_UI_PRUEBA": str(base / fotos), "COMPANION_PRUEBA": "1", "COMPANION_UI_VOZ": "ligera",
+                   "COMPANION_UI_SIN_OLLAMA": "1", "COMPANION_UI_DESTINO": str(destino), "COMPANION_PRUEBA_ACCESOS": str(base / "accesos")}
+        entorno.pop("COMPANION_UI", None)
+        t = time.monotonic()
+        subprocess.run([str(exe)], env=entorno, timeout=1800)
+        res = base / fotos / "resumen.json"
+        out = json.loads(res.read_text(encoding="utf-8-sig")) if res.is_file() else {"estado": "SIN RESUMEN"}
+        out["segundos"] = round(time.monotonic() - t, 1)
+        return out
+    r1 = instalar("paquete1")
+    comprobar("instala desde el .exe", r1.get("estado") == "listo" and r1.get("pasos", {}).get("programa") == "hecho", r1)
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    man = json.loads((destino / "manifest.json").read_text(encoding="utf-8")) if (destino / "manifest.json").is_file() else {}
+    comprobar("versión y personajes", man.get("version") == version and (destino / "models" / "avatar1.vrm").is_file()
+              and (destino / "models" / "avatar2.vrm").is_file(), {"version": man.get("version")})
+    py = destino / ".venv" / "Scripts" / "python.exe"
+    v = subprocess.run([str(py), "-c", "import fastapi, piper; print('ok')"], capture_output=True, text=True)
+    comprobar("entorno del companion", v.stdout.strip() == "ok", v.stdout.strip() or v.stderr[-300:])
+    venv_antes = (destino / ".venv" / "pyvenv.cfg").stat().st_mtime_ns
+    r2 = instalar("paquete2")
+    log = (destino / "data" / "instalacion.log").read_text(encoding="utf-8", errors="replace")
+    comprobar("abrirlo otra vez no repite nada", r2.get("estado") == "listo" and "0 archivos nuevos o cambiados" in log
+              and (destino / ".venv" / "pyvenv.cfg").stat().st_mtime_ns == venv_antes and r2["segundos"] < r1["segundos"],
+              {"primera": r1["segundos"], "segunda": r2["segundos"]})
+    for e in [e for e in destino.rglob("*") if e.is_junction() or e.is_symlink()]:
+        if os.path.realpath(e).lower().startswith(str(destino.resolve()).lower()):
+            os.rmdir(e) if e.is_junction() else e.unlink()
+    if not any(e.is_junction() or e.is_symlink() for e in destino.rglob("*")):
+        shutil.rmtree(destino, ignore_errors=True)
+
+
 if __name__ == "__main__":
-    if "--real" in sys.argv:                          # en el mismo disco que el proyecto, para los enlaces duros
+    if "--real" in sys.argv or "--paquete" in sys.argv:    # en el mismo disco que el proyecto, para los enlaces duros
         (ROOT / "data").mkdir(exist_ok=True)
         base = Path(tempfile.mkdtemp(prefix="prueba_instalador_", dir=ROOT / "data"))
     else:
@@ -158,6 +245,9 @@ if __name__ == "__main__":
     print("Capturas en", base)
     if "--real" in sys.argv:
         real(base)
+    elif "--paquete" in sys.argv:
+        incremental(base / "incremental")
+        paquete_real(base)
     elif "--desinstalar" in sys.argv:
         desinstalar(base)
     else:

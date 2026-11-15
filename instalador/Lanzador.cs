@@ -1,0 +1,60 @@
+// Instalador de Companion (el .exe de cada Release). Lleva dentro el programa en un .zip (recurso
+// «paquete.zip», con su manifest.json y VERSION), lo descomprime en una carpeta temporal y abre la ventana de
+// instalación de siempre (scripts\ventana_instalar.ps1 -Paquete), que deja elegir la carpeta, copia solo lo que
+// cambió y completa o actualiza lo demás. Al cerrarse la ventana se borra la carpeta temporal.
+//
+// Se compila con el csc.exe de .NET Framework que trae Windows (scripts\crear_instalador.ps1).
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Reflection;
+using System.Windows.Forms;
+
+[assembly: AssemblyTitle("Instalar Companion")]
+[assembly: AssemblyProduct("Companion")]
+[assembly: AssemblyDescription("Instalador de Companion")]
+
+static class Lanzador
+{
+    [STAThread]
+    static int Main()
+    {
+        string tmp = Path.Combine(Path.GetTempPath(), "CompanionSetup_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+        try
+        {
+            Directory.CreateDirectory(tmp);
+            using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("paquete.zip"))
+            {
+                if (s == null) throw new InvalidOperationException("el instalador está incompleto (falta el paquete)");
+                using (ZipArchive zip = new ZipArchive(s, ZipArchiveMode.Read))
+                {
+                    zip.ExtractToDirectory(tmp);
+                }
+            }
+            string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                                     @"WindowsPowerShell\v1.0\powershell.exe");
+            string ventana = Path.Combine(tmp, @"scripts\ventana_instalar.ps1");
+            ProcessStartInfo psi = new ProcessStartInfo(ps,
+                "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + ventana + "\" -Paquete \"" + tmp + "\"");
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.WorkingDirectory = tmp;
+            using (Process p = Process.Start(psi))
+            {
+                p.WaitForExit();
+                return p.ExitCode;
+            }
+        }
+        catch (Exception e)
+        {
+            MessageBox.Show("No pude preparar la instalación: " + e.Message, "Companion",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return 1;
+        }
+        finally
+        {
+            try { Directory.Delete(tmp, true); } catch { }
+        }
+    }
+}

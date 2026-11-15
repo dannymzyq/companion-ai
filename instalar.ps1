@@ -48,7 +48,7 @@ if (-not (Test-Path $uv)) {
     Expand-Archive -Path $zip -DestinationPath (Join-Path $raiz "runtime") -Force
     Remove-Item $zip -Force
 }
-# --no-bin y --no-registry: nada fuera de esta carpeta (sin ellos, uv deja python3.13.exe en ~\.localin y lo
+# --no-bin y --no-registry: nada fuera de esta carpeta (sin ellos, uv deja python3.13.exe en ~\.local\bin y lo
 # apunta en el registro de Windows)
 & $uv python install 3.13 --no-bin --no-registry; Comprobar "instalar Python 3.13"
 
@@ -179,7 +179,8 @@ if ($AccesosDirectos) {
     if (-not $prueba) {
         $clave = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CompanionPC"
         New-Item -Path $clave -Force | Out-Null
-        $valores = @{ DisplayName = "Companion"; Publisher = "Companion PC"; InstallLocation = $raiz
+        $version = if (Test-Path "$raiz\VERSION") { (Get-Content "$raiz\VERSION" -Raw).Trim() } else { "" }
+        $valores = @{ DisplayName = "Companion"; Publisher = "Companion PC"; InstallLocation = $raiz; DisplayVersion = $version
                       DisplayIcon = "$raiz\desktop\icono.ico"
                       UninstallString = "`"$ps`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$raiz\scripts\ventana_desinstalar.ps1`"" }
         foreach ($k in $valores.Keys) { Set-ItemProperty -Path $clave -Name $k -Value $valores[$k] }

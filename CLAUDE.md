@@ -10,6 +10,15 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   sistema no tiene ruedas de CTranslate2; no hay Node en esta PC (la interfaz es ES modules sin compilar).
   En esta PC `.venv` sigue hecho con el Python de ComfyUI: `instalar.ps1` sin `-NoRehacer` lo rehace con el
   propio, pero para eso detiene el companion (hazlo solo si el usuario lo pide).
+- Releases (15 nov 2026): `VERSION` + `CHANGELOG.md`; la etiqueta `vX.Y.Z` dispara `.github/workflows/release.yml`,
+  que crea `dist\Companion-Setup-X.Y.Z.exe` con `scripts\crear_instalador.ps1` (lanzador `instalador\Lanzador.cs`
+  compilado con el csc.exe de Windows + `paquete.zip` con `manifest.json`: huella y tamaño de cada archivo de git).
+  El .exe abre `ventana_instalar.ps1 -Paquete`: carpeta por defecto `C:\Program Files\Companion` (o la de
+  `InstallLocation` en HKCU), admin una sola vez para crearla y dar Modificar al usuario (la app escribe ahí sus
+  datos), luego `instalar_paquete.ps1` → `copiar_programa.ps1` (solo lo cambiado; borra lo que la versión anterior
+  instaló y la nueva no trae; nunca toca lo que no está en un manifiesto) → `instalar.ps1` de la carpeta.
+  Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`. Publicar una
+  etiqueta es publicar un Release: solo cuando el usuario lo pida.
 - Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\ventana_instalar.ps1` (WPF) que ejecuta
   `instalar.ps1` con `COMPANION_UI=1` y lee sus marcas (`::paso::`, `::progreso::`, `::omitido::`, `::error::`,
   `::fin::`, de `scripts\comun_instalacion.ps1` y `preparar_recursos.py`). `Desinstalar.bat` →
@@ -55,11 +64,14 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   rebinding). Un cliente de pruebas tiene que usar uno de esos nombres.
 - Compartir pantalla: `desktop\main.js` abre `picker.html` (pantallas y ventanas). En las pruebas se comparte
   la ventana `desktop\tarjeta-prueba.html`, nunca una ventana real.
-  Sonido de lo compartido (15 nov 2026): interruptor en `picker.html` → `audio: 'loopback'` (toda la PC) →
-  `audio.startScreen` (trozos de 1 s, nunca mientras suena Mika) → `screen_audio` → `companion/screen_audio.py`
-  (Whisper `transcribe_media` cada ~6 s, solo en GPU) → nota de texto ajeno en el último mensaje y freno de
-  acciones. El texto oído no va al registro. Prueba: `scripts\prueba_sonido_pantalla.py` (sin cerebro; corta el
-  sonido en 2 s, antes de transcribir: captura el audio real de la PC).
+  Sonido de lo compartido (15 nov 2026): interruptor en `picker.html`. La imagen se comparte sola y DESPUÉS
+  `vision.addDesktopSound` pide aparte `audio: 'loopback'` (toda la PC, junto a una pantalla cuya imagen se para;
+  `companion:share-audio-next` evita el selector). Si el sonido falla, la imagen sigue y se avisa con el motivo
+  (juntos, un fallo del sonido tumbaba también la imagen). → `audio.startScreen` (trozos de 1 s, nunca mientras
+  suena Mika) → `screen_audio` → `companion/screen_audio.py` (Whisper `transcribe_media` cada ~6 s, solo en GPU) →
+  nota de texto ajeno en el último mensaje y freno de acciones. El texto oído no va al registro. Prueba:
+  `scripts\prueba_sonido_pantalla.py` (sin cerebro; con dispositivos simulados, que también simulan el sonido de la
+  PC: la captura real de Windows solo se ha probado en la PC del usuario).
 - App de escritorio: `desktop\` (Electron descargado por `scripts\instalar_escritorio.ps1`). `scripts\prueba_escritorio.py`
   la prueba con `COMPANION_TEST=1`: ventanas fuera de pantalla, sin sonido, micrófono y cámara simulados.
   No envíes a ningún LLM una captura real de la pantalla del usuario en una prueba.
@@ -148,7 +160,9 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   nacimiento de la bienvenida; decisión del usuario del 11 nov 2026).
   Nunca los actives para la nube (tampoco cuando la nube cae al modelo local por cuota) ni quites los límites
   de `ADULT_HARD_LIMITS`.
-- Nunca subas ni muestres `.env`, modelos `.vrm` ni `data/`.
+- Nunca subas ni muestres `.env`, modelos `.vrm` ni `data/`. Excepción (decisión del usuario, 15 nov 2026):
+  `models/avatar1.vrm` y `avatar2.vrm` (muestras de VRoid, licencia con redistribución) sí van en git, para que
+  el instalador los traiga. `mika.vrm`, `chica.vrm`, `chico.vrm` y `mika_base.vrm` siguen fuera.
 - Las poses de `web/js/avatar.js` están en convención VRM 1.0; los VRM 0.x se corrigen invirtiendo X y Z al aplicar.
 - Etiquetas del LLM: `[emo:…]`, `[gesto:…]`, `[recordar: …]`, `[accion: …]`. Si añades una emoción o gesto, hazlo en
   `companion/prompt.py` y en `web/js/avatar.js` a la vez (y los efectos de la emoción, en `web/js/effects.js`).

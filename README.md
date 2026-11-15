@@ -16,7 +16,20 @@ el historial y los recuerdos se quedan aquí.
 
 ## Instalar
 
-**Doble clic en `Instalar.bat`**: una ventana deja elegir voz, cerebro local y accesos directos, y enseña el
+**Lo normal: el instalador de la última versión** (`Companion-Setup-X.Y.Z.exe`, en
+[Releases](https://github.com/dannymzyq/companion-ai/releases)). Instala en `C:\Program Files\Companion` (o la
+carpeta que elijas) con la ventana de siempre. Si ya está instalado, lo encuentra y **actualiza solo lo que
+cambió**: copia los archivos nuevos o distintos (cada versión trae la huella SHA-256 de cada archivo en
+`manifest.json`), borra los que la nueva ya no trae, y no repite las descargas grandes (Python, el oído, las voces,
+PyTorch) salvo que esa versión las cambie. Tus datos, voces y personajes propios no se tocan. En Program Files,
+Windows pide permiso de administrador **una sola vez**, para crear la carpeta y dejar que tu usuario la modifique;
+después, la app y las actualizaciones funcionan sin administrador. Windows SmartScreen puede avisar de que el
+instalador no está firmado: «Más información» › «Ejecutar de todas formas».
+
+Cómo se publica una versión: [CHANGELOG.md](CHANGELOG.md) (sube `VERSION`, añade su apartado y publica la
+etiqueta `vX.Y.Z`; GitHub Actions crea el instalador con `scripts\crear_instalador.ps1` y el Release).
+
+**Desde una copia del código** (git o un .zip), **doble clic en `Instalar.bat`**: una ventana deja elegir voz, cerebro local y accesos directos, y enseña el
 progreso en vivo (cada paso, el porcentaje de cada descarga, la velocidad y el tiempo; si algo falla, por qué, y
 «Reintentar» sigue donde se quedó). Para quitarlo, **`Desinstalar.bat`** (o Configuración › Aplicaciones): elige
 qué borrar, con tus datos sin marcar (van a la Papelera). Detalle en [INSTALACION.md](INSTALACION.md).

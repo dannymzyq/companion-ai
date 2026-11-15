@@ -3,6 +3,9 @@
 __pycache__/
 data/
 models/**/*.vrm
+# los dos personajes incluidos (muestras de VRoid, su licencia permite redistribuirlas): sí van en git
+!models/avatar1.vrm
+!models/avatar2.vrm
 desktop/electron/
 web/vendor/
 *.log
@@ -12,3 +15,5 @@ voz/.venv/
 voz/modelos/
 models/whisper/
 models/piper/
+# instaladores creados con scripts\crear_instalador.ps1
+dist/

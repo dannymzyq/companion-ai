@@ -38,13 +38,18 @@ $archivos = @(
     @{ url = "$cdn/three@$three/examples/jsm/controls/OrbitControls.js";      dst = "web\vendor\three\examples\jsm\controls\OrbitControls.js" },
     @{ url = "$cdn/@pixiv/three-vrm@$vrm/lib/three-vrm.module.min.js";        dst = "web\vendor\three-vrm\three-vrm.module.min.js" }
 )
+# Si una versión nueva cambia las librerías, se vuelven a bajar (web\vendor\version guarda cuáles hay).
+$marcaVendor = Join-Path $raiz "web\vendor\version"
+$versionesVendor = "three $three · three-vrm $vrm"
+$cambio = -not (Test-Path $marcaVendor) -or ((Get-Content $marcaVendor -Raw).Trim() -ne $versionesVendor)
 foreach ($a in $archivos) {
     $dst = Join-Path $raiz $a.dst
-    if (Test-Path $dst) { continue }
+    if ((Test-Path $dst) -and -not ($cambio -and (Test-Path $marcaVendor))) { continue }
     New-Item -ItemType Directory -Force (Split-Path -Parent $dst) | Out-Null
     Write-Host "Descargando $($a.url)"
     Descargar $a.url $dst "Librerías 3D: $(Split-Path -Leaf $a.dst)"
 }
+Set-Content -LiteralPath $marcaVendor -Value $versionesVendor -Encoding UTF8
 
 # App de escritorio (ventana propia y avatar flotante)
 & "$PSScriptRoot\instalar_escritorio.ps1"

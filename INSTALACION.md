@@ -20,7 +20,12 @@ escritorio y el companion se abre en el navegador.
 
 ## 2. Instalar
 
-Haz **doble clic en `Instalar.bat`**. Se abre una ventana:
+Descarga el instalador de la última versión, **`Companion-Setup-X.Y.Z.exe`**, de
+[Releases](https://github.com/dannymzyq/companion-ai/releases) y ábrelo (si Windows SmartScreen avisa de que no
+está firmado: «Más información» › «Ejecutar de todas formas»). Es la misma ventana de abajo, con una tarjeta más
+arriba: **la carpeta**. Por defecto `C:\Program Files\Companion`, o donde ya esté instalado; «Cambiar…» deja
+elegir otra. En Program Files, Windows pide permiso de administrador una sola vez (para crear la carpeta y darle
+permiso de escritura a tu usuario). Desde una copia del código (git o .zip), haz **doble clic en `Instalar.bat`**.
 
 1. **Elige** la voz (automática, completa y ligera, o solo ligera), si quieres el cerebro local (Ollama) y si
    quieres accesos directos. Arriba ves tu tarjeta gráfica y abajo cuánto va a ocupar y cuánto espacio libre hay.
@@ -189,8 +194,12 @@ archivo, así que normalmente no hace falta tocarlo. Lo más útil:
 
 ## 6. Actualizar y desinstalar
 
-- **Actualizar**: reemplaza los archivos del proyecto y vuelve a ejecutar el instalador. `Companion.bat`
-  reinicia solo el servidor si el código es más nuevo.
+- **Actualizar**: abre el instalador de la versión nueva. Encuentra la carpeta donde está instalado (o la que
+  elijas) y dice de qué versión a cuál actualiza; copia solo los archivos que cambiaron, borra los que la nueva
+  versión ya no trae y completa lo demás saltando lo que ya está (Python, el oído, las voces, PyTorch y el
+  modelo local no se vuelven a descargar salvo que la versión los cambie). Tus datos, `.env`, voces y personajes
+  propios no se tocan. Si el companion está abierto, pide cerrarlo un momento. Una copia con git se actualiza con
+  `git pull` (el instalador no la toca). `Companion.bat` reinicia solo el servidor si el código es más nuevo.
 - **Actualizar las librerías** (para quien desarrolla): instálalas en `.venv` o `voz\.venv`, prueba que todo va
   bien y fija las versiones nuevas con `powershell -ExecutionPolicy Bypass -File scripts\fijar_versiones.ps1`.
 - **Liberar espacio**: `runtime\cache` se puede borrar sin problema.

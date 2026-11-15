@@ -1,7 +1,15 @@
 ﻿# Ventana de instalación: elige qué instalar y enseña el progreso en vivo. Doble clic en Instalar.bat.
 # Por debajo ejecuta instalar.ps1 (el mismo de la terminal), que imprime marcas de progreso con COMPANION_UI=1.
+#
+# Con -Paquete (la abre el instalador .exe de un Release, desde la carpeta temporal donde se descomprime): deja
+# elegir la carpeta (por defecto C:\Program Files\Companion, o donde ya esté instalado), copia ahí el programa
+# —solo lo que cambió respecto a la versión instalada— y luego completa o actualiza lo demás.
+param([string]$Paquete = "")
 $ErrorActionPreference = "Stop"
-$raiz = Split-Path -Parent $PSScriptRoot
+$raiz = Split-Path -Parent $PSScriptRoot          # donde están estos scripts (la carpeta instalada, o el paquete)
+$paquete = [bool]$Paquete
+$destino = $raiz                                  # donde se instala
+$versionNueva = if (Test-Path "$raiz\VERSION") { (Get-Content "$raiz\VERSION" -Raw).Trim() } else { "" }
 Set-Location $raiz
 foreach ($f in @(Get-ChildItem "$raiz\*.ps1") + @(Get-ChildItem "$raiz\scripts\*.ps1")) {
     Unblock-File $f.FullName -ErrorAction SilentlyContinue          # copias bajadas de internet como .zip
@@ -30,6 +38,17 @@ $xaml = @'
       <!-- 1. opciones -->
       <ScrollViewer x:Name="PaginaOpciones" VerticalScrollBarVisibility="Auto">
         <StackPanel>
+          <Border x:Name="TarjetaCarpeta" Style="{StaticResource Tarjeta}" Visibility="Collapsed">
+            <StackPanel>
+              <TextBlock Style="{StaticResource Seccion}" Text="CARPETA DE INSTALACIÓN"/>
+              <DockPanel>
+                <Button x:Name="CambiarCarpeta" DockPanel.Dock="Right" Style="{StaticResource Boton}" Content="Cambiar…" Margin="10,0,0,0"/>
+                <TextBox x:Name="Carpeta" FontSize="13.5" Padding="8,6" VerticalContentAlignment="Center"
+                         Background="#0F0D18" Foreground="#ECEAF6" BorderBrush="#2E2A45" CaretBrush="#ECEAF6"/>
+              </DockPanel>
+              <TextBlock x:Name="VersionNota" Style="{StaticResource Nota}" Margin="0,8,0,0"/>
+            </StackPanel>
+          </Border>
           <Border Style="{StaticResource Tarjeta}">
             <StackPanel>
               <TextBlock Style="{StaticResource Seccion}" Text="TU PC"/>
@@ -141,16 +160,57 @@ try {
     }
 } catch { }
 $completaRecomendada = $gpu -and $gpu.GB -ge 8
-$disco = Get-PSDrive -Name $raiz.Substring(0, 1) -ErrorAction SilentlyContinue
-$libre = if ($disco) { $disco.Free } else { 0 }
-
-$e.InfoPC.Text = if ($gpu) { "Tarjeta gráfica: $($gpu.Nombre) ($($gpu.GB) GB).`nSe instala en: $raiz" }
-                 else { "No encontré una tarjeta NVIDIA: todo correrá en el procesador.`nSe instala en: $raiz" }
+$script:libre = 0
 $e.VozAutoNota.Text = if ($completaRecomendada) { "En tu PC: voz completa y ligera (la completa cabe en tu tarjeta)." }
                       else { "En tu PC: solo voz ligera (la completa necesita una NVIDIA de 8 GB o más)." }
 if (-not $gpu) { $e.VozAmbas.IsEnabled = $false }
-if ((Test-Path "$raiz\.venv\Scripts\python.exe") -or (Test-Path "$raiz\desktop\electron\electron.exe") -or (Test-Path "$raiz\models\whisper")) {
-    $e.YaInstalado.Visibility = "Visible"
+
+function Version-Instalada([string]$dir) {
+    # La versión que dejó el instalador en esa carpeta ("" si no hay nada instalado con él).
+    $m = Join-Path $dir "manifest.json"
+    if (-not (Test-Path $m)) { return "" }
+    try { return ([IO.File]::ReadAllText($m) | ConvertFrom-Json).version } catch { return "" }
+}
+
+function Carpeta-Por-Defecto {
+    # Donde ya esté instalado (lo apuntó el instalador en Aplicaciones instaladas); si no, C:\Program Files\Companion.
+    try {
+        $loc = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CompanionPC" -ErrorAction Stop).InstallLocation
+        if ($loc -and (Test-Path "$loc\iniciar.ps1") -and -not (Test-Path "$loc\.git")) { return $loc }
+    } catch { }
+    return Join-Path $env:ProgramFiles "Companion"
+}
+
+function Cambiar-Destino([string]$dir) {
+    # Todo lo que depende de la carpeta elegida: versión instalada, lo que ya hay, el espacio libre y el botón.
+    $script:destino = $dir.Trim().TrimEnd("\")
+    $d = $script:destino
+    $git = $d -and (Test-Path "$d\.git")
+    $hay = $d -and ((Test-Path "$d\.venv\Scripts\python.exe") -or (Test-Path "$d\desktop\electron\electron.exe") -or (Test-Path "$d\models\whisper"))
+    $e.YaInstalado.Visibility = if ($hay -and -not $git) { "Visible" } else { "Collapsed" }
+    $disco = if ($d -match '^[A-Za-z]:') { Get-PSDrive -Name $d.Substring(0, 1) -ErrorAction SilentlyContinue } else { $null }
+    $script:libre = if ($disco) { $disco.Free } else { 0 }
+    $e.InfoPC.Text = if ($gpu) { "Tarjeta gráfica: $($gpu.Nombre) ($($gpu.GB) GB)." } else { "No encontré una tarjeta NVIDIA: todo correrá en el procesador." }
+    if (-not $paquete) { $e.InfoPC.Text += "`nSe instala en: $d"; return }
+    $antes = Version-Instalada $d
+    $e.Principal.IsEnabled = -not $git -and [bool]$d
+    if ($git) {
+        $e.VersionNota.Text = "Esa carpeta es una copia de desarrollo (git): se actualiza con git pull. Elige otra."
+        $e.VersionNota.Foreground = "#F87171"
+    } elseif ($antes -and $antes -eq $versionNueva) {
+        $e.VersionNota.Text = "Ya tienes la versión $versionNueva. Se revisa que no falte nada; no se vuelve a descargar lo que ya está."
+        $e.VersionNota.Foreground = "#9B96B8"
+    } elseif ($antes) {
+        $e.VersionNota.Text = "Tienes la versión ${antes}: se actualiza a la $versionNueva copiando solo lo que cambió. Tus datos, voces y personajes se conservan."
+        $e.VersionNota.Foreground = "#9B96B8"
+    } elseif ($hay) {
+        $e.VersionNota.Text = "Ahí ya hay un companion: se pone al día con la versión $versionNueva sin tocar tus datos."
+        $e.VersionNota.Foreground = "#9B96B8"
+    } else {
+        $e.VersionNota.Text = "Se instala la versión $versionNueva."
+        $e.VersionNota.Foreground = "#9B96B8"
+    }
+    $e.Principal.Content = if ($antes -or $hay) { "Actualizar" } else { "Instalar" }
 }
 
 function Elegida {
@@ -164,16 +224,49 @@ function Calcular-Espacio {
     $gb = 3.5 + 0.4 + $(if ($completa) { 7 } else { 0 })
     $texto = "Ocupará unos {0:N0} GB en esta carpeta" -f $gb
     if ($e.ConOllama.IsChecked) { $texto += " y unos 5 GB más del modelo local (en la carpeta de Ollama)" }
-    $texto += ". Libres en $($raiz.Substring(0, 2)) {0:N0} GB. Según tu conexión, tarda de 10 a 40 minutos." -f ($libre / 1GB)
+    $unidad = if ($script:destino -match '^[A-Za-z]:') { $script:destino.Substring(0, 2) } else { "el disco" }
+    $texto += ". Libres en $unidad {0:N0} GB. Según tu conexión, tarda de 10 a 40 minutos (una actualización, mucho menos)." -f ($script:libre / 1GB)
     $e.Espacio.Text = $texto
-    $falta = $libre -gt 0 -and $libre / 1GB -lt $gb + 1
+    $falta = $script:libre -gt 0 -and $script:libre / 1GB -lt $gb + 1
     $e.Espacio.Foreground = if ($falta) { "#F87171" } else { "#9B96B8" }
 }
 foreach ($c in $e.VozAuto, $e.VozAmbas, $e.VozLigera, $e.ConOllama) { $c.Add_Click({ Calcular-Espacio }) }
+
+if ($paquete) {
+    $e.TarjetaCarpeta.Visibility = "Visible"
+    $e.Titulo.Text = "Instalar Companion $versionNueva"
+    $w.Title = "Instalar Companion $versionNueva"
+    $inicial = if ($env:COMPANION_UI_DESTINO) { $env:COMPANION_UI_DESTINO } else { Carpeta-Por-Defecto }
+    $e.Carpeta.Text = $inicial
+    Cambiar-Destino $inicial
+    # En una actualización se mantiene lo que ya había: la voz completa y el cerebro local.
+    if (Test-Path "$inicial\voz\.venv\Scripts\python.exe") { if ($gpu) { $e.VozAmbas.IsChecked = $true } }
+    elseif ((Test-Path "$inicial\models\piper") -and (Test-Path "$inicial\.venv")) { $e.VozLigera.IsChecked = $true }
+    if ((Test-Path "$inicial\.venv") -and -not (Get-Command ollama -ErrorAction SilentlyContinue) -and
+        -not (Test-Path "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe")) { $e.ConOllama.IsChecked = $false }
+    $e.Carpeta.Add_TextChanged({ Cambiar-Destino $e.Carpeta.Text; Calcular-Espacio })
+    $e.CambiarCarpeta.Add_Click({
+        Add-Type -AssemblyName System.Windows.Forms
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = "¿Dónde instalo Companion? Se crea una carpeta «Companion» dentro de la que elijas."
+        $dlg.ShowNewFolderButton = $true
+        $actual = $e.Carpeta.Text.Trim()
+        if ($actual -and (Test-Path (Split-Path -Parent $actual))) { $dlg.SelectedPath = Split-Path -Parent $actual }
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $elegida = $dlg.SelectedPath.TrimEnd("\")
+            # Si ya es una instalación (o se llama Companion), esa misma; si no, una carpeta Companion dentro.
+            if (-not (Test-Path "$elegida\iniciar.ps1") -and (Split-Path -Leaf $elegida) -ne "Companion") { $elegida = Join-Path $elegida "Companion" }
+            $e.Carpeta.Text = $elegida
+        }
+    })
+} else {
+    Cambiar-Destino $raiz
+}
 Calcular-Espacio
 
 # ---------------------------------------------------------------- pasos
 $definicion = [ordered]@{
+    programa  = @("El programa (solo lo que cambió)", 2)
     python    = @("Python propio", 3)
     companion = @("Librerías del companion", 10)
     interfaz  = @("Interfaz y app de escritorio", 6)
@@ -267,12 +360,60 @@ function Mostrar-Pagina([string]$cual) {
     $e.PaginaProgreso.Visibility = if ($cual -eq "progreso") { "Visible" } else { "Collapsed" }
 }
 
+function Puede-Escribir([string]$dir) {
+    # ¿El usuario puede crear y escribir en esa carpeta sin ser administrador?
+    try {
+        New-Item -ItemType Directory -Force $dir -ErrorAction Stop | Out-Null
+        $f = Join-Path $dir (".prueba_" + [guid]::NewGuid().ToString("N"))
+        [IO.File]::WriteAllText($f, "x")
+        Remove-Item $f -Force
+        return $true
+    } catch { return $false }
+}
+
+function Preparar-Carpeta([string]$dir) {
+    # En C:\Program Files hace falta permiso de administrador, pero solo una vez: se crea la carpeta y se le da a
+    # tu usuario permiso para modificarla. Así la app (que escribe sus datos ahí) y las actualizaciones funcionan
+    # sin administrador, y nada se ejecuta como administrador desde esa carpeta.
+    if (Puede-Escribir $dir) { return $true }
+    if (-not (Preguntar "Para instalar en`n$dir`nWindows pedirá permiso de administrador una sola vez (para crear la carpeta y dejar que tu usuario la use).`n`n¿Seguir?" "Instalar Companion")) { return $false }
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $q = $dir.Replace("'", "''")
+    $orden = "New-Item -ItemType Directory -Force -Path '$q' | Out-Null; & icacls.exe '$q' /grant '*${sid}:(OI)(CI)M' /T /C /Q | Out-Null"
+    $codificada = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($orden))
+    try {
+        Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $codificada"
+    } catch {
+        Avisar "No se dio el permiso de administrador. Elige otra carpeta (por ejemplo dentro de tu usuario) o vuelve a intentarlo." "Instalar Companion" "Warning"
+        return $false
+    }
+    if (Puede-Escribir $dir) { return $true }
+    Avisar "No pude preparar la carpeta $dir. Elige otra." "Instalar Companion" "Error"
+    return $false
+}
+
+function Puerto-De([string]$dir) {
+    $env_ = Join-Path $dir ".env"
+    if (Test-Path $env_) {
+        $l = [IO.File]::ReadAllLines($env_) | Where-Object { $_ -match '^\s*PORT\s*=\s*(\d+)' } | Select-Object -First 1
+        if ($l -and $l -match '(\d+)') { return [int]$matches[1] }
+    }
+    return 8200
+}
+
 function Empezar {
-    if (-not $script:prueba) {
-        $abierto = Get-NetTCPConnection -LocalPort 8200 -State Listen -ErrorAction SilentlyContinue
+    $d = $script:destino
+    $script:esActualizacion = $paquete -and ([bool](Version-Instalada $d) -or (Test-Path "$d\.venv\Scripts\python.exe"))
+    if ($paquete) {
+        if (-not $d) { return }
+        if (Test-Path "$d\.git") { Avisar "Esa carpeta es una copia de desarrollo (git): actualízala con git pull." "Instalar Companion" "Warning"; return }
+        if (-not (Preparar-Carpeta $d)) { return }
+    }
+    if (-not $script:prueba -and (Test-Path "$d\detener.ps1")) {
+        $abierto = Get-NetTCPConnection -LocalPort (Puerto-De $d) -State Listen -ErrorAction SilentlyContinue
         if ($abierto) {
             if (-not (Preguntar "El companion está abierto. Para instalar hay que cerrarlo un momento.`n`n¿Lo cierro ahora?" "Instalar Companion")) { return }
-            Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$raiz\detener.ps1`"" -WindowStyle Hidden -Wait
+            Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$d\detener.ps1`"" -WindowStyle Hidden -Wait
         }
     }
     $voz = Elegida
@@ -283,6 +424,7 @@ function Empezar {
     $e.ListaPasos.Children.Clear()
     $script:filas = [ordered]@{}
     foreach ($k in $definicion.Keys) { $script:filas[$k] = Fila-Paso $e.ListaPasos $definicion[$k][0] }
+    if (-not $paquete) { Estado-Paso $script:filas.programa "omitido" }
     if ($voz -eq "ligera") { Estado-Paso $script:filas.torch "omitido"; Estado-Paso $script:filas.f5 "omitido" }
     if (-not $e.ConOllama.IsChecked) { Estado-Paso $script:filas.ollama "omitido" }
     $script:activo = $null; $script:pct = 0; $script:fin = $false; $script:ultimoError = ""; $script:ultimasErr.Clear()
@@ -291,8 +433,8 @@ function Empezar {
     $e.Actual.IsIndeterminate = $true; $e.Accion.Text = "Empezando…"
     Recalcular-Total
 
-    New-Item -ItemType Directory -Force "$raiz\data" | Out-Null
-    $script:registroArchivo = New-Object IO.StreamWriter "$raiz\data\instalacion.log", $false, (New-Object Text.UTF8Encoding $false)
+    New-Item -ItemType Directory -Force "$d\data" | Out-Null
+    $script:registroArchivo = New-Object IO.StreamWriter "$d\data\instalacion.log", $false, (New-Object Text.UTF8Encoding $false)
     $script:registroArchivo.AutoFlush = $true
     $script:registroArchivo.WriteLine("Instalación $(Get-Date -Format 'yyyy-MM-dd HH:mm') · $($argumentos -join ' ')")
 
@@ -304,7 +446,10 @@ function Empezar {
     Mostrar-Pagina "progreso"
     $script:inicio = [DateTime]::UtcNow
     [void](Velocidad-Red)
-    $script:trabajo = Lanzar $instalador $argumentos
+    $e.CambiarCarpeta.IsEnabled = $false; $e.Carpeta.IsReadOnly = $true
+    $script:trabajo = if ($paquete) {
+        Lanzar "$raiz\scripts\instalar_paquete.ps1" (@("-Origen", "`"$raiz`"", "-Destino", "`"$d`"") + $argumentos) $raiz
+    } else { Lanzar $instalador $argumentos }
     $script:estado = "instalando"
     $timer.Start()
     Foto $w "empieza"
@@ -328,7 +473,8 @@ function Terminar {
         $e.Actual.Value = 100
         $e.Accion.Text = "Todo instalado."
         $e.Titulo.Text = "¡Listo!"
-        $e.Subtitulo.Text = "El companion ya está instalado. La primera vez te pedirá tus datos, el cerebro y la voz."
+        $e.Subtitulo.Text = if ($script:esActualizacion) { "Companion está al día (versión $versionNueva)." }
+                            else { "El companion ya está instalado. La primera vez te pedirá tus datos, el cerebro y la voz." }
         $e.Resultado.Background = "#173326"; $e.Resultado.Visibility = "Visible"
         $e.ResultadoTexto.Text = "Instalación completa en $(Duracion ([DateTime]::UtcNow - $script:inicio))." +
             $(if ($e.ConAccesos.IsChecked) { " Tienes un acceso directo «Companion» en el escritorio." } else { "" })
@@ -389,7 +535,7 @@ $timer.Add_Tick({
 $e.Principal.Add_Click({
     switch ($script:estado) {
         "listo" {
-            Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$raiz\iniciar.ps1`"" -WindowStyle Hidden
+            Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$script:destino\iniciar.ps1`"" -WorkingDirectory $script:destino -WindowStyle Hidden
             $w.Close()
         }
         default { Empezar }              # opciones, fallo o cancelado: se (re)empieza; lo hecho se salta

@@ -95,6 +95,9 @@ async function screenSound(stream, detail) {
   }
   $('screen-sound').hidden = !has;
   if (stream) screenCaption(detail);
+  if (stream && detail?.audioError) {
+    toast(`No pude escuchar el sonido de la PC (${detail.audioError}). ${config ? config.name : 'Mika'} ve la imagen igual.`, true);
+  }
 }
 function screenCaption(detail = vision.detail('screen')) {
   const name = config ? config.name : 'Mika';

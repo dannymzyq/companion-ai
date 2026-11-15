@@ -1,0 +1,17 @@
+# Cambios
+
+Cada versión se publica como un Release en GitHub con su instalador (`Companion-Setup-X.Y.Z.exe`). Para sacar una
+nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
+`git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
+
+## 0.3.0 — 2026-11-15
+
+- **Instalador `.exe`** con la misma ventana de siempre: instala en `C:\Program Files\Companion` (o la carpeta que
+  elijas) y, si ya está instalado, lo encuentra y copia solo lo que cambió. Las descargas grandes (Python, el oído,
+  las voces, PyTorch) no se repiten.
+- Los tres personajes incluidos vienen en el instalador (antes, en otra PC solo aparecía la esfera).
+- Compartir pantalla: **escuchar también el sonido** de la PC (interruptor al elegir qué compartir). Si Windows no
+  entrega el sonido, se comparte la imagen igual y se avisa del motivo.
+- Con el cerebro en la nube, el modelo local ya no le quita la memoria de vídeo a la voz completa.
+- Voces propias desde una grabación, puerto libre automático al instalar y arrancar, e instalar y desinstalar con
+  ventana y progreso en vivo.

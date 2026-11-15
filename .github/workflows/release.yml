@@ -1,0 +1,43 @@
+# Publica un Release al subir una etiqueta vX.Y.Z: crea el instalador (dist\Companion-Setup-X.Y.Z.exe) con
+# scripts\crear_instalador.ps1 y lo adjunta, con las notas de esa versión sacadas de CHANGELOG.md.
+#   git tag v0.3.0 && git push origin v0.3.0
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  instalador:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar la versión
+        shell: powershell
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "VERSION dice $v pero la etiqueta es ${{ github.ref_name }}" }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Crear el instalador
+        shell: powershell
+        run: ./scripts/crear_instalador.ps1
+
+      - name: Notas de la versión
+        shell: powershell
+        run: |
+          $texto = Get-Content CHANGELOG.md -Raw -Encoding UTF8
+          $m = [regex]::Match($texto, "(?ms)^## $([regex]::Escape($env:VERSION))\b[^\n]*\n(.*?)(?=^## |\z)")
+          $notas = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "Versión $env:VERSION." }
+          $notas += "`n`n**Instalar o actualizar:** descarga ``Companion-Setup-$env:VERSION.exe`` y ábrelo. Si ya lo tienes instalado, encuentra la carpeta y copia solo lo que cambió (tus datos, voces y personajes se conservan)."
+          [IO.File]::WriteAllText("notas.md", $notas, (New-Object Text.UTF8Encoding $false))
+
+      - name: Publicar el Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" "dist/Companion-Setup-$env:VERSION.exe" --title "Companion $env:VERSION" --notes-file notas.md

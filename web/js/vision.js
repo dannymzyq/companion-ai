@@ -54,9 +54,9 @@ export class Vision {
     const usable = ready && ready.getVideoTracks()[0] && ready.getVideoTracks()[0].readyState === 'live';
     const stream = usable ? ready : kind === 'camera'
       ? await this.openCamera(deviceId)
-      // Se pide también el sonido: la app de escritorio solo lo da si en su ventana se activó «Escuchar también
-      // el sonido» (en un navegador, la casilla «Compartir audio» del propio navegador).
-      : await media.getDisplayMedia({ video: { frameRate: { ideal: 5 } }, audio: true });
+      // En un navegador se pide el sonido aquí (su casilla «Compartir audio»). En la app de escritorio, aparte
+      // y después (addDesktopSound): si el sonido falla, la imagen sigue compartida.
+      : await media.getDisplayMedia({ video: { frameRate: { ideal: 5 } }, audio: !window.desktop });
     const video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
@@ -64,7 +64,9 @@ export class Vision {
     await video.play();
     const track = stream.getVideoTracks()[0];
     track.addEventListener('ended', () => this.stop(kind));   // «Dejar de compartir» del sistema, o la ventana se cerró
-    this.sources[kind] = { stream, video, detail: kind === 'screen' ? await shareDetail(track) : null };
+    const detail = kind === 'screen' ? await shareDetail(track) : null;
+    if (detail && detail.wantsAudio) await addDesktopSound(stream, detail);
+    this.sources[kind] = { stream, video, detail };
     if (kind === 'camera') this.lastCam = { group: track.getSettings().groupId || '', label: track.label };
     this.onChange(kind, stream, this.sources[kind].detail);
     this.push(kind);
@@ -135,5 +137,28 @@ async function shareDetail(track) {
   try { info = await window.desktop?.shareInfo?.(); } catch { /* sin app de escritorio */ }
   const surface = track.getSettings().displaySurface;                  // monitor | window | browser
   const kind = info?.kind || (surface && surface !== 'monitor' ? 'window' : 'screen');
-  return { surface: kind, name: info?.name || '' };
+  const out = { surface: kind, name: info?.name || '' };
+  if (info?.audio) out.wantsAudio = true;          // en la ventana de selección se activó «Escuchar también el sonido»
+  return out;
+}
+
+// El sonido de toda la PC, pedido aparte de la imagen (la app de escritorio responde sin volver a preguntar).
+// Llega junto con una imagen de pantalla que no se usa: se para al momento. Si falla, se apunta el motivo en
+// detail.audioError y se comparte solo la imagen.
+async function addDesktopSound(stream, detail) {
+  delete detail.wantsAudio;
+  let extra = null;
+  try {
+    if (!(await window.desktop.shareAudioNext())) throw new Error('la app no aceptó la petición de sonido');
+    extra = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    extra.getVideoTracks().forEach((t) => t.stop());
+    const sound = extra.getAudioTracks()[0];
+    if (!sound) throw new Error('Windows no entregó el sonido');
+    stream.addTrack(sound);
+  } catch (err) {
+    if (extra) extra.getTracks().forEach((t) => t.stop());
+    window.desktop.shareAudioNext(false).catch(() => {});     // que el próximo «Compartir» vuelva a preguntar
+    detail.audioError = `${err.name || 'Error'}: ${err.message || err}`;
+    console.warn('Sin sonido de la PC:', err);
+  }
 }

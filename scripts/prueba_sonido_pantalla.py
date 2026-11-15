@@ -26,11 +26,13 @@ ESTADO = """(() => { const v = window.companion.vision, s = v.sources.screen, b 
              rotulo: document.querySelector('#preview-screen figcaption').textContent }; })()"""
 
 
-async def compartir(p, con_sonido: bool) -> dict:
+async def compartir(p, con_sonido: bool, pensar: float = 0) -> dict:
+    """`pensar`: segundos que tarda en elegir (el sonido se pide después de la imagen, ya sin el clic reciente)."""
     await p.js("window.__c = window.companion.vision.start('screen').then(() => 'ok', (e) => e.name); null")
-    eleccion = (f"document.getElementById('sound-on').checked = {json.dumps(con_sonido)}; "
+    eleccion = (f"await new Promise(r => setTimeout(r, {int(pensar * 1000)})); "
+                f"document.getElementById('sound-on').checked = {json.dumps(con_sonido)}; "
                 f"[...document.querySelectorAll('#windows .card')].find(c => c.title === {json.dumps(pe.TARJETA)}).click()")
-    await pe.elegir(eleccion)
+    await pe.elegir(f"(async () => {{ {eleccion} }})()")
     assert await p.js("window.__c") == "ok", "no se pudo compartir la tarjeta"
     await asyncio.sleep(0.8)
     return await p.js(ESTADO)
@@ -80,14 +82,26 @@ async def main():
             await p.js("window.companion.vision.stop('screen')")
 
             # 3) con sonido: pista de audio, botón del altavoz y rótulo; el botón lo silencia sin dejar de compartir
-            e = await compartir(p, True)
+            e = await compartir(p, True, pensar=6)
+            avisos = await p.js("[...document.querySelectorAll('.toast, #toast')].map(t => t.textContent).join(' | ')")
+            ok("con sonido (tras 6 s eligiendo)", not e.get("error") and "No pude" not in (avisos or ""), avisos or "sin avisos")
             ok("con sonido", e["compartiendo"] and e["pistas_audio"] == 1 and e["boton"] and "oye el sonido" in e["rotulo"], e)
             await p.js("document.getElementById('screen-sound').click()")
             e2 = await p.js(ESTADO)
             ok("silenciar sin dejar de compartir", e2["compartiendo"] and e2["silenciado"] and "oye" not in e2["rotulo"], e2)
             await p.js("window.companion.vision.stop('screen')")
 
-            # 4) se recuerda la elección: la próxima vez el interruptor sale encendido
+            # 4) si Windows no entrega el sonido, la imagen sigue compartida y el aviso dice el motivo
+            await p.js("""(() => { const real = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices); let n = 0;
+                navigator.mediaDevices.getDisplayMedia = (c) => (++n === 2
+                    ? Promise.reject(new DOMException('Could not start audio source', 'NotReadableError')) : real(c)); })(); null""")
+            e = await compartir(p, True)
+            aviso = await p.js("document.getElementById('toast').textContent")
+            ok("si el sonido falla, sigue la imagen", e["compartiendo"] and e["pistas_audio"] == 0 and not e["boton"]
+               and "NotReadableError" in aviso and "ve la imagen igual" in aviso, aviso)
+            await p.js("window.companion.vision.stop('screen'); delete navigator.mediaDevices.getDisplayMedia; null")
+
+            # 5) se recuerda la elección: la próxima vez el interruptor sale encendido
             await p.js("window.__c = window.companion.vision.start('screen').then(() => 'ok', (e) => e.name); null")
             url_sel, _ = await pe.pagina("picker.html")
             async with connect(url_sel, max_size=None) as ws2:
