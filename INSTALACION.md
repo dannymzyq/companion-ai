@@ -7,7 +7,7 @@ salvo Ollama (el programa que corre el cerebro local), que se instala en el sist
 
 | | Mínimo | Recomendado |
 | --- | --- | --- |
-| Sistema | Windows 10 u 11 de 64 bits | Windows 11 |
+| Sistema | Windows 10 u 11 de 64 bits, o un Mac con Apple Silicon y macOS 14 | Windows 11 |
 | Disco libre | 6 GB (sin voz completa ni cerebro local) | 20 GB |
 | Tarjeta gráfica | Ninguna (todo corre en el procesador, más lento) | NVIDIA con 12 GB o más |
 | Internet | Para instalar; después solo si usas el cerebro en la nube | |
@@ -15,8 +15,14 @@ salvo Ollama (el programa que corre el cerebro local), que se instala en el sist
 
 No hace falta tener Python, Node ni nada más instalado: el instalador trae su propio Python.
 
-En Linux y macOS existen `instalar.sh` e `iniciar.sh`, pero **no están probados**; allí no hay app de
-escritorio y el companion se abre en el navegador.
+**Mac con Apple Silicon:** usa `Companion-X.Y.Z-mac.dmg` del Release (arrastra Companion a Aplicaciones y ábrelo;
+la primera vez, Ajustes del Sistema › Privacidad y seguridad › «Abrir igualmente», porque no está firmada por un
+desarrollador de Apple). La app instala todo en `~/Library/Application Support/Companion` con `instalar.sh`. En
+16 GB o más se instalan las dos voces; con 8 GB, solo la ligera. Usar ventanas por ti, controlar la música y
+escuchar el sonido de lo compartido solo existen en Windows.
+
+En Linux existen `instalar.sh` e `iniciar.sh`, pero **no están probados**; allí no hay app de escritorio y el
+companion se abre en el navegador.
 
 ## 2. Instalar
 
@@ -84,7 +90,7 @@ descargar, avisa e instala las últimas compatibles con `requirements.txt`.
 | `-SinModeloLocal` | `--sin-modelo-local` | Instala Ollama pero no descarga ningún modelo |
 | `-AccesosDirectos` | | Accesos en el escritorio y el menú Inicio, y la entrada en Aplicaciones instaladas |
 | `-NoRehacer` | `--no-rehacer` (Git Bash) | Conserva un `.venv` creado con un Python de fuera del proyecto |
-| | `--instalar-ollama` | Linux y macOS: instala Ollama con su script oficial |
+| | `--instalar-ollama` | Linux: instala Ollama con su script oficial (en el Mac, descárgalo de ollama.com) |
 
 Ejemplo, para una PC sin tarjeta gráfica que solo usará el cerebro en la nube:
 

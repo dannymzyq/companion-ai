@@ -19,6 +19,18 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   instaló y la nueva no trae; nunca toca lo que no está en un manifiesto) → `instalar.ps1` de la carpeta.
   Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`. Publicar una
   etiqueta es publicar un Release: solo cuando el usuario lo pida.
+- App para Mac con Apple Silicon (15 nov 2026, decisión del usuario: «básico primero», sin firma de Apple):
+  `scripts\crear_app_mac.sh` (solo en macOS) crea `dist\Companion-X.Y.Z-mac.dmg`: Electron darwin-arm64 con
+  `desktop\` en `Resources/app` (arranca por `desktop\mac.js`) y lo de git + `manifest.json` en `Resources/programa`.
+  `mac.js` copia solo lo cambiado a `~/Library/Application Support/Companion` (o `COMPANION_HOME`), ejecuta
+  `instalar.sh` con `COMPANION_UI=1` en `instalando.html` (mismas marcas que `instalar.ps1`), arranca
+  `iniciar.sh --sin-ventana` y carga `main.js` (`COMPANION_BOOTED=1`: el candado es suyo). Versiones fijas:
+  `requirements-mac.lock` y `voz\requirements-mac.lock` (macOS 14, de los locks de Windows con `fijar_versiones.ps1`).
+  En el Mac: memoria unificada (`llm._mac_memory`: dos tercios de la RAM para la GPU), oído en el procesador con el
+  modelo instalado, voz completa en MPS y sin la comprobación con Whisper (solo se hace con el oído en CUDA),
+  acciones con `open` y `osascript`. No hay `controlar`, `multimedia` ni sonido de lo compartido (`CAN_AUDIO`).
+  Se prueba en `.github\workflows\mac.yml` (macos-15; `release.yml` lo llama y adjunta el .dmg al Release). Nadie
+  lo ha probado aún en un Mac con micrófono: el usuario lo probará.
 - Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\ventana_instalar.ps1` (WPF) que ejecuta
   `instalar.ps1` con `COMPANION_UI=1` y lee sus marcas (`::paso::`, `::progreso::`, `::omitido::`, `::error::`,
   `::fin::`, de `scripts\comun_instalacion.ps1` y `preparar_recursos.py`). `Desinstalar.bat` →

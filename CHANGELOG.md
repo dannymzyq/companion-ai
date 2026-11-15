@@ -4,6 +4,21 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.5.0 — 2026-11-15
+
+- **App para Mac con Apple Silicon** (macOS 14 o posterior): `Companion-0.5.0-mac.dmg`. Arrastra Companion a
+  Aplicaciones y ábrela. La primera vez instala lo que falta, con una ventana de progreso, y con cada versión nueva
+  copia solo lo que cambió. Funcionan:
+  - la conversación por voz, el avatar y el modo flotante;
+  - las dos voces: la completa usa la GPU del Mac;
+  - el cerebro en la nube u Ollama para Mac;
+  - compartir pantalla y cámara;
+  - abrir apps, webs y carpetas, buscar archivos, temporizadores y volumen.
+
+  Todavía no funcionan en el Mac: usar una aplicación por ti, controlar la música ni escuchar el sonido de lo
+  compartido. La app no está firmada por un desarrollador de Apple: la primera vez, Ajustes del Sistema ›
+  Privacidad y seguridad › «Abrir igualmente».
+
 ## 0.4.0 — 2026-11-15
 
 - **Las dos voces se instalan** con cualquier tarjeta NVIDIA de 6 GB o más. Suena la **voz completa** y, si a la

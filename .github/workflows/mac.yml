@@ -99,9 +99,15 @@ jobs:
       - name: Registros (si algo falló)
         if: failure()
         run: |
+          # También como anotaciones: se ven en el resumen de la ejecución sin iniciar sesión en GitHub.
+          # (En una máquina de GitHub, sin datos de nadie: solo lo que dicen las pruebas.)
           for f in "$RUNNER_TEMP/electron.log" "$CASA/data/instalacion.log" "$CASA/data/companion.log" "$RUNNER_TEMP/voz.log"; do
-            [ -f "$f" ] && { echo "==== $f"; tail -80 "$f"; }
+            [ -f "$f" ] || continue
+            echo "==== $f"; tail -80 "$f"
+            texto="$(tail -40 "$f" | cut -c1-300 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            echo "::warning title=$(basename "$f")::$texto"
           done
+          true
 
       - uses: actions/upload-artifact@v4
         with:

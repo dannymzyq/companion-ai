@@ -29,6 +29,20 @@ instalador no está firmado: «Más información» › «Ejecutar de todas forma
 Cómo se publica una versión: [CHANGELOG.md](CHANGELOG.md) (sube `VERSION`, añade su apartado y publica la
 etiqueta `vX.Y.Z`; GitHub Actions crea el instalador con `scripts\crear_instalador.ps1` y el Release).
 
+**En un Mac con Apple Silicon** (M1 o posterior, macOS 14 o posterior): descarga `Companion-X.Y.Z-mac.dmg` del
+mismo Release, arrastra **Companion** a Aplicaciones y ábrelo. La app no está firmada por un desarrollador de Apple:
+la primera vez, Ajustes del Sistema › Privacidad y seguridad › «Abrir igualmente» (en macOS 14 vale también clic
+derecho › Abrir). Al abrirla por primera vez, y con cada versión nueva, una ventana instala lo que falta en
+`~/Library/Application Support/Companion` (copia solo lo que cambió y conserva tus datos); luego arranca el
+servidor y se abre la ventana de siempre. Al cerrarla se apaga el servidor. El cerebro local necesita
+[Ollama para Mac](https://ollama.com/download) (opcional). En el Mac funcionan:
+- la conversación por voz, el avatar y el modo flotante;
+- las dos voces: la completa usa la GPU del Mac y el oído, el procesador;
+- compartir pantalla y cámara;
+- acciones: abrir apps, webs y carpetas, buscar archivos, temporizadores y volumen.
+
+Todavía no funcionan: usar una aplicación por ti, controlar la música ni escuchar el sonido de lo compartido.
+
 **Desde una copia del código** (git o un .zip), **doble clic en `Instalar.bat`**: una ventana deja elegir voz, cerebro local y accesos directos, y enseña el
 progreso en vivo (cada paso, el porcentaje de cada descarga, la velocidad y el tiempo; si algo falla, por qué, y
 «Reintentar» sigue donde se quedó). Para quitarlo, **`Desinstalar.bat`** (o Configuración › Aplicaciones): elige
@@ -55,8 +69,9 @@ bash instalar.sh                                             # Git Bash (llama a
 Opciones: `-Voz auto|completa|ligera|ambas` (auto: las dos con una NVIDIA de 6 GB o más; si no, solo la ligera), `-SinOllama` (solo cerebro en la nube),
 `-SinModeloLocal`, `-NoRehacer` (no rehace un `.venv` creado con un Python de fuera; rehacerlo detiene el
 companion). En bash: `--voz=…`, `--sin-ollama`, `--sin-modelo-local`, `--instalar-ollama`.
-Probado en Windows 11; la parte de Linux y macOS de `instalar.sh`/`iniciar.sh` está escrita pero sin probar
-(allí no hay app de escritorio: se abre en el navegador).
+Probado en Windows 11 y, en macOS, en un Mac de GitHub con Apple Silicon (`.github/workflows/mac.yml`: abre la
+app, que instala y arranca todo, y prueba las dos voces y el oído). En Linux, `instalar.sh`/`iniciar.sh` están
+escritos pero sin probar (allí no hay app de escritorio: se abre en el navegador).
 
 ## Usarlo
 

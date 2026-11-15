@@ -24,6 +24,14 @@ const PATH_EXTRA = ['/usr/local/bin', '/opt/homebrew/bin', '/Applications/Ollama
 const env = () => ({ ...process.env, PATH: [process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin', ...PATH_EXTRA].join(':') });
 
 app.setName('Companion');
+// Lo que main.js pone en la línea de órdenes de Chromium solo vale antes de que la app esté lista, y main.js se
+// carga después (tras instalar): se pone aquí. main.js lo repite sin efecto.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');   // la voz suena sin un clic previo
+if (TEST) {
+  if (process.env.COMPANION_TEST_REAL_MEDIA !== '1') app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.COMPANION_TEST_PORT || '9334');
+  app.setPath('userData', path.join(app.getPath('temp'), 'companion-pc-prueba'));
+}
 if (!TEST && !app.requestSingleInstanceLock()) {
   app.quit();                 // ya hay una abierta: no se abre otra escuchando el mismo micrófono
 } else {
