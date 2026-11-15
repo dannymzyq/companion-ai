@@ -28,6 +28,8 @@ RAIZ = Path(__file__).resolve().parent
 MODELO = RAIZ / "modelos" / "f5-spanish"
 VOCOS = RAIZ / "modelos" / "vocos"
 VOCES = Path(os.getenv("VOICES_DIR") or RAIZ.parent / "voices")
+# Las voces propias que sube el usuario (companion/voice_import.py): llevan el prefijo p_ y viven con sus datos.
+PROPIAS = Path(os.getenv("VOICES_CUSTOM_DIR") or RAIZ.parent / "data" / "voces")
 POR_DEFECTO = os.getenv("TTS_VOICE", "mika_es")
 SR = 24000
 PAUSA_S = 0.12
@@ -62,7 +64,8 @@ class _SinBarra:
 
 def _voz(nombre: str) -> tuple[Path, dict]:
     for n in (nombre, POR_DEFECTO):
-        wav, cfg = VOCES / f"{n}.wav", VOCES / f"{n}.json"
+        carpeta = PROPIAS if (n or "").startswith("p_") else VOCES
+        wav, cfg = carpeta / f"{n}.wav", carpeta / f"{n}.json"
         if re.fullmatch(r"[\w-]{1,60}", n or "") and wav.is_file() and cfg.is_file():
             try:
                 data = json.loads(cfg.read_text(encoding="utf-8"))
@@ -70,7 +73,7 @@ def _voz(nombre: str) -> tuple[Path, dict]:
                 continue
             if data.get("ref_text"):
                 return wav, data
-    raise HTTPException(404, f"No hay muestra para la voz «{nombre}» en {VOCES}")
+    raise HTTPException(404, f"No hay muestra para la voz «{nombre}»")
 
 
 def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:

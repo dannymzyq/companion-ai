@@ -325,6 +325,10 @@ dd.bad { color: var(--danger); }
   border: 1px dashed rgba(167, 139, 250, 0.55); background: rgba(167, 139, 250, 0.06);
 }
 .ghost:hover { background: rgba(167, 139, 250, 0.14); }
+.voice-form { margin-top: 12px; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); }
+.voice-form p.ob-info { margin: 0 0 4px; }
+.voice-form input[type="file"] { font: inherit; font-size: 0.84rem; color: var(--dim); }
+.voice-form .primary { margin-top: 6px; }
 
 /* Modo flotante: solo Mika, sin ventana. Los botones aparecen al pasar el ratón por encima de ella. */
 .only-floating { display: none; }

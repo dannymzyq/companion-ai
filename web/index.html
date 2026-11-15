@@ -180,6 +180,22 @@
         <button id="ob-engine-get" class="ghost" hidden></button>
         <div id="ob-voices"></div>
         <p id="ob-tts" class="ob-info" hidden>La voz completa no responde ahora: no puedo reproducir las muestras, pero puedes elegir igual.</p>
+        <button id="ob-voice-add" class="ghost">Añadir una voz propia</button>
+        <div id="ob-voice-form" class="picker voice-form" hidden>
+          <p class="ob-info">Sube una grabación de una sola persona hablando, sin música de fondo (mp3, wav, m4a, ogg o flac). Con unos 10 segundos basta; de una más larga elijo el tramo más claro. Usa solo voces que tengas permiso para usar. Se guarda solo en esta PC.</p>
+          <label for="ob-voice-file">Grabación</label>
+          <input id="ob-voice-file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac">
+          <label for="ob-voice-name">Nombre</label>
+          <input id="ob-voice-name" type="text" maxlength="30" autocomplete="off" placeholder="Tu personaje se llamará así con esta voz">
+          <label for="ob-voice-speaks">Cómo habla de sí</label>
+          <select id="ob-voice-speaks">
+            <option value="">Según el tono de la grabación</option>
+            <option value="f">«Estoy contenta»</option>
+            <option value="m">«Estoy contento»</option>
+          </select>
+          <button id="ob-voice-save" class="primary">Añadir la voz</button>
+          <small id="ob-voice-status"></small>
+        </div>
       </section>
 
       <section data-step="modelo" hidden>

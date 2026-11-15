@@ -253,12 +253,79 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
             play.onclick = () => preview(v.id, play);
             row.append(play);
           }
+          if (v.custom) {                      // las propias se pueden quitar (las incluidas no)
+            const del = document.createElement('button');
+            del.className = 'del';
+            del.title = `Quitar la voz ${v.name}`;
+            del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+            del.onclick = () => removeVoice(v);
+            row.append(del);
+          }
           rows.append(row);
         }
       }
       $('ob-voices').replaceChildren(rows);
     };
+    drawVoices = draw;
+    $('ob-voice-form').hidden = true;
+    $('ob-voice-add').hidden = false;
     draw();
+  }
+
+  // Voces propias: se sube una grabación, el servidor elige el tramo más claro y la transcribe (tarda unos segundos).
+  let drawVoices = () => {};
+  $('ob-voice-add').onclick = () => {
+    $('ob-voice-form').hidden = false;
+    $('ob-voice-add').hidden = true;
+    $('ob-voice-status').textContent = '';
+  };
+  $('ob-voice-file').onchange = () => {            // el nombre del archivo como punto de partida
+    const f = $('ob-voice-file').files[0];
+    if (f && !$('ob-voice-name').value.trim()) {
+      const base = f.name.replace(/\.[^.]+$/, '').replace(/[_\d-]+/g, ' ').trim().split(/\s+/)[0] || '';
+      $('ob-voice-name').value = base ? base[0].toUpperCase() + base.slice(1).toLowerCase() : '';
+    }
+  };
+  $('ob-voice-save').onclick = async () => {
+    const f = $('ob-voice-file').files[0], name = $('ob-voice-name').value.trim();
+    const status = $('ob-voice-status'), button = $('ob-voice-save');
+    fail('');
+    if (!f) return fail('Elige primero la grabación.');
+    if (!name) return fail('Ponle un nombre a la voz.');
+    button.disabled = true;
+    status.textContent = 'Escuchando la grabación y eligiendo el mejor tramo…';
+    try {
+      const q = new URLSearchParams({ name, speaks: $('ob-voice-speaks').value });
+      const r = await fetch(`/api/voices/custom?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'No pude añadir esa voz.');
+      setup.voices = data.voices;
+      voicePick = data.voice.id;                     // queda marcada; se guarda con «Guardar» o «Siguiente»
+      $('ob-voice-file').value = '';
+      $('ob-voice-name').value = '';
+      $('ob-voice-form').hidden = true;
+      $('ob-voice-add').hidden = false;
+      status.textContent = '';
+      drawVoices();
+    } catch (e) {
+      status.textContent = '';
+      fail(e.message);
+    } finally {
+      button.disabled = false;
+    }
+  };
+  async function removeVoice(v) {
+    if (!confirm(`¿Quitar la voz ${v.name}? Se borra su muestra de esta PC (la grabación original no se toca).`)) return;
+    try {
+      const r = await fetch(`/api/voices/custom/${encodeURIComponent(v.id)}`, { method: 'DELETE' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'No pude quitar esa voz.');
+      setup.voices = data.voices;
+      if (voicePick === v.id) voicePick = (setup.voices.find((x) => x.selected) || {}).id || '';
+      drawVoices();
+    } catch (e) {
+      fail(e.message);
+    }
   }
   async function preview(id, button) {
     if (player) { player.pause(); player = null; }

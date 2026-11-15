@@ -34,7 +34,7 @@ _specs: tuple = (0, {})
 
 
 def specs() -> dict:
-    """tts_voice → {"model", "speaker", "pitch", "speed"} según voices.json."""
+    """tts_voice → {"model", "speaker", "pitch", "speed"} según voices.json y las voces propias."""
     global _specs
     path = ROOT / "voices.json"
     try:
@@ -44,7 +44,9 @@ def specs() -> dict:
             _specs = (stamp, {v["tts_voice"]: v["light"] for v in data if isinstance(v.get("light"), dict)})
     except (OSError, ValueError, KeyError):
         pass
-    return _specs[1]
+    from . import voice_import
+    own = {v["tts_voice"]: v["light"] for v in voice_import.custom() if isinstance(v.get("light"), dict)}
+    return {**_specs[1], **own} if own else _specs[1]
 
 
 def missing() -> list[str]:

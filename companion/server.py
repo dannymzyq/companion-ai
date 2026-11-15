@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import actions, llm, models, profile, state, store, tts, voz_proc
+from . import actions, llm, models, profile, state, store, tts, voice_import, voz_proc
 from .config import settings
 from .prompt import adult_active, load_persona
 from .session import Session
@@ -386,7 +386,7 @@ async def voice_preview(body: VoiceIn):
     if not v:
         raise HTTPException(404, "Esa voz todavía no está disponible.")
     engine = body.engine if body.engine in profile.VOICE_ENGINES else settings.voice_engine
-    recorded = profile.PREVIEWS / f"{v['id']}.wav"
+    recorded = (voice_import.previews() if v["custom"] else profile.PREVIEWS) / f"{v['id']}.wav"
     if engine == "completa":
         if recorded.is_file():
             return FileResponse(recorded, media_type="audio/wav", headers={"Cache-Control": "no-cache"})
@@ -399,7 +399,50 @@ async def voice_preview(body: VoiceIn):
     header = (b"RIFF" + (36 + n).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little") + (1).to_bytes(2, "little")
               + (1).to_bytes(2, "little") + tts.SAMPLE_RATE.to_bytes(4, "little") + (tts.SAMPLE_RATE * 2).to_bytes(4, "little")
               + (2).to_bytes(2, "little") + (16).to_bytes(2, "little") + b"data" + n.to_bytes(4, "little"))
+    if engine == "completa" and v["custom"] and n:      # la muestra ▶ de una voz propia se graba la primera vez
+        try:
+            recorded.parent.mkdir(parents=True, exist_ok=True)
+            recorded.write_bytes(header + pcm)
+        except OSError:
+            pass
     return Response(header + pcm, media_type="audio/wav")
+
+
+@app.post("/api/voices/custom", dependencies=[Depends(same_origin)])
+async def add_custom_voice(request: Request, name: str = "", speaks: str = ""):
+    """Añade una voz propia a partir de una grabación (Ajustes › Voz › Añadir una voz propia). El cuerpo es el
+    archivo de audio tal cual. Se queda en data/voces y aparece en la lista; elegirla es aparte."""
+    limit = voice_import.MAX_MB * 1024 * 1024
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > limit:
+            raise HTTPException(413, f"La grabación supera {voice_import.MAX_MB} MB: recórtala a unos minutos.")
+    taken = {v["name"] for v in profile.voices()}
+
+    def make():                           # con el candado del oído: Whisper no puede transcribir dos cosas a la vez
+        with transcriber._lock:
+            return voice_import.create(bytes(data), name, speaks, transcriber.model, taken)
+    try:
+        v = await asyncio.to_thread(make)
+    except voice_import.VoiceError as e:
+        raise HTTPException(400, str(e))
+    log.info("Voz propia guardada: %s (muestra de %.1f s)", v["id"], v["seconds"])
+    return {"voice": {k: v[k] for k in ("id", "name", "seconds")}, "voices": profile.voices()}
+
+
+@app.delete("/api/voices/custom/{voice_id}", dependencies=[Depends(same_origin)])
+async def delete_custom_voice(voice_id: str):
+    """Quita una voz propia (solo las del usuario). Si era la elegida, se vuelve a la voz por defecto."""
+    try:
+        voice_import.remove(voice_id)
+    except voice_import.VoiceError as e:
+        raise HTTPException(404, str(e))
+    if state.load().get("voice") == voice_id:
+        state.save(voice=None)
+    profile.apply()
+    transcriber.hint = _hint()
+    return {"voices": profile.voices()}
 
 
 # ---------------------------------------------------------------- modelo 3D

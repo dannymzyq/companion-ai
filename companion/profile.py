@@ -8,7 +8,7 @@ import shutil
 from datetime import date
 from pathlib import Path
 
-from . import state
+from . import state, voice_import
 from .config import ROOT, settings
 
 GENDERS = {"mujer": "en femenino", "hombre": "en masculino",
@@ -202,6 +202,13 @@ def install_voice(tts_voice: str):
     folder = _voices_dir()
     if os.getenv("VOICE_INSTALL") == "0" or not folder.is_dir():
         return
+    if voice_import.is_custom(tts_voice):        # las propias: voz/servidor.py ya las lee de data/voces
+        if folder.resolve() != LOCAL_VOICES.resolve():
+            try:
+                voice_import.copy_to(tts_voice, folder)
+            except OSError:
+                pass
+        return
     for ext in (".wav", ".json"):
         src, dst = LOCAL_VOICES / f"{tts_voice}{ext}", folder / f"{tts_voice}{ext}"
         try:
@@ -212,11 +219,12 @@ def install_voice(tts_voice: str):
 
 
 def voices() -> list[dict]:
-    """Catálogo de voices.json con si cada voz ya tiene su muestra en el nodo de voz."""
+    """Catálogo de voices.json más las voces propias (voice_import), con si cada una tiene su muestra."""
     try:
         catalog = json.loads((ROOT / "voices.json").read_text(encoding="utf-8"))["voices"]
     except (OSError, ValueError, KeyError):
         catalog = [{"id": "mika", "name": "Mika", "tts_voice": _ENV_VOICE, "default": True}]
+    catalog = [*catalog, *voice_import.custom()]      # las propias del usuario (data/voces), al final
     folder = _voices_dir()
     present = {p.stem for p in folder.iterdir() if p.suffix.lower() in (".wav", ".mp3", ".flac", ".ogg")} if folder.is_dir() else None
     chosen = state.load().get("voice")
@@ -226,7 +234,8 @@ def voices() -> list[dict]:
             continue
         out.append({"id": v["id"], "name": str(v.get("name") or v["id"])[:40], "speaks": "m" if v.get("speaks") == "m" else "f",
                     "tts_voice": v["tts_voice"], "default": bool(v.get("default")), "note": str(v.get("note") or "")[:60],
-                    "available": present is None or v["tts_voice"] in present
+                    "custom": bool(v.get("custom")),
+                    "available": bool(v.get("custom")) or present is None or v["tts_voice"] in present
                                  or (LOCAL_VOICES / f"{v['tts_voice']}.wav").is_file()})
     if not any(v["id"] == chosen and v["available"] for v in out):
         chosen = next((v["id"] for v in out if v["default"] and v["available"]), None)
