@@ -20,5 +20,22 @@ if (Test-Path "voz\.venv\Scripts\python.exe") {
     @("# Versiones exactas de voz\.venv (scripts\fijar_versiones.ps1). torch y torchaudio los instala instalar.ps1.") + $lineas |
         Set-Content -Encoding ascii "voz\requirements.lock"
 }
-Remove-Item $tmp -ErrorAction SilentlyContinue
-Write-Host "Listo: requirements.lock y voz\requirements.lock."
+# macOS con Apple Silicon (14 o posterior): las mismas versiones, resueltas para ese sistema (instalar.sh las usa).
+$env:MACOSX_DEPLOYMENT_TARGET = "14.0"
+$req = Join-Path $env:TEMP "companion_req_mac.txt"; $con = Join-Path $env:TEMP "companion_con_mac.txt"
+$mac = Join-Path $env:TEMP "companion_mac.lock"
+Get-Content requirements.txt | Where-Object { $_ -notmatch '^nvidia' } | Set-Content -Encoding ascii $req
+Get-Content requirements.lock | Where-Object { $_ -notmatch '^nvidia' } | Set-Content -Encoding ascii $con
+& $uv pip compile $req -c $con --python-platform aarch64-apple-darwin --python-version 3.13 --no-header --no-annotate -o $mac
+if ($LASTEXITCODE -ne 0) { throw "No pude rehacer requirements-mac.lock" }
+@("# Versiones exactas para macOS con Apple Silicon (14 o posterior), sacadas de requirements.lock (scripts\fijar_versiones.ps1).") +
+    (Get-Content $mac) | Set-Content -Encoding ascii "requirements-mac.lock"
+$torch = (Get-Content instalar.ps1 | Select-String -Pattern 'torch==[\d.]+ torchaudio==[\d.]+' | Select-Object -First 1).Matches[0].Value -split ' '
+(Get-Content voz\requirements.txt | Where-Object { $_ -notmatch '^#' }) + $torch | Set-Content -Encoding ascii $req
+Get-Content voz\requirements.lock | Where-Object { $_ -notmatch '^#' } | Set-Content -Encoding ascii $con
+& $uv pip compile $req -c $con --python-platform aarch64-apple-darwin --python-version 3.13 --no-header --no-annotate -o $mac
+if ($LASTEXITCODE -ne 0) { throw "No pude rehacer voz\requirements-mac.lock" }
+@("# Versiones exactas de la voz completa en macOS con Apple Silicon, torch incluido (scripts\fijar_versiones.ps1).") +
+    (Get-Content $mac) | Set-Content -Encoding ascii "voz\requirements-mac.lock"
+Remove-Item $tmp, $req, $con, $mac -ErrorAction SilentlyContinue
+Write-Host "Listo: requirements.lock, voz\requirements.lock y sus versiones para macOS."

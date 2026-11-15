@@ -1,0 +1,117 @@
+# App para Mac con Apple Silicon: crea dist/Companion-X.Y.Z-mac.dmg (scripts/crear_app_mac.sh) y la prueba en
+# un Mac de GitHub como la usaría alguien: abre Companion.app, que instala todo en una carpeta propia y arranca
+# el servidor; luego las pruebas rápidas, la voz ligera y la completa con el oído. Se lanza a mano (Actions ›
+# Mac › Run workflow) o desde release.yml, que adjunta el .dmg al Release.
+name: Mac
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [app-mac]       # mientras se prepara la app (se quita al unirla a main)
+  workflow_call:
+    inputs:
+      publicar:
+        description: "Adjuntar el .dmg al Release de la etiqueta"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    runs-on: macos-14            # Apple Silicon (M1), macOS 14: lo mínimo que pide la app
+    timeout-minutes: 120
+    env:
+      CASA: ${{ runner.temp }}/casa             # en vez de ~/Library/Application Support/Companion
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versión
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          if [ "${{ inputs.publicar }}" = true ] && [ "v$v" != "${{ github.ref_name }}" ]; then
+            echo "VERSION dice $v pero la etiqueta es ${{ github.ref_name }}"; exit 1
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Crear Companion.app y el .dmg
+        run: bash scripts/crear_app_mac.sh
+
+      - name: Abrir la app desde el .dmg (instala todo la primera vez)
+        run: |
+          hdiutil attach "dist/Companion-$VERSION-mac.dmg" -mountpoint /Volumes/Companion -nobrowse
+          ditto /Volumes/Companion/Companion.app "$RUNNER_TEMP/Companion.app"
+          hdiutil detach /Volumes/Companion
+          codesign --verify --deep --strict "$RUNNER_TEMP/Companion.app"
+          COMPANION_TEST=1 COMPANION_HOME="$CASA" "$RUNNER_TEMP/Companion.app/Contents/MacOS/Electron" > "$RUNNER_TEMP/electron.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/electron.pid"
+          for i in $(seq 1 1500); do       # hasta 50 min: Python, librerías, Whisper y Piper
+            if [ -f "$CASA/.instalado" ] && curl -fsS http://127.0.0.1:8200/api/config >/dev/null 2>&1; then break; fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/electron.pid")" 2>/dev/null; then echo "La app se cerró."; break; fi
+            sleep 2
+          done
+          tail -25 "$CASA/data/instalacion.log" || true
+          test "$(cat "$CASA/.instalado")" = "$VERSION"
+          curl -fsS http://127.0.0.1:8200/api/config >/dev/null
+          echo "Instalada y con el servidor en marcha."
+
+      - name: La ventana del companion cargó la interfaz
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9334/json | grep -q '"url": *"http://127.0.0.1:8200/'; then echo "Ventana abierta en el servidor."; exit 0; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:9334/json || true
+          exit 1
+
+      - name: Pruebas rápidas
+        working-directory: ${{ env.CASA }}
+        run: .venv/bin/python -m unittest discover -s tests -t .
+
+      - name: Voz ligera, detección de voz y oído (Whisper en el procesador)
+        working-directory: ${{ env.CASA }}
+        env:
+          VOICE_ENGINE: ligera
+        run: .venv/bin/python scripts/prueba_componentes.py
+
+      - name: Voz completa (F5-TTS con PyTorch para Mac)
+        working-directory: ${{ env.CASA }}
+        env:
+          VOICE_ENGINE: completa
+          TTS_URL: http://127.0.0.1:8211
+        run: |
+          bash instalar.sh --voz=completa --sin-ollama
+          PYTORCH_ENABLE_MPS_FALLBACK=1 voz/.venv/bin/python -m uvicorn servidor:app --app-dir voz --host 127.0.0.1 --port 8211 > "$RUNNER_TEMP/voz.log" 2>&1 &
+          for i in $(seq 1 180); do
+            if curl -fsS http://127.0.0.1:8211/health | grep -q '"tts": *"f5'; then break; fi
+            if curl -fsS http://127.0.0.1:8211/health | grep -q '"error": *"'; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8211/health; echo
+          .venv/bin/python scripts/prueba_componentes.py
+
+      - name: Cerrar
+        if: always()
+        run: |
+          kill "$(cat "$RUNNER_TEMP/electron.pid" 2>/dev/null)" 2>/dev/null || true
+          [ -f "$CASA/detener.sh" ] && bash "$CASA/detener.sh" || true
+
+      - name: Registros (si algo falló)
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP/electron.log" "$CASA/data/instalacion.log" "$CASA/data/companion.log" "$RUNNER_TEMP/voz.log"; do
+            [ -f "$f" ] && { echo "==== $f"; tail -80 "$f"; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Companion-mac
+          path: dist/Companion-*-mac.dmg
+          retention-days: 14
+
+      - name: Adjuntar al Release
+        if: inputs.publicar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" "dist/Companion-$VERSION-mac.dmg" --clobber

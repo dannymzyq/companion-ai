@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import subprocess
+import sys
 import time
 from typing import AsyncIterator, NamedTuple
 
@@ -483,8 +484,8 @@ def can_act() -> bool:
 
 def can_control() -> bool:
     """¿Puede manejar una ventana paso a paso? Gemma 4 E2B se atasca repitiendo pasos (probado el 13 nov 2026):
-    hace falta E4B, un modelo local más grande o la nube."""
-    if not can_act():
+    hace falta E4B, un modelo local más grande o la nube. Solo en Windows (companion/control.py)."""
+    if sys.platform != "win32" or not can_act():
         return False
     if settings.is_cloud:
         return True
@@ -497,8 +498,25 @@ def sees_images() -> bool:
     return settings.is_cloud or _vision.get(local_model(), True)
 
 
+def _mac_memory() -> dict | None:
+    """Mac con Apple Silicon: la GPU comparte la memoria con todo lo demás. macOS deja a la GPU unos dos tercios
+    (tres cuartos desde 36 GB): ese es el «total»; lo «libre» es lo que la memoria del sistema tiene disponible."""
+    try:
+        ram = int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=4).stdout)
+        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=4).stdout
+        page = int(re.search(r"page size of (\d+)", vm).group(1))
+        pages = {k.strip().lower(): int(v) for k, v in re.findall(r"^([^:\n]+):\s+(\d+)\.?$", vm, re.M)}
+        free = sum(pages.get(k, 0) for k in ("pages free", "pages inactive", "pages speculative", "pages purgeable")) * page
+        total = ram * (0.75 if ram >= 36 * 2**30 else 0.67)
+        return {"used": int(max(0.0, total - free) / 2**20), "total": int(total / 2**20)}
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def gpu_memory() -> dict | None:
-    """Memoria de vídeo en uso y total, en MB (None sin tarjeta NVIDIA)."""
+    """Memoria de vídeo en uso y total, en MB (None sin tarjeta NVIDIA ni Mac con Apple Silicon)."""
+    if sys.platform == "darwin":
+        return _mac_memory()
     try:
         out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
                              capture_output=True, text=True, timeout=4, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

@@ -47,6 +47,8 @@ def start():
     env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep)
                                   if "site-packages" not in p.lower() or "nvidia" not in p.lower())
     env["VOICES_CUSTOM_DIR"] = str(settings.data_dir / "voces")     # las voces propias del usuario
+    if sys.platform == "darwin":
+        env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"     # lo que la GPU de Apple aún no sabe hacer va al procesador
     if _log:
         _log.close()
     path = settings.data_dir / "voz.log"

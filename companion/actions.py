@@ -172,6 +172,10 @@ def _start_apps() -> list[dict]:
         return _apps[1]
     if os.getenv("COMPANION_ACTIONS_APPS"):                  # pruebas: lista fija
         apps = json.loads(os.environ["COMPANION_ACTIONS_APPS"])
+    elif sys.platform == "darwin":                           # las apps de /Applications (y las del sistema)
+        roots = [Path("/Applications"), Path("/Applications/Utilities"), Path("/System/Applications"),
+                 Path("/System/Applications/Utilities"), _home() / "Applications"]
+        apps = [{"name": p.stem, "id": str(p)} for r in roots if r.is_dir() for p in sorted(r.glob("*.app"))]
     elif sys.platform == "win32":
         cmd = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
                "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress")
@@ -286,6 +290,8 @@ def prepare(name: str, args: list[str]) -> Request:
                        {"seconds": seconds, "label": label})
 
     if name == "multimedia":
+        if sys.platform != "win32":
+            raise ActionError("Controlar la música solo funciona en Windows, de momento.")
         k = _plain(first)
         op = ("pausa" if re.search(r"paus|para|deten|stop|reanud|segu|play|reproduc|continu", k) else
               "siguiente" if re.search(r"sig|next|adelant|salt", k) else
@@ -384,6 +390,20 @@ async def guess_async(text: str) -> tuple[str, list[str]] | None:
 _VK = {"pausa": 0xB3, "siguiente": 0xB0, "anterior": 0xB1, "silenciar": 0xAD, "bajar": 0xAE, "subir": 0xAF}
 
 
+def _open(target: str):
+    """Abre una dirección o una carpeta con el programa predeterminado del sistema."""
+    if sys.platform == "win32":
+        os.startfile(target)
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", target])
+
+
+def _mac_volume(op: str, steps: int):
+    script = ("set volume output muted not (output muted of (get volume settings))" if op == "silenciar" else
+              f"set volume output volume ((output volume of (get volume settings)) {'+' if op == 'subir' else '-'} {steps * 2})")
+    subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
+
+
 def _key(vk: int, times: int = 1):
     import ctypes
     for _ in range(times):
@@ -439,19 +459,25 @@ def run(req: Request) -> str:
     if DRY:
         return f"(simulado) {req.detail}"
     if req.name == "abrir_app":
-        subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{t['app']['id']}"],
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", t["app"]["id"]])     # la ruta del .app
+        else:
+            subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{t['app']['id']}"],
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return f"Abrí {t['app']['name']}."
     if req.name == "abrir_web":
-        os.startfile(t["url"])                              # el navegador predeterminado
+        _open(t["url"])                                     # el navegador predeterminado
         return f"Abrí {t['url']} en el navegador."
     if req.name == "abrir_carpeta":
-        os.startfile(t["path"])                             # siempre una carpeta (comprobado), nunca un archivo
+        _open(t["path"])                                    # siempre una carpeta (comprobado), nunca un archivo
         return f"Abrí la carpeta {t['path']}."
     if req.name == "multimedia":
         _key(_VK[t["op"]])
         return req.detail + "."
     if req.name == "volumen":
+        if sys.platform == "darwin":
+            _mac_volume(t["op"], t["steps"])
+            return req.detail + "."
         _key(_VK[t["op"]], 1 if t["op"] == "silenciar" else t["steps"])
         return req.detail + "."
     if req.name == "temporizador":

@@ -107,6 +107,8 @@ def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:
         estado["voz"] = nombre
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        elif torch.backends.mps.is_available():
+            torch.mps.empty_cache()
     return audio
 
 
@@ -144,7 +146,8 @@ def cargar():
         import torch
         _parche_torchaudio()
         from f5_tts.api import F5TTS
-        dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
+        dispositivo = ("cuda" if torch.cuda.is_available() else
+                       "mps" if torch.backends.mps.is_available() else "cpu")   # mps: la GPU de un Mac
         ckpt = next(MODELO.glob("model_*.safetensors"))
         estado["tts"] = F5TTS(model="F5TTS_Base", ckpt_file=str(ckpt), vocab_file=str(MODELO / "vocab.txt"),
                               vocoder_local_path=str(VOCOS) if (VOCOS / "config.yaml").is_file() else None,

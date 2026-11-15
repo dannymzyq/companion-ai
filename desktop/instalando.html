@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Companion</title>
+<style>
+  :root { color-scheme: dark; --line: rgba(255, 255, 255, 0.12); --accent: #a78bfa; --muted: #a8a3bd; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; background: #0c0b14; color: #ece9f6; padding: 24px 26px 20px;
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; user-select: none;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.2rem; font-weight: 600; }
+  p.sub { margin: 0 0 16px; color: var(--muted); font-size: 0.86rem; }
+  ol { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; }
+  li { display: flex; align-items: center; gap: 10px; padding: 5px 0; color: #77728c; font-size: 0.9rem; }
+  li::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; }
+  li.activo { color: #ece9f6; }
+  li.activo::before { border-color: var(--accent); background: var(--accent); animation: latido 1.2s ease-in-out infinite; }
+  li.hecho { color: #cfcbe0; }
+  li.hecho::before { border-color: #6ee7b7; background: #6ee7b7; }
+  li.omitido { display: none; }
+  @keyframes latido { 50% { opacity: 0.35; } }
+  .barra { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin-top: 14px; }
+  .barra div { height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+  #detalle { margin: 8px 0 0; min-height: 2.6em; color: var(--muted); font-size: 0.78rem; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+  #fallo { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.4); font-size: 0.85rem; }
+  #fallo.visible { display: block; }
+  .botones { display: flex; gap: 10px; margin-top: 10px; }
+  button { font: inherit; font-size: 0.85rem; color: #ece9f6; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); }
+  button.principal { background: var(--accent); border-color: var(--accent); color: #140f24; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1 id="titulo">Preparando Companion</h1>
+  <p class="sub" id="sub">Abriendo…</p>
+  <ol id="pasos"></ol>
+  <div class="barra"><div id="total"></div></div>
+  <p id="detalle"></p>
+  <div id="fallo">
+    <div id="fallo-texto"></div>
+    <div class="botones">
+      <button class="principal" id="reintentar">Reintentar</button>
+      <button id="registro">Ver el registro</button>
+    </div>
+  </div>
+<script>
+  // id → [texto, peso en la barra total] (los mismos pasos que instalar.sh)
+  const PASOS = [
+    ['programa', 'El programa (solo lo que cambió)', 2], ['python', 'Python propio', 3],
+    ['companion', 'Librerías del companion', 10], ['interfaz', 'Interfaz', 2], ['recursos', 'Revisando tu Mac', 1],
+    ['oido', 'El oído (Whisper, 1,5 GB)', 12], ['ligera', 'Voz ligera (Piper, 380 MB)', 4],
+    ['torch', 'Voz completa: PyTorch (unos 2 GB)', 20], ['f5', 'Voz completa: F5-TTS y su modelo (1,4 GB)', 10],
+    ['ollama', 'Cerebro local (si tienes Ollama)', 1], ['final', 'Últimos detalles', 1],
+    ['arranque', 'Abriendo el companion', 1],
+  ];
+  const $ = (id) => document.getElementById(id);
+  const filas = new Map();
+  let activo = null, pct = 0, instalando = false;
+  function pintar() {
+    $('pasos').replaceChildren();
+    filas.clear();
+    for (const [id, texto] of PASOS) {
+      const li = document.createElement('li');
+      li.textContent = texto;
+      li.dataset.estado = '';
+      $('pasos').append(li);
+      filas.set(id, li);
+    }
+    activo = null; pct = 0;
+  }
+  function estado(id, e) { const li = filas.get(id); if (li) { li.className = e; li.dataset.estado = e; } }
+  function total() {
+    let suma = 0, hecho = 0;
+    for (const [id, , peso] of PASOS) {
+      const e = filas.get(id).dataset.estado;
+      if (e === 'omitido') continue;
+      suma += peso;
+      if (e === 'hecho') hecho += peso; else if (e === 'activo') hecho += peso * pct / 100;
+    }
+    $('total').style.width = `${suma ? Math.min(100, 100 * hecho / suma) : 0}%`;
+  }
+  pintar();
+  window.instalar.on((kind, a, b) => {
+    if (kind === 'inicio') {
+      pintar();
+      instalando = true;
+      $('fallo').classList.remove('visible');
+      $('titulo').textContent = b ? `Actualizando a la versión ${a}` : 'Instalando Companion';
+      $('sub').textContent = b ? 'Tus datos, voces y personajes se conservan.'
+        : 'La primera vez descarga Python, el oído y las voces (unos 5 GB). Puede tardar un rato.';
+    } else if (kind === 'paso') {
+      if (activo && activo !== a) estado(activo, 'hecho');
+      if (a === 'arranque') {
+        // Sin nada que instalar, la ventana solo enseña el arranque.
+        for (const [id] of PASOS) if (id !== 'arranque' && !filas.get(id).dataset.estado) estado(id, instalando ? 'hecho' : 'omitido');
+        if (!instalando) $('sub').textContent = 'Arrancando el servidor local…';
+      }
+      activo = a; pct = 0; estado(a, 'activo'); $('detalle').textContent = '';
+    } else if (kind === 'omitido') {
+      estado(a, 'omitido');
+    } else if (kind === 'progreso') {
+      pct = Number(a) || 0; if (b) $('detalle').textContent = b;
+    } else if (kind === 'linea') {
+      $('detalle').textContent = a;
+    } else if (kind === 'error') {
+      $('fallo-texto').textContent = a;
+      $('fallo').classList.add('visible');
+      $('titulo').textContent = 'No se pudo terminar';
+    }
+    total();
+  });
+  $('reintentar').onclick = () => { $('fallo').classList.remove('visible'); window.instalar.retry(); };
+  $('registro').onclick = () => window.instalar.showLog();
+</script>
+</body>
+</html>

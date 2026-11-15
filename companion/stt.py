@@ -2,6 +2,7 @@
 import logging
 import os
 import site
+import sys
 import threading
 from pathlib import Path
 
@@ -48,7 +49,7 @@ class Transcriber:
             return _Whisper(str(local) if (local / "model.bin").is_file() else name, **kw)
 
         silence = np.zeros(8000, dtype=np.float32)
-        if self.want_device in ("auto", "cuda"):
+        if self.want_device in ("auto", "cuda") and sys.platform != "darwin":   # en el Mac no hay CUDA
             try:
                 _add_cuda_dlls()
                 model = WhisperModel(self.model_name, device="cuda", compute_type=self.compute)
@@ -62,7 +63,8 @@ class Transcriber:
                     self.error = str(e)
                     return
         try:
-            name = self.model_name if self.want_device == "cpu" else "small"   # large en CPU sería muy lento
+            # large en CPU sería muy lento en un PC; el procesador de un Mac con Apple Silicon sí mueve el turbo
+            name = self.model_name if self.want_device == "cpu" or sys.platform == "darwin" else "small"
             self.model, self.device = WhisperModel(name, device="cpu", compute_type="int8"), "cpu"
             self.model_name = name
             log.info("Whisper %s en CPU", name)

@@ -791,6 +791,8 @@ class Session:
         pcm = b"".join([c async for c in tts.stream_speech(text, voice, speed, engine)])
         if (engine or settings.voice_engine) != "completa" or not self.stt.ready or not pcm:
             return pcm
+        if getattr(self.stt, "device", None) != "cuda":
+            return pcm                    # en el procesador, escucharla otra vez tarda casi lo que la frase
         loop = asyncio.get_running_loop()
         best, best_lost = pcm, None
         # Si no está sonando nada (la primera frase), cada repetición se nota como espera: como mucho una.

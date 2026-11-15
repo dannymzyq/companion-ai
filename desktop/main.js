@@ -4,6 +4,7 @@
 // Solo hay una ventana viva a la vez, para que nunca haya dos conversaciones escuchando el micrófono.
 //
 //   desktop\electron\electron.exe desktop            (lo hace iniciar.ps1)
+//   En el Mac lo carga desktop/mac.js (Companion.app) después de instalar y arrancar el servidor.
 //
 // Variables de entorno: COMPANION_URL (por defecto http://127.0.0.1:8200), COMPANION_STOP_ON_EXIT=1 apaga
 // el servidor al cerrar, COMPANION_TEST=1 es para las pruebas automáticas (ventanas fuera de pantalla, sin
@@ -24,6 +25,8 @@ if (TEST) {
   if (process.env.COMPANION_TEST_REAL_MEDIA !== '1') app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('remote-debugging-port', process.env.COMPANION_TEST_PORT || '9334');
   app.setPath('userData', path.join(app.getPath('temp'), 'companion-pc-prueba'));   // perfil aparte del real
+} else if (process.env.COMPANION_BOOTED === '1') {
+  app.on('second-instance', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });   // el candado es de mac.js
 } else if (!app.requestSingleInstanceLock()) {
   app.quit();                 // ya hay una Mika abierta: no se abre otra escuchando el mismo micrófono
 } else {
@@ -40,8 +43,9 @@ let pickerDone = null;
 let pickerOptions = { audio: false, audioOn: false };
 let audioNext = 0;           // la próxima petición de pantalla es solo para el sonido (hasta este instante)
 let lastShare = null;         // {kind: 'screen' | 'window', name, audio} de lo último que se compartió
-// El sonido de la PC solo se puede capturar en Windows y macOS (Electron lo llama «loopback»).
-const CAN_AUDIO = process.platform === 'win32' || process.platform === 'darwin';
+// El sonido de la PC («loopback») solo se ofrece en Windows: para entenderlo hace falta el oído en una tarjeta
+// NVIDIA (companion/screen_audio.py), y en el Mac Electron aún no lo da sin permisos aparte.
+const CAN_AUDIO = process.platform === 'win32';
 const prefsFile = () => path.join(app.getPath('userData'), 'compartir.json');
 function shareAudioPref() {                // se recuerda si la última vez se compartió también el sonido
   try { return JSON.parse(fs.readFileSync(prefsFile(), 'utf8')).audio === true; } catch { return false; }
@@ -291,6 +295,11 @@ app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => {
   if (process.env.COMPANION_STOP_ON_EXIT !== '1') return;
   // Al cerrar a Mika se apaga también el servidor, para liberar la GPU.
-  const script = path.join(__dirname, '..', 'detener.ps1');
-  spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  const root = process.env.COMPANION_HOME || path.join(__dirname, '..');
+  if (process.platform === 'win32') {
+    spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'detener.ps1')],
+      { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } else {
+    spawn('/bin/bash', [path.join(root, 'detener.sh')], { cwd: root, detached: true, stdio: 'ignore' }).unref();
+  }
 });
