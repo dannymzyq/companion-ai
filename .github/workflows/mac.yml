@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   app:
-    runs-on: macos-14            # Apple Silicon (M1), macOS 14: lo mínimo que pide la app
+    runs-on: macos-15            # Apple Silicon (M1); la app pide macOS 14 o posterior (macos-14 ya no existe en GitHub)
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
