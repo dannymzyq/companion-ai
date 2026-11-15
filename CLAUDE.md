@@ -62,6 +62,9 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   conversación gasta varias. `llm.py` hace el relevo de modelos (`GEMINI_FALLBACK`: Flash-Lite y luego
   `gemma-4-26b-a4b-it`, con la misma clave) y, al final, a Ollama. El trabajo de fondo (resúmenes y pasos del
   control) va con `background=True`: primero `BACKGROUND_MODEL` (`gemma-4-26b-a4b-it`), luego el relevo.
+  Con la nube elegida (15 nov 2026, tarjeta de 6 GB del usuario): el trabajo de fondo nunca cae al modelo local, y
+  el respaldo de la charla va a la tarjeta solo si cabe en lo libre (`llm._fallback_place`); si no, al procesador
+  (`num_gpu: 0`), para no quitarle memoria a la voz completa. Se descarga al volver la nube y al arrancar en nube.
 - Memoria: los 8 resúmenes más recientes van en el prompt de sistema; los antiguos que comparten dos palabras con
   el mensaje van en el último mensaje (`store.relevant_summaries`). El resumen también saca líneas «DATO:»
   (`session.split_summary`, que descarta lo que parece privado).

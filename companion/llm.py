@@ -172,6 +172,8 @@ async def _cloud(messages: list[dict], sampling: dict, images, background: bool 
                 yield piece
             if not background:
                 _local_announced = False
+                if _fallback_loaded:          # la nube volvió: el respaldo local deja libre la tarjeta
+                    _keep(asyncio.create_task(_drop_fallback()))
             return
         except LLMError as e:
             # El modelo de fondo puede no estar disponible para esa clave (o no admitir imágenes): sigue el relevo.
@@ -190,15 +192,54 @@ async def _cloud(messages: list[dict], sampling: dict, images, background: bool 
                 log.warning("Cuota diaria gratuita de %s agotada (%.1f h); sigue: %s", model, q.wait / 3600, nxt or "local")
                 _notices.append(f"Se agotó la cuota gratuita de hoy de {model}. "
                                 + (f"Sigo con {nxt}." if nxt else "No quedan modelos de Gemini por hoy."))
+    if background:
+        # Con la nube elegida, el trabajo de fondo (resúmenes, pasos al usar una ventana) nunca carga el modelo
+        # local: en una tarjeta pequeña le quitaba la memoria de vídeo a la voz completa sin que el usuario lo
+        # pidiera (15 nov 2026). Se reintenta cuando vuelva la cuota.
+        raise LLMError("Se agotó la cuota del cerebro en la nube por ahora; el trabajo de fondo espera a que vuelva.")
     if not settings.local_fallback:
         raise LLMError("Se agotó la cuota del cerebro en la nube por ahora. Usa el cerebro local desde Ajustes o "
                        "revisa el plan de tu proveedor.")
+    model, cpu = await _fallback_place()
     if not _local_announced:
         _local_announced = True
-        _notices.append(f"El cerebro en la nube no está disponible ahora (cuota). Sigo con el modelo local {local_model()}: "
-                        "todo queda en esta PC.")
-    async for piece in _ollama(_images_ollama(messages, images), sampling):
+        _notices.append(f"El cerebro en la nube no está disponible ahora (cuota). Sigo con el modelo local {model}"
+                        + (" en el procesador, para no quitarle memoria de vídeo a la voz ni al oído: irá más lento."
+                           if cpu else ": todo queda en esta PC."))
+    async for piece in _ollama(_images_ollama(messages, images), sampling, model=model, cpu=cpu):
         yield piece
+
+
+_fallback_loaded = False                  # el respaldo local de la nube está cargado en Ollama
+
+
+async def _fallback_place() -> tuple[str, bool]:
+    """Respaldo de la nube: el modelo local elegido, en la tarjeta solo si cabe en la memoria de vídeo que queda
+    libre AHORA (la voz completa y el oído ya están cargados); si no, en el procesador (num_gpu 0). El usuario
+    eligió la nube: el respaldo no debe desplazar a la voz ni frenar el juego."""
+    model = local_models()[0]
+    _ours.add(model)
+    if not _local_sizes:
+        _local_sizes.update({m.get("name"): int(m.get("size", 0) / 2**20) for m in (await _ollama_json("/api/tags")).get("models", [])})
+    gpu = await asyncio.to_thread(gpu_memory)
+    if gpu is None:
+        return model, False               # sin tarjeta NVIDIA, Ollama ya corre en el procesador
+    loaded = {m.get("name"): m for m in (await _ollama_json("/api/ps")).get("models", [])}
+    on_gpu = loaded.get(model, {}).get("size_vram", 0) / 2**20
+    free = gpu["total"] - gpu["used"] + on_gpu
+    cpu = free < need_mb(model) + FALLBACK_MARGIN_MB
+    log.info("Respaldo local %s %s (libres %d MB, pide ~%d MB)", model, "en el procesador" if cpu else "en la tarjeta",
+             free, need_mb(model))
+    return model, cpu
+
+
+FALLBACK_MARGIN_MB = 700                  # holgura: la voz crece un poco al hablar y el juego también pide
+
+
+async def _drop_fallback():
+    global _fallback_loaded
+    _fallback_loaded = False
+    await unload_local()
 
 
 def _last_user(messages: list[dict]) -> tuple[list[dict], dict | None]:
@@ -540,10 +581,18 @@ async def unload_local(models: list[str] | None = None):
             pass
 
 
-async def _ollama(messages: list[dict], sampling: dict) -> AsyncIterator[str]:
-    model = _local_choice or await choose_local()
+async def _ollama(messages: list[dict], sampling: dict, model: str | None = None, cpu: bool = False) -> AsyncIterator[str]:
+    """`model` y `cpu` solo los pasa el respaldo de la nube (ver _fallback_place)."""
+    global _fallback_loaded
+    fallback = model is not None
+    model = model or _local_choice or await choose_local()
+    opts = _options(sampling)
+    if cpu:
+        opts["num_gpu"] = 0                # ninguna capa en la tarjeta
     body = {"model": model, "messages": messages, "stream": True, "think": False,
-            "keep_alive": settings.ollama_keep_alive, "options": _options(sampling)}
+            "keep_alive": "5m" if fallback else settings.ollama_keep_alive, "options": opts}
+    if fallback:
+        _fallback_loaded = True
     for attempt in (1, 2):
         spoke = False
         try:
@@ -556,7 +605,8 @@ async def _ollama(messages: list[dict], sampling: dict) -> AsyncIterator[str]:
                     if attempt == 1 and r.status_code >= 500:
                         await asyncio.sleep(1.5)          # el motor se cayó (casi siempre por memoria): Ollama lo relanza
                         continue
-                    await _too_slow(model, f"error {r.status_code}")
+                    if not cpu:
+                        await _too_slow(model, f"error {r.status_code}")
                     raise LLMError("El modelo local se detuvo, casi seguro por falta de memoria de vídeo. Vuelve a intentarlo.")
                 async for line in r.aiter_lines():
                     if not line.strip():
@@ -573,13 +623,15 @@ async def _ollama(messages: list[dict], sampling: dict) -> AsyncIterator[str]:
                         spoke = True
                         yield piece
                     if data.get("done"):
-                        await _measure(model, data)
+                        if not cpu:               # en el procesador ya se sabe que va lento
+                            await _measure(model, data)
                         return
                 return
         except httpx.ConnectError as e:
             raise LLMError("Ollama no está abierto en esta PC. Ábrelo desde el menú Inicio y vuelve a intentarlo.") from e
         except httpx.TimeoutException as e:
-            await _too_slow(model, f"sin respuesta en {settings.ollama_timeout:.0f} s")
+            if not cpu:
+                await _too_slow(model, f"sin respuesta en {settings.ollama_timeout:.0f} s")
             raise LLMError("El modelo local tardó demasiado en responder: la memoria de vídeo está llena. "
                            "Vuelve a intentarlo o usa el cerebro en la nube.") from e
         except httpx.HTTPError as e:

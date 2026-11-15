@@ -1,4 +1,5 @@
 """Recomendaciones según la tarjeta, relevo de modelos (nube y local) y nombres de los personajes incluidos."""
+import asyncio
 import unittest
 from unittest import mock
 
@@ -63,6 +64,64 @@ class Relevo(unittest.TestCase):
         finally:
             state.save(local_model=None)
             profile.apply()
+
+
+class RespaldoDeLaNube(unittest.TestCase):
+    """Con la nube elegida y la cuota agotada, el modelo local no debe quitarle la tarjeta a la voz completa."""
+
+    def setUp(self):
+        self.antes = (settings.llm_provider, settings.cloud_preset, settings.gemini_model, settings.gemini_api_key,
+                      settings.ollama_model, dict(llm._blocked_until), llm._local_announced)
+        settings.llm_provider, settings.cloud_preset, settings.gemini_model = "gemini", "gemini", "gemini-3.6-flash"
+        settings.gemini_api_key, settings.ollama_model = "clave-de-prueba", "gemma4:e4b-it-qat"
+        llm._local_announced = False
+        self.llamadas = []
+
+        async def sin_cuota(model, payload, sampling):
+            raise llm.QuotaExceeded(3600, True)
+            yield ""                                   # noqa: B901  (generador)
+
+        async def local(messages, sampling, model=None, cpu=False):
+            self.llamadas.append((model, cpu))
+            yield "hola"
+
+        async def ollama_json(path):
+            return {"models": []}
+        self.parches = [mock.patch.object(llm, "_gemini", sin_cuota), mock.patch.object(llm, "_ollama", local),
+                        mock.patch.object(llm, "_ollama_json", ollama_json)]
+        for p in self.parches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.parches:
+            p.stop()
+        (settings.llm_provider, settings.cloud_preset, settings.gemini_model, settings.gemini_api_key,
+         settings.ollama_model, blocked, llm._local_announced) = self.antes
+        llm._blocked_until.clear()
+        llm._blocked_until.update(blocked)
+        llm.pop_notices()
+
+    def charla(self, gpu_mb, background=False):
+        async def run():
+            return "".join([p async for p in llm.stream_chat([{"role": "user", "content": "hola"}],
+                                                             {"temperature": 0.5, "top_p": 0.9, "max_tokens": 20},
+                                                             background=background)])
+        with mock.patch.object(llm, "gpu_memory", lambda: gpu_mb):
+            return asyncio.run(run())
+
+    def test_fondo_no_carga_el_modelo_local(self):
+        with self.assertRaises(llm.LLMError):
+            self.charla({"total": 6144, "used": 4600}, background=True)
+        self.assertEqual(self.llamadas, [])
+
+    def test_tarjeta_pequena_va_al_procesador(self):
+        self.assertEqual(self.charla({"total": 6144, "used": 4600}), "hola")      # voz completa + oído cargados
+        self.assertEqual(self.llamadas, [("gemma4:e4b-it-qat", True)])
+        self.assertTrue(any("procesador" in n for n in llm.pop_notices()))
+
+    def test_si_cabe_va_a_la_tarjeta(self):
+        self.charla({"total": 16384, "used": 4600})
+        self.assertEqual(self.llamadas, [("gemma4:e4b-it-qat", False)])
 
 
 class Personajes(unittest.TestCase):

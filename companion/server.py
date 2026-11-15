@@ -64,8 +64,9 @@ async def lifespan(_: FastAPI):
     loop.set_exception_handler(_quiet_resets)
     loop.run_in_executor(None, transcriber.load)   # el modelo carga sin frenar el arranque
     log.info("Companion en http://%s:%s · cerebro: %s", settings.host, settings.port, llm.status())
-    if not settings.is_cloud:
-        _background(llm.warm_local())
+    # Local: se carga ya. Nube: se saca de la tarjeta el modelo local que hubiera dejado una sesión anterior
+    # cerrada de golpe (con 6 GB no deja sitio a la voz completa).
+    _background(llm.warm_local() if not settings.is_cloud else llm.unload_local())
     await asyncio.to_thread(voz_proc.sync)   # la voz completa corre en su propio proceso (voz/servidor.py)
     yield
     voz_proc.stop()
