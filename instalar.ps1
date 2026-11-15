@@ -141,6 +141,19 @@ if (-not $SinOllama) {
 Paso final "Últimos detalles"
 if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env" }
 New-Item -ItemType Directory -Force "data" | Out-Null
+# Puerto: si otro programa de esta PC ya usa el 8200, el companion se queda con uno libre (se guarda en .env).
+# Un companion de esta carpeta abierto no cuenta: ese puerto es suyo.
+$puerto = Leer-Puerto
+$dueno = Dueno-Puerto $puerto
+if ($dueno -and -not $dueno.Companion) {
+    $libre = Puerto-Libre
+    if ($libre) {
+        Guardar-Puerto $libre
+        Write-Host "El puerto $puerto lo usa otro programa ($($dueno.Nombre)): el companion usará el $libre."
+        $puerto = $libre
+    }
+}
+Write-Host "El companion escuchará en http://127.0.0.1:$puerto"
 if ($AccesosDirectos) {
     # COMPANION_PRUEBA_ACCESOS (solo las pruebas): los accesos van a esa carpeta y no se toca el registro.
     $prueba = $env:COMPANION_PRUEBA_ACCESOS

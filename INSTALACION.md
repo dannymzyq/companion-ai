@@ -139,7 +139,8 @@ Ajustes, «Empezar de nuevo» repite la bienvenida o borra todos tus datos.
 | Voz completa (`voz\servidor.py`) | 8210 | El propio companion, solo si usas la voz completa |
 | Ollama (cerebro local) | 11434 | `iniciar.ps1`, si no estaba abierto |
 
-Todos escuchan solo en esta PC (127.0.0.1).
+Todos escuchan solo en esta PC (127.0.0.1). Si otro programa ya usa el 8200, el instalador (y, si hace falta, el
+arranque) eligen el primer puerto libre desde el 8200 y lo guardan en `.env` como `PORT=…`.
 
 ### Detener
 
@@ -180,7 +181,8 @@ archivo, así que normalmente no hace falta tocarlo. Lo más útil:
 | El modelo local responde muy lento | No cabe en la tarjeta: elige uno más pequeño en Ajustes › Cerebro › «Modelo local», cierra juegos, o usa la nube |
 | «Ollama no está abierto en esta PC» | Ábrelo desde el menú Inicio, o vuelve a ejecutar `iniciar.ps1` |
 | No te oye | Revisa el micrófono elegido en Ajustes; la barra debe moverse al hablar |
-| El companion no arranca | Mira las últimas líneas de `data\companion.log` |
+| El companion no arranca | Mira las últimas líneas de `data\companion.log` (el aviso de error las enseña) |
+| «solo se permite un uso de cada dirección de socket» (error 10048) | Otro programa usaba el puerto 8200. El instalador y el arranque ya eligen uno libre y lo guardan en `.env` (`PORT=8202`, por ejemplo); en versiones anteriores, pon tú esa línea en `.env` |
 | Se cerró solo y al volver a abrirlo no sé por qué | El registro de la vez anterior queda en `data\companion.1.log` (y `.2`, `.3`) |
 | Algo quedó a medias en la instalación | Vuelve a abrir `Instalar.bat` y pulsa Instalar: retoma donde se quedó. El detalle está en `data\instalacion.log` |
 | Doble clic en `Instalar.bat` y no aparece nada | Windows puede tardar unos segundos la primera vez. Si sigue sin abrirse, ejecuta `powershell -ExecutionPolicy Bypass -File scripts\ventana_instalar.ps1` en una terminal para ver el error |

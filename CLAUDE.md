@@ -17,7 +17,9 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `$definicion` de la ventana. Pruébalas con `scripts\prueba_instalador.py` (ventanas fuera de pantalla y capturas;
   `--real` instala de verdad en una copia de `data\`, `--desinstalar` en una copia temporal). Nunca abras la ventana
   ni ejecutes el desinstalador contra esta carpeta sin que el usuario lo pida.
-- Servidor: `.venv\Scripts\python.exe -m companion` (puerto 8200). `iniciar.ps1 -SinVentana` lo arranca sin abrir la ventana.
+- Servidor: `.venv\Scripts\python.exe -m companion` (puerto 8200, o el `PORT` de `.env`: si otro programa usa el 8200,
+  `instalar.ps1` e `iniciar.ps1` eligen uno libre con `Puerto-Libre` de `scripts\comun_instalacion.ps1`). `iniciar.ps1`
+  lleva un candado (mutex) para que dos arranques a la vez no lancen dos servidores. `iniciar.ps1 -SinVentana` lo arranca sin abrir la ventana.
 - Pruebas rápidas (segundos, sin GPU ni servidores, datos en una carpeta temporal): `.venv\Scripts\python.exe -m
   unittest discover -s tests -t .`. Córrelas tras cada cambio; cubren los frenos de acciones y control.
 - Pruebas sin micrófono: `scripts\prueba_componentes.py` y `scripts\prueba_ws.py` (ver README).

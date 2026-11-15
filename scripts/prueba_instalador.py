@@ -109,6 +109,7 @@ def real(base: Path):
     py = raiz / ".venv" / "Scripts" / "python.exe"
     v = subprocess.run([str(py), "-c", "import faster_whisper, fastapi, piper; print('ok')"], capture_output=True, text=True)
     comprobar("entorno del companion", v.stdout.strip() == "ok", v.stdout.strip() or v.stderr[-300:])
+    print("puerto en .env:", [l for l in (raiz / ".env").read_text(encoding="utf-8").splitlines() if l.startswith("PORT")])
     # Se borra la copia (las capturas se quedan). Antes, el enlace de directorio que uv deja en runtime\python: que
     # el borrado nunca lo siga hacia fuera de la copia.
     for e in [e for e in raiz.rglob("*") if e.is_junction() or e.is_symlink()]:

@@ -56,3 +56,42 @@ function Descargar([string]$url, [string]$destino, [string]$texto) {
     } finally { $respuesta.Close() }
     Move-Item -Force $parte $destino
 }
+
+# ---------------------------------------------------------------- puerto del companion
+# El companion escucha en PORT (de .env; 8200 si no está). Si otro programa ya usa ese puerto, se busca uno libre
+# y se guarda en .env, donde lo leen el servidor, detener.ps1 y la ventana. Necesita $raiz.
+function Leer-Puerto {
+    $ruta = Join-Path $raiz ".env"
+    if (Test-Path $ruta) {
+        $l = [IO.File]::ReadAllLines($ruta) | Where-Object { $_ -match '^\s*PORT\s*=\s*(\d+)' } | Select-Object -First 1
+        if ($l -and $l -match '(\d+)') { return [int]$matches[1] }
+    }
+    return 8200
+}
+
+function Dueno-Puerto([int]$p) {
+    # Quién escucha en ese puerto: $null si nadie; si no, el proceso y si es un companion de esta carpeta.
+    $id = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -First 1
+    if (-not $id) { return $null }
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+    $padre = if ($proc) { Get-CimInstance Win32_Process -Filter "ProcessId=$($proc.ParentProcessId)" -ErrorAction SilentlyContinue }
+    $deAqui = [bool]($proc -and $proc.CommandLine -match '\s-m\s+companion(\s|$)' -and
+        (($proc.ExecutablePath -and $proc.ExecutablePath.StartsWith("$raiz\", [StringComparison]::OrdinalIgnoreCase)) -or
+         ($padre -and $padre.ExecutablePath -and $padre.ExecutablePath.StartsWith("$raiz\", [StringComparison]::OrdinalIgnoreCase))))
+    return @{ Id = $id; Nombre = $(if ($proc) { $proc.Name } else { "?" }); Companion = $deAqui }
+}
+
+function Puerto-Libre {
+    # El primero libre desde 8200, sin los de las pruebas (8201, 8211) ni el de la voz (8210).
+    return 8200..8299 | Where-Object { $_ -notin 8201, 8210, 8211 -and -not (Dueno-Puerto $_) } | Select-Object -First 1
+}
+
+function Guardar-Puerto([int]$p) {
+    # PORT=… en .env, sin BOM y sin tocar las demás líneas (ahí puede estar la clave de API).
+    $ruta = Join-Path $raiz ".env"
+    $lineas = @(if (Test-Path $ruta) { [IO.File]::ReadAllLines($ruta) })
+    $hay = $false
+    $lineas = @($lineas | ForEach-Object { if ($_ -match '^\s*PORT\s*=') { $hay = $true; "PORT=$p" } else { $_ } })
+    if (-not $hay) { $lineas += "PORT=$p" }
+    [IO.File]::WriteAllLines($ruta, $lineas, (New-Object System.Text.UTF8Encoding $false))
+}
