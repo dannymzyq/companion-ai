@@ -10,6 +10,13 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   sistema no tiene ruedas de CTranslate2; no hay Node en esta PC (la interfaz es ES modules sin compilar).
   En esta PC `.venv` sigue hecho con el Python de ComfyUI: `instalar.ps1` sin `-NoRehacer` lo rehace con el
   propio, pero para eso detiene el companion (hazlo solo si el usuario lo pide).
+- Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\ventana_instalar.ps1` (WPF) que ejecuta
+  `instalar.ps1` con `COMPANION_UI=1` y lee sus marcas (`::paso::`, `::progreso::`, `::omitido::`, `::error::`,
+  `::fin::`, de `scripts\comun_instalacion.ps1` y `preparar_recursos.py`). `Desinstalar.bat` →
+  `scripts\ventana_desinstalar.ps1` → `desinstalar.ps1`. Si añades un paso al instalador, márcalo y añádelo a
+  `$definicion` de la ventana. Pruébalas con `scripts\prueba_instalador.py` (ventanas fuera de pantalla y capturas;
+  `--real` instala de verdad en una copia de `data\`, `--desinstalar` en una copia temporal). Nunca abras la ventana
+  ni ejecutes el desinstalador contra esta carpeta sin que el usuario lo pida.
 - Servidor: `.venv\Scripts\python.exe -m companion` (puerto 8200). `iniciar.ps1 -SinVentana` lo arranca sin abrir la ventana.
 - Pruebas rápidas (segundos, sin GPU ni servidores, datos en una carpeta temporal): `.venv\Scripts\python.exe -m
   unittest discover -s tests -t .`. Córrelas tras cada cambio; cubren los frenos de acciones y control.
@@ -109,6 +116,10 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   inglés (corrige hacia la marca): `calibrar_pronunciacion.py` solo comprueba que se entienda. Una vocal con
   tilde al principio («Ápel») hace que F5 se la coma: mejor sin tilde («Apel»).
 - Voces nuevas a partir de grabaciones: `scripts\importar_voces.py <carpeta>` y luego `scripts\grabar_muestras.py`.
+- Voces propias del usuario (14 nov 2026): Ajustes › Voz › «Añadir una voz propia» → `POST /api/voices/custom`
+  (`companion/voice_import.py`, mismas piezas que `importar_voces.py`). Viven en `data\voces` (ids `p_…`, fuera de
+  git: no las subas) y `voz\servidor.py` las busca allí (`VOICES_CUSTOM_DIR`, que pasa `voz_proc`). Su voz ligera
+  sale del tono (`LIGHT_BASES`, medido). La transcripción usa el Whisper del oído con su candado.
 - El nodo de voz se queda con memoria de vídeo por cada voz que llega a usar (medido el 12 nov 2026: de ~5 a
   9,5 GB tras probar 15 voces) y no la suelta hasta reiniciarse; con la tarjeta llena, cada frase pasa de 1 s a
   14 s. Por eso: las muestras ▶ son archivos pregrabados (`voices\previews`, sin pasar por el nodo), al nodo solo

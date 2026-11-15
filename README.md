@@ -16,7 +16,13 @@ el historial y los recuerdos se quedan aquí.
 
 ## Instalar
 
-Un solo comando deja todo dentro de esta carpeta (lo que ya está, se salta):
+**Doble clic en `Instalar.bat`**: una ventana deja elegir voz, cerebro local y accesos directos, y enseña el
+progreso en vivo (cada paso, el porcentaje de cada descarga, la velocidad y el tiempo; si algo falla, por qué, y
+«Reintentar» sigue donde se quedó). Para quitarlo, **`Desinstalar.bat`** (o Configuración › Aplicaciones): elige
+qué borrar, con tus datos sin marcar (van a la Papelera). Detalle en [INSTALACION.md](INSTALACION.md).
+
+Por dentro, las ventanas (`scripts\ventana_instalar.ps1`, `scripts\ventana_desinstalar.ps1`, WPF de Windows)
+ejecutan `instalar.ps1` y `desinstalar.ps1`, que también sirven desde una terminal (lo que ya está, se salta):
 
 ```
 powershell -ExecutionPolicy Bypass -File instalar.ps1        # Windows
@@ -76,6 +82,12 @@ La primera vez se abre un asistente de cinco pasos. Cada paso se guarda al pulsa
    transcribe una voz nueva a partir de un mp3; `scripts\grabar_muestras.py` graba su muestra ▶). Las muestras ▶
    son archivos pregrabados (`voices\previews`): oírlas no usa el servidor de voz, que lee las muestras de
    `voices\` directamente y devuelve la memoria sobrante al cambiar de voz.
+   **Voces propias**: «Añadir una voz propia», debajo de la lista, sube una grabación (mp3, wav, m4a, ogg o flac;
+   basta con ~10 s de una sola persona, sin música). El servidor elige el tramo más claro de 5 a 8,5 s (mejor si
+   son frases completas), lo transcribe con el oído y la guarda en `data\voces` (`companion/voice_import.py`),
+   fuera de git. Aparece en la lista con su nombre y una ✕ para quitarla; su muestra ▶ se graba la primera vez que
+   se oye. Con la voz ligera usa el modelo de Piper de tono más parecido. «Cómo habla de sí» se deduce del tono si
+   no se elige.
    Arriba del paso se elige el **motor de voz**, con el recomendado para la PC marcado: **voz completa** (clonada
    con F5-TTS, `voz\servidor.py`, alrededor de 1,5 GB de memoria de vídeo) o **voz ligera** (Piper en el procesador, 0 GB de vídeo,
    más sintética; sus modelos, ~380 MB, se descargan con un botón).

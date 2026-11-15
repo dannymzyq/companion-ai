@@ -20,15 +20,26 @@ escritorio y el companion se abre en el navegador.
 
 ## 2. Instalar
 
-Abre una terminal en la carpeta del proyecto y ejecuta **uno** de estos comandos:
+Haz **doble clic en `Instalar.bat`**. Se abre una ventana:
 
-PowerShell (Windows):
+1. **Elige** la voz (automática, completa y ligera, o solo ligera), si quieres el cerebro local (Ollama) y si
+   quieres accesos directos. Arriba ves tu tarjeta gráfica y abajo cuánto va a ocupar y cuánto espacio libre hay.
+2. Pulsa **Instalar** y mira el progreso en vivo: cada paso con su estado (○ pendiente, ● en marcha, ✓ hecho,
+   – no hace falta), el progreso total, lo que está descargando con su porcentaje, la velocidad y el tiempo.
+   «Ver detalles» enseña todo lo que va haciendo (queda guardado en `data\instalacion.log`).
+3. Al terminar, **Abrir Companion**. Si algo falla, la ventana dice por qué y **Reintentar** sigue donde se
+   quedó. Se puede **Cancelar** en cualquier momento: lo ya descargado no se repite.
+
+Con los accesos directos, el companion queda en el escritorio y en el menú Inicio (carpeta «Companion», con
+su desinstalador), y aparece en **Configuración › Aplicaciones** para quitarlo desde ahí.
+
+Si abres `Companion.bat` sin haber instalado, se abre esta misma ventana.
+
+**Desde una terminal** (lo mismo, sin ventana):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File instalar.ps1
 ```
-
-Bash (Git Bash en Windows, Linux o macOS):
 
 ```bash
 bash instalar.sh
@@ -37,8 +48,8 @@ bash instalar.sh
 En Git Bash, `instalar.sh` simplemente llama a `instalar.ps1`.
 
 La primera instalación descarga entre 6 y 15 GB según la PC y puede tardar de 10 a 40 minutos. Se puede
-repetir cuantas veces haga falta: lo que ya está instalado se salta. Si el companion está abierto y hay que
-rehacer su entorno, el instalador lo cierra.
+repetir cuantas veces haga falta: lo que ya está instalado se salta. Si el companion está abierto, la ventana
+pregunta si lo cierra antes de empezar.
 
 Instala las mismas versiones que se probaron: uv va en una versión fija y se comprueba su suma SHA-256, y las
 librerías salen de `requirements.lock` y `voz\requirements.lock`. Si alguna de esas versiones ya no se puede
@@ -66,6 +77,7 @@ descargar, avisa e instala las últimas compatibles con `requirements.txt`.
 | `-Voz ambas` | `--voz=ambas` | Las dos, para poder cambiar entre ellas en Ajustes |
 | `-SinOllama` | `--sin-ollama` | No instala Ollama ni descarga un modelo: solo cerebro en la nube |
 | `-SinModeloLocal` | `--sin-modelo-local` | Instala Ollama pero no descarga ningún modelo |
+| `-AccesosDirectos` | | Accesos en el escritorio y el menú Inicio, y la entrada en Aplicaciones instaladas |
 | `-NoRehacer` | `--no-rehacer` (Git Bash) | Conserva un `.venv` creado con un Python de fuera del proyecto |
 | | `--instalar-ollama` | Linux y macOS: instala Ollama con su script oficial |
 
@@ -93,7 +105,7 @@ solo se ha probado en una tarjeta de 16 GB.
 
 ## 3. Ejecutar
 
-Doble clic en **`Companion.bat`**, o desde una terminal:
+Doble clic en el acceso directo **Companion** del escritorio (o en **`Companion.bat`**), o desde una terminal:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File iniciar.ps1
@@ -170,7 +182,8 @@ archivo, así que normalmente no hace falta tocarlo. Lo más útil:
 | No te oye | Revisa el micrófono elegido en Ajustes; la barra debe moverse al hablar |
 | El companion no arranca | Mira las últimas líneas de `data\companion.log` |
 | Se cerró solo y al volver a abrirlo no sé por qué | El registro de la vez anterior queda en `data\companion.1.log` (y `.2`, `.3`) |
-| Algo quedó a medias en la instalación | Vuelve a ejecutar el instalador: retoma donde se quedó |
+| Algo quedó a medias en la instalación | Vuelve a abrir `Instalar.bat` y pulsa Instalar: retoma donde se quedó. El detalle está en `data\instalacion.log` |
+| Doble clic en `Instalar.bat` y no aparece nada | Windows puede tardar unos segundos la primera vez. Si sigue sin abrirse, ejecuta `powershell -ExecutionPolicy Bypass -File scripts\ventana_instalar.ps1` en una terminal para ver el error |
 
 ## 6. Actualizar y desinstalar
 
@@ -179,7 +192,15 @@ archivo, así que normalmente no hace falta tocarlo. Lo más útil:
 - **Actualizar las librerías** (para quien desarrolla): instálalas en `.venv` o `voz\.venv`, prueba que todo va
   bien y fija las versiones nuevas con `powershell -ExecutionPolicy Bypass -File scripts\fijar_versiones.ps1`.
 - **Liberar espacio**: `runtime\cache` se puede borrar sin problema.
-- **Desinstalar**: cierra el companion y borra la carpeta. Ollama y sus modelos se quitan aparte
-  (Configuración de Windows › Aplicaciones, y `ollama rm <modelo>`).
+- **Desinstalar**: doble clic en **`Desinstalar.bat`**, o Configuración › Aplicaciones › Companion ›
+  Desinstalar, o el acceso del menú Inicio. Se abre una ventana con lo que ocupa cada parte:
+  - Marcado: Python y librerías, el oído, las voces y los accesos directos (se pueden volver a instalar).
+  - Sin marcar, si quieres: los modelos locales de Ollama que usa el companion, **tus datos** (conversación,
+    recuerdos, ajustes, clave de API, voces y personajes propios; van a la Papelera) y **la carpeta entera**
+    (se borra unos segundos después de cerrar; no se ofrece si la carpeta es una copia con git).
+  - Ollama, el programa, se queda: si ya no lo usas, quítalo desde Configuración › Aplicaciones.
+
+  Desde una terminal: `powershell -ExecutionPolicy Bypass -File desinstalar.ps1 -Programa -Oido -VozLigera
+  -VozCompleta -Accesos` (y `-ModelosOllama`, `-Datos`, `-Carpeta` si los quieres).
 
 Más detalle sobre cómo funciona por dentro en [README.md](README.md).

@@ -57,7 +57,7 @@ if [ ! -x "$UV" ]; then
   if [ -z "$suma" ] || [ "$suma" != "$real" ]; then rm -f runtime/uv.tar.gz; echo "La descarga de uv no coincide con su suma SHA-256"; exit 1; fi
   tar -xzf runtime/uv.tar.gz -C runtime --strip-components=1 && rm -f runtime/uv.tar.gz
 fi
-"$UV" python install 3.13
+"$UV" python install 3.13 --no-bin          # nada fuera de esta carpeta
 
 entorno() {   # crea el entorno con el Python de runtime/; uno hecho con un Python de fuera se rehace
   if [ -x "$1/bin/python" ] && grep -i '^ *home' "$1/pyvenv.cfg" 2>/dev/null | grep -qF "$RAIZ"; then return; fi

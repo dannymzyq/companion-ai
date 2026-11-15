@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $raiz = Split-Path -Parent $PSScriptRoot
 Set-Location $raiz
+. "$PSScriptRoot\comun_instalacion.ps1"
 
 if (-not $SoloWeb -and -not $Python) { & "$raiz\instalar.ps1"; exit $LASTEXITCODE }   # el instalador completo trae su propio Python
 if (-not $SoloWeb) {
@@ -42,7 +43,7 @@ foreach ($a in $archivos) {
     if (Test-Path $dst) { continue }
     New-Item -ItemType Directory -Force (Split-Path -Parent $dst) | Out-Null
     Write-Host "Descargando $($a.url)"
-    Invoke-WebRequest -Uri $a.url -OutFile $dst -UseBasicParsing
+    Descargar $a.url $dst "Librerías 3D: $(Split-Path -Leaf $a.dst)"
 }
 
 # App de escritorio (ventana propia y avatar flotante)

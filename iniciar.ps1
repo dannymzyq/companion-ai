@@ -6,8 +6,10 @@ $raiz = $PSScriptRoot
 Set-Location $raiz
 
 if (-not (Test-Path ".venv\Scripts\python.exe") -or -not (Test-Path "web\vendor\three\build\three.module.min.js")) {
-    Write-Host "Primera vez: preparando el entorno (tarda unos minutos)..."
-    & "$raiz\instalar.ps1"
+    # Falta instalar: se abre la ventana de instalación (con su progreso) y, al terminar, ella abre el companion.
+    Start-Process powershell.exe -ArgumentList "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+        "-File", "`"$raiz\scripts\ventana_instalar.ps1`"" -WindowStyle Hidden
+    exit 0
 }
 
 # Servicios: el cerebro local (Ollama) se arranca aqui si no esta abierto; la voz completa (voz\servidor.py,
@@ -62,9 +64,10 @@ if (-not (Test-Vivo)) {
     $listo = $false
     foreach ($i in 1..40) { Start-Sleep -Milliseconds 500; if (Test-Vivo) { $listo = $true; break } }
     if (-not $listo) {
-        Write-Host "El companion no arrancó. Últimas líneas del registro:" -ForegroundColor Red
-        Get-Content "data\companion.log" -Tail 15
-        Read-Host "Pulsa Enter para salir"
+        # Con el acceso directo no hay terminal: el aviso va en una ventana.
+        $cola = (Get-Content "data\companion.log" -Tail 12 -ErrorAction SilentlyContinue) -join "`n"
+        Add-Type -AssemblyName PresentationFramework
+        [Windows.MessageBox]::Show("El companion no arrancó. Últimas líneas del registro (data\companion.log):`n`n$cola", "Companion", "OK", "Error") | Out-Null
         exit 1
     }
 }
