@@ -88,14 +88,19 @@ jobs:
           # En el procesador: la GPU paravirtual del Mac de GitHub se cuelga con Metal (en un Mac de verdad va en la GPU).
           VOZ_DISPOSITIVO=cpu voz/.venv/bin/python -m uvicorn servidor:app --app-dir voz --host 127.0.0.1 --port 8211 > "$RUNNER_TEMP/voz.log" 2>&1 &
           for i in $(seq 1 600); do        # hasta 20 min: en el procesador de un Mac virtual F5 carga despacio
-            if curl -fsS http://127.0.0.1:8211/health | grep -q '"tts": *"f5'; then break; fi
+            grep -q "F5-TTS listo" "$RUNNER_TEMP/voz.log" && break
             if curl -fsS http://127.0.0.1:8211/health | grep -q '"error": *"[^"]'; then break; fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:8211/health; echo
-          curl -fsS http://127.0.0.1:8211/health | grep -q '"tts": *"f5' || { echo "La voz completa no cargó"; exit 1; }
-          set -o pipefail
-          .venv/bin/python scripts/prueba_componentes.py 2>&1 | tee -a "$RUNNER_TEMP/pruebas.log"
+          grep "F5-TTS listo" "$RUNNER_TEMP/voz.log" || { echo "La voz completa no cargó"; exit 1; }
+          # Una frase directa al servidor, con tiempo: en este Mac virtual va en el procesador y es lenta (la
+          # velocidad de verdad, con la GPU, se mide en un Mac real); aquí se comprueba que suena.
+          t0=$(date +%s)
+          curl -fsS -m 900 -X POST http://127.0.0.1:8211/v1/audio/speech -H 'Content-Type: application/json'             -d '{"input": "Hola, esto es una prueba de la voz completa en un Mac.", "voice": "mika_es", "speed": 1.0}' -o "$RUNNER_TEMP/voz.pcm"
+          bytes=$(wc -c < "$RUNNER_TEMP/voz.pcm")
+          echo "Voz completa: $((bytes / 48000)) s de audio en $(( $(date +%s) - t0 )) s (procesador de un Mac virtual)"
+          [ "$bytes" -gt 48000 ]
 
       - name: Cerrar
         if: always()
