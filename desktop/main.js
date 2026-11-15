@@ -11,6 +11,7 @@
 const { app, BrowserWindow, ipcMain, session, desktopCapturer, screen, shell } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const URL_BASE = (process.env.COMPANION_URL || 'http://127.0.0.1:8200').replace(/\/$/, '');
 const ORIGIN = new URL(URL_BASE).origin;
@@ -36,7 +37,17 @@ let drag = null;
 let picker = null;            // ventana «¿Qué quieres que vea Mika?»
 let pickerSources = [];
 let pickerDone = null;
-let lastShare = null;         // {kind: 'screen' | 'window', name} de lo último que se compartió
+let pickerOptions = { audio: false, audioOn: false };
+let lastShare = null;         // {kind: 'screen' | 'window', name, audio} de lo último que se compartió
+// El sonido de la PC solo se puede capturar en Windows y macOS (Electron lo llama «loopback»).
+const CAN_AUDIO = process.platform === 'win32' || process.platform === 'darwin';
+const prefsFile = () => path.join(app.getPath('userData'), 'compartir.json');
+function shareAudioPref() {                // se recuerda si la última vez se compartió también el sonido
+  try { return JSON.parse(fs.readFileSync(prefsFile(), 'utf8')).audio === true; } catch { return false; }
+}
+function saveShareAudioPref(on) {
+  try { fs.writeFileSync(prefsFile(), JSON.stringify({ audio: !!on })); } catch { /* sin permiso: no pasa nada */ }
+}
 
 const webPreferences = () => ({
   preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true,
@@ -138,8 +149,9 @@ ipcMain.on('companion:resize', (e, step) => {
 
 // ---------------------------------------------------------------- elegir qué se comparte
 // Lista pantallas y ventanas (sin las del propio companion) y deja elegir una en una ventana aparte, que
-// sirve igual en modo normal y en modo flotante. Devuelve {id, name, kind} o null si se cancela.
-async function pickSource() {
+// sirve igual en modo normal y en modo flotante. Devuelve {id, name, kind, audio} o null si se cancela.
+// `audio`: la página pidió sonido; solo entonces se ofrece el interruptor «Escuchar también el sonido».
+async function pickSource(audio) {
   if (picker && !picker.isDestroyed()) picker.destroy();        // una petición anterior sin responder
   const found = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 400, height: 250 } });
   const mine = win && !win.isDestroyed() ? win.getMediaSourceId() : '';
@@ -170,15 +182,18 @@ async function pickSource() {
   });
   picker = w;
   pickerSources = list;
+  pickerOptions = { audio: CAN_AUDIO && audio, audioOn: shareAudioPref() };
   w.setMenuBarVisibility(false);
   w.setAlwaysOnTop(true, 'screen-saver');           // que no quede tapada por Mika flotante
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   w.loadFile(path.join(__dirname, 'picker.html'));
   return new Promise((resolve) => {
-    pickerDone = (id) => {
+    pickerDone = (id, withAudio) => {
       pickerDone = null;
-      resolve(list.find((s) => s.id === id) || null);
+      const s = list.find((x) => x.id === id);
+      if (s && pickerOptions.audio) saveShareAudioPref(withAudio);
+      resolve(s ? { ...s, audio: !!(withAudio && pickerOptions.audio) } : null);
       if (!w.isDestroyed()) w.destroy();
     };
     w.on('closed', () => {
@@ -190,7 +205,8 @@ async function pickSource() {
 
 const fromPicker = (e) => picker && !picker.isDestroyed() && e.sender === picker.webContents;
 ipcMain.handle('picker:sources', (e) => (fromPicker(e) ? pickerSources : []));
-ipcMain.on('picker:choose', (e, id) => { if (fromPicker(e) && pickerDone) pickerDone(String(id || '')); });
+ipcMain.handle('picker:options', (e) => (fromPicker(e) ? pickerOptions : null));
+ipcMain.on('picker:choose', (e, id, withAudio) => { if (fromPicker(e) && pickerDone) pickerDone(String(id || ''), withAudio === true); });
 
 // Qué se eligió la última vez (pantalla o ventana y su nombre), para que la página se lo cuente a Mika.
 ipcMain.handle('companion:share-info', (e) => (fromOurPage(e) ? lastShare : null));
@@ -216,14 +232,16 @@ app.whenReady().then(async () => {
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     let chosen = null;
     try {
-      if (ours(request.securityOrigin || (request.frame && request.frame.url) || '')) chosen = await pickSource();
+      if (ours(request.securityOrigin || (request.frame && request.frame.url) || '')) chosen = await pickSource(!!request.audioRequested);
     } catch (err) {
       console.error('No pude listar pantallas y ventanas:', err);
     }
     try {
       if (!chosen) return callback(null);          // cancelado: getDisplayMedia() se rechaza con AbortError
-      lastShare = { kind: chosen.kind, name: chosen.name };
-      callback({ video: { id: chosen.id, name: chosen.name } });
+      lastShare = { kind: chosen.kind, name: chosen.name, audio: chosen.audio };
+      // Con «Escuchar también el sonido», el de toda la PC (Windows no deja separar el de una sola ventana).
+      // La voz de Mika también suena ahí: la interfaz no envía ese audio mientras ella habla.
+      callback({ video: { id: chosen.id, name: chosen.name }, ...(chosen.audio ? { audio: 'loopback' } : {}) });
     } catch (err) {
       console.error('La ventana que pidió compartir ya no existe:', err.message);
     }

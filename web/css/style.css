@@ -308,6 +308,11 @@ dd.bad { color: var(--danger); }
   color: #fff; background: rgba(0, 0, 0, 0.55);
 }
 #previews figure button svg { width: 14px; height: 14px; }
+#previews figure button.sound { right: 33px; }
+#previews figure button.sound[hidden] { display: none; }
+#previews figure button.sound .mute, #previews figure button.sound.off .wave { display: none; }
+#previews figure button.sound.off .mute { display: inline; }
+#previews figure button.sound.off { color: #fca5a5; }
 #camera.active, #screen.active { color: #fff; background: #e5484d; border-color: transparent; }
 
 /* Modelos 3D en Ajustes */

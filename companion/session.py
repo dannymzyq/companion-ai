@@ -3,6 +3,7 @@
 Protocolo del WebSocket (/ws):
   cliente → servidor   binario: PCM 16 bits mono 16 kHz del micrófono
                        {"type":"start"} · {"type":"text","text":"..."} · {"type":"interrupt"} · {"type":"playback_end"}
+                       {"type":"screen_audio","pcm":"<base64 PCM 16 bits 16 kHz, ~1 s>"} · {"type":"screen_audio_stop"}
   servidor → cliente   {"type":"state","value":"idle|listening|thinking|speaking"}
                        {"type":"user_text","text":"..."}
                        {"type":"sentence","id":n,"text":"...","emotion":"feliz"|null,"gestures":[...]}
@@ -20,7 +21,7 @@ from collections import deque
 
 import numpy as np
 
-from . import actions, llm, profile, store, tts, voicecheck
+from . import actions, llm, profile, screen_audio, store, tts, voicecheck
 from .config import settings
 from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
                      local_time, sampling_for, turn_context)
@@ -122,6 +123,7 @@ class Session:
         self.carry_text = ""                         # ídem, ya transcrito
         self.sent_sentences: list[str] = []
         self.frames: dict[str, tuple[str, float, str, str]] = {}   # origen → (JPEG base64, cuándo llegó, qué es, título)
+        self.ear = screen_audio.ScreenEar(transcriber)            # el sonido de la pantalla compartida, transcrito
 
         self.anchor = store.anchor(HISTORY_KEEP)           # primer mensaje del historial que se envía al LLM
         self.watch = False                                 # mirada en vivo (la activa la interfaz)
@@ -210,6 +212,27 @@ class Session:
         elif kind == "frame_stop":
             for box in (self.frames, self.clips, self.motion):
                 box.pop(data.get("source"), None)
+            if data.get("source") == "screen":
+                self.ear.clear()
+        elif kind == "screen_audio":
+            # Solo mientras se comparte la pantalla, y nunca mientras suena Mika (el sonido de la PC trae su voz).
+            audio = screen_audio.decode(data.get("pcm"))
+            if audio is None or "screen" not in self.frames:
+                return
+            if getattr(self.stt, "device", None) != "cuda":
+                # En el procesador, Whisper tarda más que el propio sonido y frenaría lo que dice el usuario.
+                if not self.ear.told:
+                    self.ear.told = True
+                    await self.send_json({"type": "notice", "message": "Para escuchar el sonido de la pantalla hace falta "
+                                          "que el oído use la tarjeta NVIDIA; en esta PC solo ve la imagen."})
+                return
+            if self.client_playing:
+                self.ear.drop_buffer()
+                return
+            self.ear.feed(audio)
+            self.ear.maybe_transcribe(can_wait=self.in_speech or self.phase == "stt")
+        elif kind == "screen_audio_stop":
+            self.ear.clear()
         elif kind == "watch":
             self.watch = bool(data.get("on"))
         elif kind == "action_answer":
@@ -396,6 +419,7 @@ class Session:
         images = [llm.Image(kind, jpeg, name) for jpeg, at, kind, name in
                   (self.frames[src] for src in FRAME_SOURCES if src in self.frames)
                   if now - at <= FRAME_MAX_AGE] if text is not None else []
+        heard = self._heard() if text is not None else ""
         guessed = await actions.guess_async(text) if text is not None else None
         if guessed and guessed[0] == "controlar":
             # La tarea va con tus palabras tal cual (con acentos y entera): el reconocedor la simplifica.
@@ -458,7 +482,7 @@ class Session:
                 # no sale claramente de tus palabras (la eligió el modelo) pregunta, porque podría venir de un texto
                 # que se veía en la imagen.
                 trusted = {guessed[0]} if guessed else set()
-                if not images:
+                if not images and not heard:          # lo oído en la pantalla tampoco es una orden suya
                     trusted |= {actions._plain(n).replace(" ", "_") for n, _ in wanted}
                 await self._ask(wanted[:actions.MAX_PER_REPLY], quiet=not parser.actions, trusted=trusted)
         self.phase, self.turn_text, self.turn_audio = "idle", None, None
@@ -551,6 +575,10 @@ class Session:
             self.confirms.pop(cid, None)
         await self.send_json({"type": "action_done", "id": cid, "ok": ok, "text": "Confirmado." if ok else "No se hizo."})
         return ok
+
+    def _heard(self) -> str:
+        """Lo que se oyó hace poco en el sonido de la pantalla compartida ('' si no se comparte o no se oye nada)."""
+        return self.ear.recent() if "screen" in self.frames else ""
 
     def _sharing_screen(self) -> bool:
         """¿El usuario está compartiendo la pantalla ahora? Entonces el control puede mirar la ventana que maneja."""
@@ -659,7 +687,7 @@ class Session:
                     done += "".join(f"\n(Recuerdas de una conversación del {time.strftime('%d/%m/%Y', time.localtime(ts))}: {t})"
                                     for t, ts in old)
             if self.outcomes and not instruction:          # cómo acabaron sus acciones, una sola vez
-                done = f"\n(Tus acciones anteriores: {'; '.join(self.outcomes[-4:])}.)"
+                done += f"\n(Tus acciones anteriores: {'; '.join(self.outcomes[-4:])}.)"
                 self.outcomes = []
             if hint:                                        # orden clara: se le recuerda la etiqueta exacta
                 done += (f"\n(Esto es una petición de tu lista. Empieza tu respuesta con "
@@ -667,6 +695,10 @@ class Session:
             if refuse:
                 done += (f"\n(Te pide algo en su PC, pero ahora no puedes hacerlo: {refuse}. Díselo con claridad en "
                          "una frase; no digas que lo vas a hacer.)")
+            heard = self._heard()
+            if heard:                                       # lo que se oye en lo que comparte (vídeo, juego, llamada)
+                done += screen_audio.note(heard, settings.user_name)
+                self.ear.new_text = False
             last["content"] = f"{turn_context(local_time(settings.timezone))}{done}\n{last['content']}"
         return messages
 
@@ -688,7 +720,9 @@ class Session:
                         or now - self.last_talk < WATCH_QUIET or now - self.last_comment < settings.watch_gap):
                     continue
                 clips = {src: [f for f in clip if now - f[1] <= WATCH_WINDOW] for src, clip in self.clips.items()}
-                moved = [src for src in FRAME_SOURCES if clips.get(src) and self.motion.get(src, 0) >= WATCH_MOTION]
+                # Algo que se dijo en el sonido de la pantalla también cuenta como novedad, aunque la imagen no cambie.
+                moved = [src for src in FRAME_SOURCES if clips.get(src) and (self.motion.get(src, 0) >= WATCH_MOTION
+                                                                             or (src == "screen" and self.ear.new_text))]
                 if not moved:
                     continue
                 for src in moved:
@@ -833,6 +867,7 @@ class Session:
         if self in _open:
             _open.remove(self)
         self.control_stop = True              # una tarea con ratón y teclado se para al cerrar la ventana
+        self.ear.clear()
         if self.watcher:
             self.watcher.cancel()
         for task in list(self.side):          # respuestas pendientes de esta conexión (los temporizadores siguen)

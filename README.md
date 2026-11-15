@@ -170,7 +170,8 @@ Aunque esté apagado, sí aparece una tarjeta en dos casos:
 - **Pasos delicados que tu orden no pedía:** Enviar, Comprar, Borrar… «Elimina la lista» autoriza a pulsar
   «Eliminar lista»; «pon una canción», no.
 - **Pantalla o cámara compartidas:** si compartías la pantalla o la cámara y la acción la eligió el modelo (no
-  sale claramente de tus palabras), porque podría venir de un texto que se veía en la imagen.
+  sale claramente de tus palabras), porque podría venir de un texto que se veía en la imagen (o de algo que se
+  oyó en el sonido compartido).
 
 | Acción | Ejemplo de lo que le dices |
 | --- | --- |
@@ -254,6 +255,13 @@ tu ratón:
   cada ventana abierta. Eliges una y Mika ve **solo eso**: si compartes una ventana, no ve el resto del escritorio
   (y sabe que es una ventana y cuál). «Cancelar» o Esc no comparte nada. Para cambiar de ventana, deja de
   compartir y vuelve a pulsar. Si cierras la ventana compartida, se deja de compartir sola.
+- **Escuchar también el sonido** (interruptor abajo en esa ventana; se recuerda la última elección): Mika oye lo
+  que suena en la PC —un vídeo, un juego, una llamada— para entender mejor lo que compartes. Es el sonido de toda
+  la PC (Windows no deja separar el de una sola ventana). El audio no sale de la PC ni se graba: Whisper lo
+  transcribe aquí cada ~6 s y Mika recibe solo el texto de lo dicho en el último medio minuto (con la nube, ese
+  texto va a Google junto con la imagen). Mientras Mika habla no escucha, para no oírse a sí misma. Lo dicho en
+  el sonido también despierta la mirada en vivo. El altavoz de la miniatura lo silencia sin dejar de compartir.
+  Necesita que el oído use la tarjeta NVIDIA (en el procesador, Whisper sería demasiado lento).
 - Mientras están activas se ve una miniatura con un punto rojo; se apagan con el mismo botón o con la ✕.
 - Se toma una imagen por segundo y la última viaja con tu siguiente mensaje. No se graba ni se guarda en el
   historial. Con el cerebro en la nube esa imagen se envía a Google; con el local no sale de la PC.

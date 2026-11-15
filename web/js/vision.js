@@ -54,7 +54,9 @@ export class Vision {
     const usable = ready && ready.getVideoTracks()[0] && ready.getVideoTracks()[0].readyState === 'live';
     const stream = usable ? ready : kind === 'camera'
       ? await this.openCamera(deviceId)
-      : await media.getDisplayMedia({ video: { frameRate: { ideal: 5 } }, audio: false });
+      // Se pide también el sonido: la app de escritorio solo lo da si en su ventana se activó «Escuchar también
+      // el sonido» (en un navegador, la casilla «Compartir audio» del propio navegador).
+      : await media.getDisplayMedia({ video: { frameRate: { ideal: 5 } }, audio: true });
     const video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;

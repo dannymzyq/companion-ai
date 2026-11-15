@@ -80,8 +80,24 @@ class Transcriber:
                 condition_on_previous_text=False, initial_prompt=self.hint or None, without_timestamps=True)
             parts = [s.text.strip() for s in segments
                      if not (s.no_speech_prob > 0.6 and s.avg_logprob < -0.8)]
-        text = " ".join(p for p in parts if p).strip()
-        low = text.lower()
-        if len(low) < 60 and any(h in low for h in HALLUCINATIONS) and len(audio) < 16000 * 2.5:
+        return _clean(" ".join(p for p in parts if p).strip(), len(audio))
+
+    def transcribe_media(self, audio: np.ndarray) -> str:
+        """Sonido de la pantalla compartida (vídeos, juegos, llamadas): el idioma se detecta solo, el filtro de voz
+        salta la música y el silencio, y sin la pista de nombres del usuario (no es él quien habla)."""
+        if self.model is None:
             return ""
-        return text
+        with self._lock:
+            segments, _ = self.model.transcribe(
+                audio, language=None, beam_size=1, temperature=0.0, vad_filter=True,
+                condition_on_previous_text=False, without_timestamps=True)
+            parts = [s.text.strip() for s in segments if not (s.no_speech_prob > 0.5 and s.avg_logprob < -0.7)]
+        return _clean(" ".join(p for p in parts if p).strip(), len(audio))
+
+
+def _clean(text: str, samples: int) -> str:
+    """Quita lo que Whisper inventa sobre ruido o silencio (en tramos cortos)."""
+    low = text.lower()
+    if len(low) < 60 and any(h in low for h in HALLUCINATIONS) and samples < 16000 * 2.5:
+        return ""
+    return text

@@ -28,7 +28,18 @@
   .thumb span { color: #6f6a85; font-size: 0.75rem; }
   .name { font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { color: #8f8aa6; font-size: 0.85rem; }
-  footer { display: flex; justify-content: flex-end; padding: 12px 22px; border-top: 1px solid var(--line); }
+  footer { display: flex; align-items: center; gap: 16px; padding: 12px 22px; border-top: 1px solid var(--line); }
+  #sound { flex: 1; display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+  #sound[hidden] { display: none; }
+  #sound input { position: absolute; opacity: 0; pointer-events: none; }
+  #sound .switch { flex: none; width: 36px; height: 20px; margin-top: 1px; border-radius: 99px; background: rgba(255, 255, 255, 0.18); position: relative; transition: background 0.15s; }
+  #sound .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+  #sound input:checked + .switch { background: var(--accent); }
+  #sound input:checked + .switch::after { transform: translateX(16px); }
+  #sound input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #sound b { display: block; font-weight: 600; font-size: 0.88rem; }
+  #sound small { display: block; color: #a8a3bd; font-size: 0.76rem; }
+  .spacer { flex: 1; }
   #cancel { font: inherit; color: inherit; padding: 8px 18px; border-radius: 99px; border: 1px solid var(--line); background: none; cursor: pointer; }
   #cancel:hover { background: rgba(255, 255, 255, 0.08); }
 </style>
@@ -44,7 +55,16 @@
     <h2>Ventanas</h2>
     <div class="grid" id="windows"></div>
   </main>
-  <footer><button id="cancel">Cancelar</button></footer>
+  <footer>
+    <label id="sound" hidden>
+      <input type="checkbox" id="sound-on">
+      <span class="switch" aria-hidden="true"></span>
+      <span><b>Escuchar también el sonido</b>
+        <small>Mika oye lo que suena en la PC (vídeos, juegos, llamadas) para entender mejor lo que compartes. Es el sonido de toda la PC, no solo de esa ventana.</small></span>
+    </label>
+    <span class="spacer" id="spacer"></span>
+    <button id="cancel">Cancelar</button>
+  </footer>
 <script>
   const card = (s) => {
     const b = document.createElement('button');
@@ -67,7 +87,7 @@
     name.className = 'name';
     name.textContent = s.name;           // el título de una ventana es texto ajeno: nunca como HTML
     b.append(thumb, name);
-    b.onclick = () => window.picker.choose(s.id);
+    b.onclick = () => window.picker.choose(s.id, document.getElementById('sound-on').checked);
     return b;
   };
   const fill = (id, list, empty) => {
@@ -80,6 +100,12 @@
       box.append(p);
     }
   };
+  window.picker.options().then((o) => {
+    if (!o || !o.audio) return;
+    document.getElementById('sound').hidden = false;
+    document.getElementById('spacer').hidden = true;
+    document.getElementById('sound-on').checked = !!o.audioOn;
+  });
   window.picker.sources().then((list) => {
     fill('screens', list.filter((s) => s.kind === 'screen'), 'No encontré ninguna pantalla.');
     fill('windows', list.filter((s) => s.kind === 'window'), 'No hay ventanas abiertas para compartir.');

@@ -22,6 +22,8 @@ export class AudioIO {
     this.pending = null;        // frase anunciada cuyo audio aún no empezó
     this.replyDone = false;
     this.active = false;        // hay una respuesta sonando o por sonar
+    this.quietAt = 0;           // cuándo terminó de sonar la última respuesta
+    this.screen = null;         // sonido de la pantalla compartida (ver startScreen)
   }
 
   // Debe llamarse desde un clic: el navegador no deja abrir audio sin un gesto del usuario.
@@ -53,7 +55,7 @@ export class AudioIO {
       stream = await navigator.mediaDevices.getUserMedia({ audio: base });   // el guardado ya no está conectado
     }
     if (!this.capture) {
-      await this.ctx.audioWorklet.addModule('js/mic-worklet.js');
+      await this._worklet();
       this.capture = new AudioWorkletNode(this.ctx, 'mic-capture');
       this.capture.port.onmessage = (e) => {
         this.micLevel = this.muted ? 0 : e.data.level;
@@ -78,6 +80,60 @@ export class AudioIO {
     // Si el sistema corta el micrófono (se desenchufa, o el dispositivo se reinicia), se vuelve a abrir solo.
     track.addEventListener('ended', () => { if (this.stream === stream) this.heal(4); });
     return { id: this.micId, label: this.micLabel };
+  }
+
+  _worklet() {
+    if (!this.workletReady) this.workletReady = this.ctx.audioWorklet.addModule('js/mic-worklet.js');
+    return this.workletReady;
+  }
+
+  // Sonido de lo que se comparte (vídeos, juegos, llamadas): el mismo paso a 16 kHz que el micrófono, en trozos
+  // de 1 s para onChunk. Nunca va a los altavoces. Mientras Mika habla (y medio segundo después) no se entrega:
+  // el sonido de la PC incluye su propia voz y no debe oírse a sí misma.
+  async startScreen(stream, onChunk) {
+    this.stopScreen();
+    const track = stream.getAudioTracks()[0];
+    if (!track) return false;
+    await this.init();
+    await this._worklet();
+    const source = this.ctx.createMediaStreamSource(new MediaStream([track]));
+    const node = new AudioWorkletNode(this.ctx, 'mic-capture');
+    const silent = this.ctx.createGain();
+    silent.gain.value = 0;
+    source.connect(node);
+    node.connect(silent).connect(this.ctx.destination);
+    const parts = [];
+    let n = 0;
+    const screen = { track, source, node, silent, on: true, level: 0 };
+    node.port.onmessage = (e) => {
+      screen.level = e.data.level;
+      const speaking = this.active || performance.now() - this.quietAt < 500;
+      if (!screen.on || speaking) { parts.length = 0; n = 0; return; }
+      const pcm = new Int16Array(e.data.pcm);
+      parts.push(pcm);
+      n += pcm.length;
+      if (n < 16000) return;
+      const out = new Int16Array(n);
+      let at = 0;
+      for (const p of parts) { out.set(p, at); at += p.length; }
+      parts.length = 0;
+      n = 0;
+      onChunk(out);
+    };
+    this.screen = screen;
+    return true;
+  }
+
+  setScreenOn(on) { if (this.screen) this.screen.on = on; }
+
+  stopScreen() {
+    const s = this.screen;
+    if (!s) return;
+    this.screen = null;
+    s.node.port.onmessage = null;
+    s.source.disconnect();
+    s.node.disconnect();
+    s.silent.disconnect();
   }
 
   // ¿El micrófono es el mismo aparato que esa cámara? (una webcam con micrófono)
@@ -195,6 +251,7 @@ export class AudioIO {
     this.pending = null;
     this.nextTime = 0;
     this.replyDone = false;
+    if (this.active) this.quietAt = performance.now();
     this.active = false;
   }
 
@@ -216,6 +273,7 @@ export class AudioIO {
     if (this.ctx.currentTime >= this.nextTime - 0.02 && this.timers.size === 0) {
       this.active = false;
       this.replyDone = false;
+      this.quietAt = performance.now();
       this.onPlaybackEnd();
     }
   }

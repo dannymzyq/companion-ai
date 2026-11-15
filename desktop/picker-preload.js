@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('picker', {
   sources: () => ipcRenderer.invoke('picker:sources'),
-  choose: (id) => ipcRenderer.send('picker:choose', String(id)),
+  options: () => ipcRenderer.invoke('picker:options'),          // {audio: se puede ofrecer el sonido, audioOn: elegido la última vez}
+  choose: (id, audio) => ipcRenderer.send('picker:choose', String(id), audio === true),
   cancel: () => ipcRenderer.send('picker:choose', ''),
 });

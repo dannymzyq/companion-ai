@@ -55,6 +55,11 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   rebinding). Un cliente de pruebas tiene que usar uno de esos nombres.
 - Compartir pantalla: `desktop\main.js` abre `picker.html` (pantallas y ventanas). En las pruebas se comparte
   la ventana `desktop\tarjeta-prueba.html`, nunca una ventana real.
+  Sonido de lo compartido (15 nov 2026): interruptor en `picker.html` → `audio: 'loopback'` (toda la PC) →
+  `audio.startScreen` (trozos de 1 s, nunca mientras suena Mika) → `screen_audio` → `companion/screen_audio.py`
+  (Whisper `transcribe_media` cada ~6 s, solo en GPU) → nota de texto ajeno en el último mensaje y freno de
+  acciones. El texto oído no va al registro. Prueba: `scripts\prueba_sonido_pantalla.py` (sin cerebro; corta el
+  sonido en 2 s, antes de transcribir: captura el audio real de la PC).
 - App de escritorio: `desktop\` (Electron descargado por `scripts\instalar_escritorio.ps1`). `scripts\prueba_escritorio.py`
   la prueba con `COMPANION_TEST=1`: ventanas fuera de pantalla, sin sonido, micrófono y cámara simulados.
   No envíes a ningún LLM una captura real de la pantalla del usuario en una prueba.

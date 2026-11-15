@@ -71,16 +71,54 @@ const vision = new Vision({
     $(kind).title = kind === 'camera'
       ? (stream ? 'Apagar la cámara' : 'Activar la cámara: Mika te ve')
       : (stream ? 'Dejar de compartir' : 'Compartir una pantalla o una ventana: Mika ve solo lo que elijas');
-    if (kind === 'screen' && stream) {
-      const name = config ? config.name : 'Mika';
-      const caption = figure.querySelector('figcaption');
-      caption.textContent = detail?.surface === 'window' ? `${name} ve la ventana ${detail.name || 'elegida'}` : `${name} ve tu pantalla`;
-      caption.title = detail?.name || '';
-    }
+    if (kind === 'screen') screenSound(stream, detail);
     if (!stream) send({ type: 'frame_stop', source: kind });
     if (kind === 'camera') healMic(vision.lastCam);
   },
 });
+
+// Sonido de la pantalla compartida: va al servidor en trozos de 1 s, que lo transcribe para que Mika sepa qué
+// se oye (no se graba). Se puede silenciar sin dejar de compartir con el botón del altavoz de la vista previa.
+let screenHears = false;
+async function screenSound(stream, detail) {
+  const has = !!stream && stream.getAudioTracks().length > 0;
+  screenHears = has;
+  if (has) {
+    try {
+      await audio.startScreen(stream, (pcm) => { if (started && screenHears) send({ type: 'screen_audio', pcm: b64(pcm.buffer) }); });
+    } catch (err) {
+      console.warn('Sin sonido de la pantalla:', err);
+      screenHears = false;
+    }
+  } else {
+    audio.stopScreen();
+  }
+  $('screen-sound').hidden = !has;
+  if (stream) screenCaption(detail);
+}
+function screenCaption(detail = vision.detail('screen')) {
+  const name = config ? config.name : 'Mika';
+  const caption = $('preview-screen').querySelector('figcaption');
+  const what = detail?.surface === 'window' ? `la ventana ${detail.name || 'elegida'}` : 'tu pantalla';
+  caption.textContent = screenHears ? `${name} ve ${what} y oye el sonido` : `${name} ve ${what}`;
+  caption.title = detail?.name || '';
+  const b = $('screen-sound');
+  b.classList.toggle('off', !screenHears);
+  b.title = screenHears ? 'Dejar de escuchar el sonido (sigue viendo)' : 'Escuchar también el sonido';
+  b.setAttribute('aria-label', b.title);
+}
+$('screen-sound').onclick = () => {
+  screenHears = !screenHears;
+  audio.setScreenOn(screenHears);
+  if (!screenHears) send({ type: 'screen_audio_stop' });
+  screenCaption();
+};
+function b64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
 
 // Encender o apagar una cámara que también es el micrófono (una webcam) puede dejar el micrófono mudo:
 // se comprueba que sigue llegando sonido y, si no, se reabre. Con otro micrófono, basta un intento.
@@ -110,10 +148,11 @@ async function toggleVision(kind) {
   if (turningOn && !noticed[kind] && config) {
     noticed[kind] = true;
     const what = kind === 'camera' ? 'una imagen de tu cámara'
-      : (vision.detail('screen')?.surface === 'window' ? 'una captura de esa ventana (solo de ella)' : 'una captura de esa pantalla');
+      : (vision.detail('screen')?.surface === 'window' ? 'una captura de esa ventana (solo de ella)' : 'una captura de esa pantalla')
+        + (screenHears ? ' y el texto de lo que se dice en el sonido (se transcribe en esta PC; el audio no sale de ella)' : '');
     const live = watchOn() ? ' y, con la mirada en vivo, también cada pocos segundos por su cuenta' : '';
     toast(config.llm.provider === 'gemini'
-      ? `${config.name} recibe ${what} con cada cosa que le digas${live}. Con el cerebro en la nube, esas imágenes se envían a ${config.cloud.name}.`
+      ? `${config.name} recibe ${what} con cada cosa que le digas${live}. Con el cerebro en la nube, ${kind === 'screen' && screenHears ? 'las imágenes y ese texto' : 'esas imágenes'} se envían a ${config.cloud.name}.`
       : `${config.name} recibe ${what} con cada cosa que le digas${live}. Con el cerebro local no salen de esta PC.`);
   }
 }
