@@ -146,18 +146,30 @@ def cargar():
         import torch
         _parche_torchaudio()
         from f5_tts.api import F5TTS
-        dispositivo = ("cuda" if torch.cuda.is_available() else
-                       "mps" if torch.backends.mps.is_available() else "cpu")   # mps: la GPU de un Mac
+        # VOZ_DISPOSITIVO=cpu|mps|cuda lo fija (la prueba en un Mac virtual de GitHub: su GPU se cuelga con Metal).
+        dispositivo = os.getenv("VOZ_DISPOSITIVO") or (
+            "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")   # mps: la GPU de un Mac
         ckpt = next(MODELO.glob("model_*.safetensors"))
-        estado["tts"] = F5TTS(model="F5TTS_Base", ckpt_file=str(ckpt), vocab_file=str(MODELO / "vocab.txt"),
-                              vocoder_local_path=str(VOCOS) if (VOCOS / "config.yaml").is_file() else None,
-                              device=dispositivo)
-        estado["dispositivo"] = dispositivo
-        t = time.perf_counter()
-        _decir("Hola, ¿qué tal estás hoy?", POR_DEFECTO, 1.0)      # calentamiento: la primera frase tarda más
-        log.info("F5-TTS listo en %s (%s, calentamiento %.1f s) · voces en %s", dispositivo, ckpt.name,
-                 time.perf_counter() - t, VOCES)
+
+        def preparar(disp: str):
+            estado["tts"] = F5TTS(model="F5TTS_Base", ckpt_file=str(ckpt), vocab_file=str(MODELO / "vocab.txt"),
+                                  vocoder_local_path=str(VOCOS) if (VOCOS / "config.yaml").is_file() else None,
+                                  device=disp)
+            estado["dispositivo"] = disp
+            t = time.perf_counter()
+            _decir("Hola, ¿qué tal estás hoy?", POR_DEFECTO, 1.0)      # calentamiento: la primera frase tarda más
+            log.info("F5-TTS listo en %s (%s, calentamiento %.1f s) · voces en %s", disp, ckpt.name,
+                     time.perf_counter() - t, VOCES)
+        try:
+            preparar(dispositivo)
+        except Exception:  # noqa: BLE001
+            if dispositivo != "mps":
+                raise
+            log.exception("La GPU del Mac falló con F5-TTS: sigo en el procesador")     # más lenta, pero suena
+            estado["tts"] = None
+            preparar("cpu")
     except Exception as e:  # noqa: BLE001
+        estado["tts"] = None
         estado["error"] = f"{type(e).__name__}: {e}"
         log.exception("No se pudo cargar F5-TTS")
 

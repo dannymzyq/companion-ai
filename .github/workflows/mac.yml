@@ -83,10 +83,11 @@ jobs:
           TTS_URL: http://127.0.0.1:8211
         run: |
           bash instalar.sh --voz=completa --sin-ollama
-          PYTORCH_ENABLE_MPS_FALLBACK=1 voz/.venv/bin/python -m uvicorn servidor:app --app-dir voz --host 127.0.0.1 --port 8211 > "$RUNNER_TEMP/voz.log" 2>&1 &
+          # En el procesador: la GPU paravirtual del Mac de GitHub se cuelga con Metal (en un Mac de verdad va en la GPU).
+          VOZ_DISPOSITIVO=cpu voz/.venv/bin/python -m uvicorn servidor:app --app-dir voz --host 127.0.0.1 --port 8211 > "$RUNNER_TEMP/voz.log" 2>&1 &
           for i in $(seq 1 180); do
             if curl -fsS http://127.0.0.1:8211/health | grep -q '"tts": *"f5'; then break; fi
-            if curl -fsS http://127.0.0.1:8211/health | grep -q '"error": *"'; then break; fi
+            if curl -fsS http://127.0.0.1:8211/health | grep -q '"error": *"[^"]'; then break; fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:8211/health; echo
