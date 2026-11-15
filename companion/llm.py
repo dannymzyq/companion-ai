@@ -525,6 +525,8 @@ async def _too_slow(model: str, why: str):
     """El modelo no cabe en la memoria de vídeo: se pasa al siguiente, más pequeño, y ahí se queda hasta que
     se reinicie el companion o se vuelva a elegir «Local» en Ajustes (eso repite la elección)."""
     global _slow_told, _local_choice
+    if await _free_voice(model):
+        return
     models = local_models()
     smaller = [m for m in models[models.index(model) + 1:] if not _local_sizes or m in _local_sizes] if model in models else []
     last = not smaller                    # solo cuentan los que están descargados
@@ -540,6 +542,24 @@ async def _too_slow(model: str, why: str):
         _slow_told = time.time()
         _notices.append(f"La memoria de vídeo está llena{gpu} y el modelo local responde lento. Cierra el juego o "
                         "ComfyUI, o usa el cerebro en la nube desde Ajustes.")
+
+
+async def _free_voice(model: str) -> bool:
+    """Antes de bajar a un modelo más pequeño: si suena la voz completa y el usuario dejó el cambio automático,
+    se pasa a la ligera (no usa la tarjeta) y el modelo se vuelve a cargar con esa memoria libre."""
+    from . import profile, voz_proc
+    if settings.voice_engine != "completa" or profile._squeezed:
+        return False
+    profile.squeeze()
+    profile.apply()
+    if settings.voice_engine != "ligera":
+        return False                      # cambio automático apagado o voz ligera sin descargar
+    await asyncio.to_thread(voz_proc.stop)
+    log.warning("Modelo local %s sin memoria de vídeo: paso a la voz ligera", model)
+    _notices.append("La memoria de vídeo se llenó: paso a la voz ligera (no usa la tarjeta) para que el modelo local "
+                    "quepa. Al volver a la nube, o al elegir otra vez el modelo en Ajustes, vuelve la voz completa.")
+    _keep(asyncio.create_task(_swap(model, model)))
+    return True
 
 
 _bg: set = set()

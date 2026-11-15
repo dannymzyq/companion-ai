@@ -2,6 +2,7 @@
 // El último paso (micrófono y cámara) es la tarjeta de inicio de siempre. Cada paso se guarda en el servidor
 // (data/settings.json) al pulsar «Siguiente», así que no se repite en la siguiente sesión; después, cada
 // paso se puede abrir suelto desde Ajustes para cambiarlo (`edit`).
+import { routeElement } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -204,8 +205,10 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
     }));
     $('ob-engine-note').textContent = !res.total_gb
       ? 'No encontré una tarjeta NVIDIA: la voz completa necesita una; aquí va la ligera.'
-      : e.recommended === 'completa'
+      : e.recommended === 'completa' && e.fits_now
         ? `En tu tarjeta de ${gb} GB la voz completa cabe junto con ${brain}.`
+        : e.recommended === 'completa'
+          ? `En tu tarjeta de ${gb} GB la voz completa cabe con el cerebro en la nube. Con ${brain} no caben las dos: mientras lo uses, ${setup.character || 'tu personaje'} pasa sola a la voz ligera (puedes apagarlo en Ajustes › Voz y sonido).`
         : (e.node ? `La voz completa usa unos ${String(res.engines.completa.vram_gb).replace('.', ',')} GB de memoria de vídeo y, junto con ${brain}, no cabe bien en tu tarjeta de ${gb} GB: mejor la ligera.`
           : 'La voz completa no está instalada en esta PC (instalar.ps1 -Voz ambas): usa la ligera.');
     const p = e.light_progress, loading = p && p.status === 'descargando';
@@ -334,6 +337,7 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
       const r = await fetch('/api/voices/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, engine: enginePick }) });
       if (!r.ok) throw new Error(enginePick === 'ligera' && !setup.voice_engine.light_installed ? 'Descarga primero la voz ligera para oírla.' : 'No pude generar la muestra de esa voz.');
       player = new Audio(URL.createObjectURL(await r.blob()));
+      await routeElement(player);         // la salida y el volumen elegidos en Ajustes
       await player.play();
     } catch (e) {
       fail(e.message);

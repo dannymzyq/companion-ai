@@ -785,11 +785,11 @@ class Session:
         elif msg_id is not None:
             store.delete_message(msg_id)
 
-    async def _say_checked(self, text: str, voice: str, speed: float) -> bytes:
+    async def _say_checked(self, text: str, voice: str, speed: float, engine: str | None = None) -> bytes:
         """La frase en audio, comprobada: con la voz completa se escucha con Whisper y, si se comió una palabra, se
         genera otra vez (hasta VOICE_RETRIES) y se queda la mejor. La voz ligera (Piper) no lo necesita."""
-        pcm = b"".join([c async for c in tts.stream_speech(text, voice, speed)])
-        if settings.voice_engine != "completa" or not self.stt.ready or not pcm:
+        pcm = b"".join([c async for c in tts.stream_speech(text, voice, speed, engine)])
+        if (engine or settings.voice_engine) != "completa" or not self.stt.ready or not pcm:
             return pcm
         loop = asyncio.get_running_loop()
         best, best_lost = pcm, None
@@ -813,6 +813,7 @@ class Session:
         voice = settings.tts_voice or self.persona["voice"].get("tts_voice")      # la elegida en la bienvenida
         speed = float(self.persona["voice"].get("speed", 1.0))
         tts_ok, idx, finish = True, 0, False
+        engine = None                     # "ligera" si la completa falló a mitad de respuesta (ver más abajo)
         while not finish:
             sentence = await queue.get()
             if sentence is None:
@@ -839,7 +840,18 @@ class Session:
                 log.info("Primera frase a los %.2fs", time.perf_counter() - t0)
             if tts_ok:
                 try:
-                    pcm = await self._say_checked(sentence.text, voice, speed)
+                    try:
+                        pcm = await self._say_checked(sentence.text, voice, speed, engine)
+                    except tts.TTSError as e:
+                        # La voz completa no responde (sin memoria de vídeo, o se cayó): con el cambio automático
+                        # encendido, esta respuesta sigue con la ligera en vez de quedarse en texto.
+                        if engine or settings.voice_engine != "completa" or not self._light_fallback():
+                            raise
+                        log.warning("Voz completa sin respuesta (%s): sigo con la ligera", e)
+                        engine = "ligera"
+                        await self.send_json({"type": "notice", "message": "La voz completa no responde ahora: "
+                                              "sigo con la voz ligera en esta respuesta."})
+                        pcm = await self._say_checked(sentence.text, voice, speed, engine)
                     for k in range(0, len(pcm), 9600):
                         chunk = pcm[k:k + 9600]
                         if not self.client_playing:
@@ -855,6 +867,11 @@ class Session:
                                                                       "o pasa a la voz ligera en Ajustes). Sigo en texto."})
             self.sent_sentences.append(sentence.text)
             await self.send_json({"type": "sentence_end", "id": idx})
+
+    @staticmethod
+    def _light_fallback() -> bool:
+        from . import tts_light
+        return profile.voice_auto() and tts_light.installed()
 
     def start(self):
         self.watcher = asyncio.create_task(self._watch_loop())

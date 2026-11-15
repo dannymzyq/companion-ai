@@ -93,7 +93,8 @@ EOF
 paso "Recursos segun tu PC"
 read -r VOZ_REC MODELO_REC GB <<<"$("$PY" scripts/preparar_recursos.py --recomendar)"
 echo "Memoria de video: $GB GB -> voz recomendada: $VOZ_REC, modelo local recomendado: $MODELO_REC"
-if [ "$VOZ" = auto ]; then if [ "$VOZ_REC" = completa ]; then VOZ=ambas; else VOZ=ligera; fi; fi
+# Las dos voces desde 6 GB (si con el modelo local no cabe la completa, el companion pasa solo a la ligera).
+if [ "$VOZ" = auto ]; then if awk "BEGIN{exit !($GB >= 5.5)}"; then VOZ=ambas; else VOZ=ligera; fi; fi
 
 "$PY" scripts/preparar_recursos.py --oido
 case "$VOZ" in ligera|ambas) "$PY" scripts/preparar_recursos.py --ligera ;; esac

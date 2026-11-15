@@ -159,10 +159,10 @@ try {
         if ($l) { $p = $l -split ","; $gpu = @{ Nombre = $p[0].Trim(); GB = [math]::Round([double]$p[1] / 1024) } }
     }
 } catch { }
-$completaRecomendada = $gpu -and $gpu.GB -ge 8
+$completaRecomendada = $gpu -and $gpu.GB -ge 6
 $script:libre = 0
-$e.VozAutoNota.Text = if ($completaRecomendada) { "En tu PC: voz completa y ligera (la completa cabe en tu tarjeta)." }
-                      else { "En tu PC: solo voz ligera (la completa necesita una NVIDIA de 8 GB o más)." }
+$e.VozAutoNota.Text = if ($completaRecomendada) { "En tu PC: las dos. Suena la completa y, si a la tarjeta le falta memoria (modelo local grande, un juego), pasa sola a la ligera." }
+                      else { "En tu PC: solo voz ligera (la completa necesita una NVIDIA de 6 GB o más)." }
 if (-not $gpu) { $e.VozAmbas.IsEnabled = $false }
 
 function Version-Instalada([string]$dir) {
@@ -241,7 +241,7 @@ if ($paquete) {
     Cambiar-Destino $inicial
     # En una actualización se mantiene lo que ya había: la voz completa y el cerebro local.
     if (Test-Path "$inicial\voz\.venv\Scripts\python.exe") { if ($gpu) { $e.VozAmbas.IsChecked = $true } }
-    elseif ((Test-Path "$inicial\models\piper") -and (Test-Path "$inicial\.venv")) { $e.VozLigera.IsChecked = $true }
+    elseif ((Test-Path "$inicial\models\piper") -and (Test-Path "$inicial\.venv") -and -not $completaRecomendada) { $e.VozLigera.IsChecked = $true }
     if ((Test-Path "$inicial\.venv") -and -not (Get-Command ollama -ErrorAction SilentlyContinue) -and
         -not (Test-Path "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe")) { $e.ConOllama.IsChecked = $false }
     $e.Carpeta.Add_TextChanged({ Cambiar-Destino $e.Carpeta.Text; Calcular-Espacio })

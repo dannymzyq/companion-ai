@@ -64,8 +64,59 @@ DESKTOP_GB = 2.0                          # Windows, el navegador y la propia ve
 
 
 def voice_engine() -> str:
+    """El motor que eligió el usuario (el que se usa de verdad lo decide engine_now)."""
     e = state.load().get("voice_engine")
     return e if e in VOICE_ENGINES else (_ENV_ENGINE if _ENV_ENGINE in VOICE_ENGINES else "completa")
+
+
+def voice_auto() -> bool:
+    """¿Pasar sola a la voz ligera cuando la completa no cabe en la tarjeta? (encendido por defecto)"""
+    return state.load().get("voice_auto") is not False
+
+
+_squeezed = False                         # el modelo local se quedó sin memoria de vídeo (lo marca llm._too_slow)
+_gpu_total: float | None = None           # GB de la tarjeta (no cambia: se mide una vez)
+
+
+def squeeze(on: bool = True):
+    global _squeezed
+    _squeezed = on
+
+
+def gpu_total_gb() -> float:
+    global _gpu_total
+    if _gpu_total is None:
+        from . import llm
+        g = llm.gpu_memory()
+        _gpu_total = round(g["total"] / 1024, 1) if g else 0.0
+    return _gpu_total
+
+
+def full_voice_fits(is_cloud: bool, local_model: str, total: float | None = None) -> bool:
+    """¿Caben la voz completa, el oído, el escritorio y (si el cerebro es local) el modelo en la tarjeta?"""
+    total = gpu_total_gb() if total is None else total
+    need = 0.0 if is_cloud else model_vram(local_model)
+    return total >= EAR_GB + DESKTOP_GB + VOICE_ENGINES["completa"]["vram_gb"] + need - 0.3
+
+
+def engine_now() -> tuple[str, str]:
+    """(motor que se usa ahora, motivo si no es el elegido). Con la voz completa elegida y el cambio automático
+    encendido, se pasa a la ligera cuando no cabe: con el cerebro en la nube casi siempre cabe (se descarga el
+    modelo local); con el local, depende del tamaño del modelo y de la tarjeta. Si luego el modelo local se queda
+    sin memoria (un juego abierto), llm._too_slow marca _squeezed y también se pasa a la ligera."""
+    from . import tts_light, voz_proc
+    pref = voice_engine()
+    if pref != "completa" or not voice_auto() or not tts_light.installed():
+        return pref, ""
+    if not voz_proc.installed():
+        return "ligera", "la voz completa no está instalada en esta PC"
+    if not settings.is_cloud and _squeezed:
+        return "ligera", "el modelo local se quedó sin memoria de vídeo"
+    if not full_voice_fits(settings.is_cloud, settings.ollama_model):
+        if settings.is_cloud:
+            return "ligera", "la tarjeta gráfica no tiene memoria de vídeo suficiente para la voz completa"
+        return "ligera", f"con el modelo local ({settings.ollama_model}) no cabe también la voz completa en la tarjeta"
+    return "completa", ""
 
 
 def model_vram(model_id: str, installed: dict | None = None) -> float:
@@ -177,7 +228,7 @@ def apply():
         # respaldo si va lento: los del catálogo más pequeños que el elegido (uno propio: los que piden menos vídeo)
         settings.ollama_fallback = (ids[ids.index(s["local_model"]) + 1:] if s["local_model"] in ids else
                                     [m["id"] for m in LOCAL_MODELS if m["vram_gb"] < model_vram(s["local_model"])])
-    settings.voice_engine = voice_engine()
+    settings.voice_engine, settings.voice_reason = engine_now()
     v = voice()
     settings.tts_voice = v["tts_voice"] if v else _ENV_VOICE
     if v and settings.voice_engine == "completa":

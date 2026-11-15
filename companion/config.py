@@ -72,6 +72,8 @@ class Settings:
     tts_voice: str = field(default_factory=lambda: os.getenv("TTS_VOICE", "mika_es").strip())
     # completa = servidor de voz propio, voz/servidor.py (F5-TTS, voces clonadas) · ligera = Piper en el procesador
     voice_engine: str = field(default_factory=lambda: os.getenv("VOICE_ENGINE", "completa").strip().lower())
+    # Por qué se usa ahora la ligera aunque se eligió la completa ("" = se usa la elegida). Ver profile.engine_now.
+    voice_reason: str = ""
 
     # large-v3-turbo: en la RTX 5070 Ti ocupa 1,1 GB (large-v3: 2,2 GB), transcribe 3 veces más rápido y acierta
     # lo mismo en español (medido el 11 nov 2026). float16 no mejora la velocidad y duplica la memoria.

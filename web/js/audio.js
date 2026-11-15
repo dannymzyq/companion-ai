@@ -4,6 +4,19 @@
 const VOICE_RATE = 24000;
 const JITTER = 0.2;            // el contrato de voz recomienda acumular ~200 ms antes de empezar
 
+// Salida de audio y volumen elegidos en Ajustes › Voz y sonido (los usa también la muestra ▶ de las voces).
+export const OUTPUT_KEY = 'companion.output', VOLUME_KEY = 'companion.volume';
+export function savedOutput() { try { return localStorage.getItem(OUTPUT_KEY) || ''; } catch { return ''; } }
+export function savedVolume() {
+  try { const v = parseFloat(localStorage.getItem(VOLUME_KEY)); return Number.isFinite(v) ? Math.min(1.5, Math.max(0, v)) : 1; } catch { return 1; }
+}
+// Para un <audio> suelto (la muestra ▶): misma salida y mismo volumen que la voz.
+export async function routeElement(el) {
+  el.volume = Math.min(1, savedVolume());
+  const id = savedOutput();
+  if (id && el.setSinkId) { try { await el.setSinkId(id); } catch { /* ya no está conectada: la predeterminada */ } }
+}
+
 export class AudioIO {
   constructor({ onMic, onSentence, onPlaybackEnd }) {
     this.onMic = onMic;
@@ -34,7 +47,11 @@ export class AudioIO {
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 1024;
       this.analyser.smoothingTimeConstant = 0.5;
-      this.gain.connect(this.analyser).connect(this.ctx.destination);
+      // El volumen va después del analizador: la boca del avatar se mueve igual aunque el volumen esté bajo.
+      this.out = this.ctx.createGain();
+      this.out.gain.value = savedVolume();
+      this.gain.connect(this.analyser).connect(this.out).connect(this.ctx.destination);
+      this.setOutput(savedOutput()).catch(() => {});
       this.freq = new Uint8Array(this.analyser.frequencyBinCount);
       this.wave = new Float32Array(this.analyser.fftSize);
       setInterval(() => this._watch(), 80);
@@ -186,6 +203,25 @@ export class AudioIO {
     const all = await navigator.mediaDevices.enumerateDevices();
     return all.filter((d) => d.kind === 'audioinput' && d.deviceId)
       .map((d, i) => ({ id: d.deviceId, label: d.label || `Micrófono ${i + 1}` }));
+  }
+
+  // Altavoces o auriculares disponibles ('' = la salida predeterminada de Windows).
+  async listOutputs() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return all.filter((d) => d.kind === 'audiooutput' && d.deviceId && !['default', 'communications'].includes(d.deviceId))
+      .map((d, i) => ({ id: d.deviceId, label: d.label || `Salida ${i + 1}` }));
+  }
+
+  // Lanza el error si esa salida ya no está; entonces se queda la anterior.
+  async setOutput(id) {
+    this.outputId = id || '';
+    if (this.ctx && this.ctx.setSinkId) await this.ctx.setSinkId(this.outputId);
+  }
+
+  setVolume(v) {
+    this.volume = Math.min(1.5, Math.max(0, v));
+    if (this.out) this.out.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.02);
   }
 
   setMuted(muted) {

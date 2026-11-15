@@ -79,7 +79,7 @@ descargar, avisa e instala las últimas compatibles con `requirements.txt`.
 | `-Voz auto` | `--voz=auto` | Por defecto: elige la voz según la tarjeta |
 | `-Voz ligera` | `--voz=ligera` | Solo la voz ligera (sin tarjeta NVIDIA o con poca memoria) |
 | `-Voz completa` | `--voz=completa` | Solo la voz completa |
-| `-Voz ambas` | `--voz=ambas` | Las dos, para poder cambiar entre ellas en Ajustes |
+| `-Voz ambas` | `--voz=ambas` | Las dos: suena la completa y, si a la tarjeta le falta memoria, pasa sola a la ligera (lo normal con una NVIDIA de 6 GB o más) |
 | `-SinOllama` | `--sin-ollama` | No instala Ollama ni descarga un modelo: solo cerebro en la nube |
 | `-SinModeloLocal` | `--sin-modelo-local` | Instala Ollama pero no descarga ningún modelo |
 | `-AccesosDirectos` | | Accesos en el escritorio y el menú Inicio, y la entrada en Aplicaciones instaladas |
@@ -181,8 +181,9 @@ archivo, así que normalmente no hace falta tocarlo. Lo más útil:
 | --- | --- |
 | PowerShell dice que la ejecución de scripts está deshabilitada | Usa el comando completo con `-ExecutionPolicy Bypass`, como en esta guía |
 | «Falta la clave del cerebro en la nube» | Ajustes › Cerebro › «Proveedor y clave», o cambia a «Local» |
-| El personaje responde solo con texto, sin voz | Voz completa: mira `data\voz.log`. O pasa a la voz ligera en Ajustes › Voz |
-| «La voz ligera no está instalada» | Ajustes › Voz › botón de descarga, o `instalar.ps1 -Voz ambas` |
+| El personaje responde solo con texto, sin voz | Voz completa: mira `data\voz.log`. O pasa a la voz ligera en Ajustes › Voz y sonido |
+| «La voz ligera no está instalada» | Ajustes › Voz y sonido › Voz › «Cambiar» › botón de descarga, o `instalar.ps1 -Voz ambas` |
+| No se oye nada, o suena por otro aparato | Ajustes › Voz y sonido › «Salida de audio» y «Volumen» |
 | El modelo local responde muy lento | No cabe en la tarjeta: elige uno más pequeño en Ajustes › Cerebro › «Modelo local», cierra juegos, o usa la nube |
 | «Ollama no está abierto en esta PC» | Ábrelo desde el menú Inicio, o vuelve a ejecutar `iniciar.ps1` |
 | No te oye | Revisa el micrófono elegido en Ajustes; la barra debe moverse al hablar |

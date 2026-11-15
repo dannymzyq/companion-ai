@@ -108,6 +108,15 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Dos motores de voz (`settings.voice_engine`): `completa` = `voz\servidor.py` · `ligera` = Piper en el procesador
   (`companion/tts_light.py`, modelos en `models\piper`, sin memoria de vídeo). Una voz nueva en `voices.json`
   necesita también su `light`.
+  Cambio automático (15 nov 2026, `voice_auto`, encendido por defecto): `settings.voice_engine` es el motor que
+  suena; el elegido es `profile.voice_engine()`. `profile.engine_now` pasa a la ligera si la completa no cabe junto
+  al modelo local (cuenta por el total de la tarjeta), y `llm._free_voice` lo hace antes de bajar de modelo cuando
+  el local va lento por memoria (`profile._squeezed`; se borra al cambiar de cerebro o de modelo). El instalador
+  pone las dos voces desde 6 GB. Salida de audio y volumen: `audio.js` (`setSinkId`; `companion.output` y
+  `companion.volume` en localStorage; Electron permite `speaker-selection`).
+- Ajustes (15 nov 2026): secciones `<details name="ajustes">` (una abierta a la vez) con resumen en la cabecera
+  (`sum-…`) y una «i» por opción (`.info[data-tip]` abre su `.tip`; dentro de un interruptor no lo cambia). El
+  botón de flotar está en la barra de abajo, junto a compartir pantalla.
 - Acciones en la PC (`companion/actions.py`, decisión del usuario del 13 nov 2026): el modelo solo las PIDE con
   `[accion: nombre | dato]`; se ejecutan tras «Permitir» en la tarjeta, un «sí» del usuario o «permitir siempre».
   Catálogo cerrado y de poco riesgo: no añadas borrar, enviar, comprar, cambiar ajustes ni comandos libres sin

@@ -52,7 +52,7 @@ bash instalar.sh                                             # Git Bash (llama a
 | Voz completa: PyTorch + F5-TTS y su modelo (solo con tarjeta NVIDIA) | `voz\.venv`, `voz\modelos` | 4,9 GB |
 | Cerebro local: Ollama y el modelo recomendado para la tarjeta | programa del sistema (lo único fuera de la carpeta) | 1–6 GB |
 
-Opciones: `-Voz auto|completa|ligera|ambas` (auto: según la tarjeta), `-SinOllama` (solo cerebro en la nube),
+Opciones: `-Voz auto|completa|ligera|ambas` (auto: las dos con una NVIDIA de 6 GB o más; si no, solo la ligera), `-SinOllama` (solo cerebro en la nube),
 `-SinModeloLocal`, `-NoRehacer` (no rehace un `.venv` creado con un Python de fuera; rehacerlo detiene el
 companion). En bash: `--voz=…`, `--sin-ollama`, `--sin-modelo-local`, `--instalar-ollama`.
 Probado en Windows 11; la parte de Linux y macOS de `instalar.sh`/`iniciar.sh` está escrita pero sin probar
@@ -104,6 +104,10 @@ La primera vez se abre un asistente de cinco pasos. Cada paso se guarda al pulsa
    Arriba del paso se elige el **motor de voz**, con el recomendado para la PC marcado: **voz completa** (clonada
    con F5-TTS, `voz\servidor.py`, alrededor de 1,5 GB de memoria de vídeo) o **voz ligera** (Piper en el procesador, 0 GB de vídeo,
    más sintética; sus modelos, ~380 MB, se descargan con un botón).
+   **Cambio automático** (Ajustes › Voz y sonido › «Pasar sola a la voz ligera», encendido por defecto): con la
+   completa elegida y las dos instaladas, si no cabe en la tarjeta junto al modelo local (o el modelo se queda sin
+   memoria con un juego abierto), suena la ligera; al volver a la nube, la completa (`profile.engine_now`,
+   `llm._free_voice`). Si la completa deja de responder a mitad de una respuesta, esa respuesta sigue con la ligera.
 5. **Micrófono y cámara**: la tarjeta de inicio de siempre.
 
 ### Qué cabe en cada PC
@@ -115,15 +119,16 @@ enseña esa cuenta y marca cada modelo: «cabe junto a la voz completa», «solo
 | Tarjeta | Voz recomendada | Modelo local recomendado |
 | --- | --- | --- |
 | Sin NVIDIA o 4 GB | ligera | Gemma 3 1B (1,4 GB; solo texto) |
-| 6 GB | ligera (completa si el cerebro es la nube) | Qwen 3 1.7B (2,4 GB; solo texto) |
-| 8 GB | ligera (completa si el cerebro es la nube) | Gemma 4 E2B (3,3 GB) |
+| 6 GB | completa con la nube; con el modelo local, pasa sola a la ligera | Qwen 3 1.7B (2,4 GB; solo texto) |
+| 8 GB | completa con la nube; con el modelo local, pasa sola a la ligera | Gemma 4 E2B (3,3 GB) |
 | 12 GB o más | completa | Gemma 4 E4B (4,8 GB) |
 
 Con 16 GB también se ofrece **Gemma 4 12B** (10,6 GB, el más listo), pero no se recomienda solo: con un juego
 abierto ya no cabe. El modelo que eliges es el que se carga, aunque no quepa (se avisa); si después responde
-lento, el companion pasa al siguiente más pequeño que tengas descargado y que vea imágenes (12B → E4B → E2B) y
+lento, el companion pasa primero a la voz ligera (si suena la completa y el cambio automático está encendido) y
+después al siguiente modelo más pequeño que tengas descargado y que vea imágenes (12B → E4B → E2B) y
 lo dice. Los modelos de solo texto no pueden mirar la
-cámara ni la pantalla. Todo se cambia en Ajustes › Cerebro › «Modelo local» y Ajustes › Voz.
+cámara ni la pantalla. Todo se cambia en Ajustes › Cerebro › «Modelo local» y Ajustes › Voz y sonido.
 
 **Que diga todo el subtítulo** (`companion/voicecheck.py`, 13 nov 2026): el modelo de voz es aleatorio y a veces se
 come palabras (medido: ~9 % de las palabras). Ahora cada frase se genera con más calidad (32 pasos, ritmo 0,9),
@@ -139,14 +144,20 @@ La lista está en `voices\pronunciacion.json`: puedes editarla o añadir palabra
 versiones de una palabra nueva y quedarte con la que mejor se entiende, añádela en
 `scripts\calibrar_pronunciacion.py` y ejecútalo.
 
-**Empezar de nuevo** (al final de Ajustes): «Repetir la bienvenida» vuelve a pasar por los pasos con lo guardado;
+**Ajustes** van por secciones que se abren de una en una: Tú y tu personaje · Cerebro · Voz y sonido · Micrófono
+y cámara · Pantalla y cámara compartidas · Acciones en tu PC · Memoria y datos · Estado. Cada sección enseña en su
+cabecera cómo está ahora, y cada opción lleva una «i» con una explicación corta. En **Voz y sonido** se elige
+también la **salida de audio** (altavoces, auriculares… `AudioContext.setSinkId`) y el **volumen** de la voz (0–150 %,
+aparte del de Windows); se recuerdan en esta PC y valen también para la muestra ▶ de las voces.
+
+**Empezar de nuevo** (Ajustes › Memoria y datos): «Repetir la bienvenida» vuelve a pasar por los pasos con lo guardado;
 «Restablecer mis datos» borra perfil, clave, voz y personaje elegidos, dispositivos recordados, conversación y
 recuerdos (`POST /api/setup/reset`), y deja el companion como recién instalado.
 
 ## Memoria
 
 - **Corto plazo**: los últimos 14–28 mensajes van tal cual al modelo.
-- **Largo plazo, datos**: lo duradero que le cuentas (`[recordar: …]`). Se ven en Ajustes › Memoria y se pueden
+- **Largo plazo, datos**: lo duradero que le cuentas (`[recordar: …]`). Se ven en Ajustes › Memoria y datos y se pueden
   borrar uno a uno.
 - **Largo plazo, conversaciones**: cuando un tramo sale de la ventana de corto plazo (o al volver otro día), en
   un rato de calma se resume en 2–4 frases con su fecha. Los ocho resúmenes más recientes acompañan cada
@@ -164,7 +175,7 @@ recuerdos (`POST /api/setup/reset`), y deja el companion como recién instalado.
 
 ## Modo flotante
 
-El botón de la flecha (arriba a la derecha) saca a Mika de su ventana: queda sola, sin marco ni fondo, por encima
+El botón de la flecha (en la barra de abajo, junto a compartir pantalla) saca a Mika de su ventana: queda sola, sin marco ni fondo, por encima
 de todas las demás ventanas, y la conversación sigue sin cortes.
 
 - Arrástrala para moverla; la rueda del ratón la hace más grande o más pequeña.

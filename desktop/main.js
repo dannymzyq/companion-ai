@@ -232,7 +232,7 @@ app.whenReady().then(async () => {
 
   // Micrófono, cámara y pantalla: solo para la página del companion (Electron no pregunta por su cuenta;
   // el permiso se pide dentro de la propia interfaz).
-  const allowed = new Set(['media', 'mediaKeySystem', 'display-capture', 'clipboard-sanitized-write']);
+  const allowed = new Set(['media', 'mediaKeySystem', 'display-capture', 'clipboard-sanitized-write', 'speaker-selection']);
   const ours = (url) => { try { return new URL(url).origin === ORIGIN; } catch { return false; } };
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) =>
     callback(allowed.has(permission) && ours(details.requestingUrl || wc.getURL())));

@@ -117,6 +117,7 @@ def public_config() -> dict:
         "onboarded": bool(state.load().get("onboarded")), "profile": profile.get(), "cloud": profile.public_cloud(),
         "voice": (profile.voice() or {}).get("name", ""), "local_model": settings.ollama_model,
         "voice_engine": settings.voice_engine, "voice_engine_name": profile.VOICE_ENGINES[settings.voice_engine]["name"],
+        "voice_engine_pref": profile.voice_engine(), "voice_auto": profile.voice_auto(), "voice_reason": settings.voice_reason,
         "watch": {"interval": settings.watch_interval, "model": settings.watch_model if settings.is_cloud else llm.local_model()},
         "stt": {"ready": transcriber.ready, "device": transcriber.device, "model": transcriber.model_name,
                 "error": transcriber.error},
@@ -217,11 +218,18 @@ async def get_setup():
     catalog = [{**m, "installed": installed is not None and m["id"] in installed, "pull": llm.pulls.get(m["id"]),
                 "fits": fits(m["vram_gb"])} for m in profile.LOCAL_MODELS]
     ids = {m["id"] for m in profile.LOCAL_MODELS}
+    # Con las dos voces y el cambio automático, se recomienda la completa si cabe al menos con la nube: cuando el
+    # modelo local no deje sitio, se pasa sola a la ligera.
+    recommended = res["recommended_engine"]
+    if node_ok and tts_light.installed() and profile.voice_auto() and profile.full_voice_fits(True, "", res["total_gb"]):
+        recommended = "completa"
     others = [{"id": n, "vram_gb": profile.model_vram(n, installed), "fits": fits(profile.model_vram(n, installed))}
               for n in sorted(installed or {}) if n not in ids]
     return {
         "resources": res,
-        "voice_engine": {"selected": settings.voice_engine, "recommended": res["recommended_engine"], "node": node_ok,
+        "voice_engine": {"selected": profile.voice_engine(), "in_use": settings.voice_engine, "reason": settings.voice_reason,
+                         "auto": profile.voice_auto(), "recommended": recommended, "node": node_ok,
+                         "fits_now": res["recommended_engine"] == "completa",
                          "light_installed": tts_light.installed(), "light_size_mb": tts_light.SIZE_MB,
                          "light_progress": tts_light.progress or None},
         "onboarded": bool(state.load().get("onboarded")), "character": character_name(), "year": time.localtime().tm_year,
@@ -241,6 +249,7 @@ class SetupIn(BaseModel):
     local_model: str | None = None
     voice: str | None = None
     voice_engine: str | None = None       # completa | ligera
+    voice_auto: bool | None = None        # pasar sola a la ligera cuando la completa no cabe en la tarjeta
     onboarded: bool | None = None
 
 
@@ -285,6 +294,8 @@ async def set_setup(body: SetupIn):
             if body.voice_engine == "ligera" and not tts_light.installed():
                 raise ValueError("La voz ligera todavía no está descargada.")
             changes["voice_engine"] = body.voice_engine
+        if body.voice_auto is not None:
+            changes["voice_auto"] = bool(body.voice_auto)
         if body.provider is not None:
             if body.provider not in ("gemini", "local"):
                 raise ValueError("provider debe ser gemini o local")
@@ -294,9 +305,12 @@ async def set_setup(body: SetupIn):
     except ValueError as e:
         raise HTTPException(422, str(e))
     state.save(**changes)
+    engine = settings.voice_engine
+    if body.provider is not None or "local_model" in changes or "voice_engine" in changes:
+        profile.squeeze(False)            # se vuelve a decidir si cabe la voz completa
     profile.apply()
     transcriber.hint = _hint()
-    if "voice_engine" in changes:         # la voz completa se arranca o se apaga (devuelve su memoria de vídeo)
+    if settings.voice_engine != engine or "voice_engine" in changes:   # se arranca o se apaga la voz completa
         await asyncio.to_thread(voz_proc.sync)
     if "cloud" in changes:
         llm.reset_cloud()

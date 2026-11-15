@@ -31,9 +31,6 @@
       <span id="status">Conectando…</span>
     </div>
     <button id="brain" class="chip" title="Cerebro en uso"></button>
-    <button id="float-btn" class="icon" aria-label="Flotar sobre las ventanas" title="Sacar a Mika de la ventana: flota sobre todo lo demás" hidden>
-      <svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8 8M10 5H6.5A2.5 2.5 0 0 0 4 7.5v10A2.5 2.5 0 0 0 6.5 20h10a2.5 2.5 0 0 0 2.5-2.5V14"/></svg>
-    </button>
     <button id="open-settings" class="icon" aria-label="Ajustes" title="Ajustes">
       <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-1.8-1L15 3.5h-4l-.3 2.6a7.6 7.6 0 0 0-1.8 1l-2.3-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 1.8 1l.3 2.6h4l.3-2.6a7.6 7.6 0 0 0 1.8-1l2.3 1 2-3.4-2-1.5Z"/></svg>
     </button>
@@ -78,6 +75,9 @@
       </button>
       <button id="screen" class="icon" aria-label="Compartir pantalla" title="Compartir la pantalla: Mika ve lo mismo que tú">
         <svg viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="12" rx="2.5"/><path d="M8.5 20h7M12 16.5V20M12 13V8M9.5 10.5 12 8l2.5 2.5"/></svg>
+      </button>
+      <button id="float-btn" class="icon" aria-label="Flotar sobre las ventanas" title="Sacar a Mika de la ventana: flota sobre todo lo demás" hidden>
+        <svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8 8M10 5H6.5A2.5 2.5 0 0 0 4 7.5v10A2.5 2.5 0 0 0 6.5 20h10a2.5 2.5 0 0 0 2.5-2.5V14"/></svg>
       </button>
       <button id="stop" class="icon" aria-label="Detener" title="Que deje de hablar">
         <svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/></svg>
@@ -221,73 +221,172 @@
         <h2>Ajustes</h2>
         <button id="close-settings" class="icon" aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
+      <p class="note sheet-intro">Toca una sección para abrirla. El botón <span class="info-sample">i</span> explica cada opción.</p>
 
-      <h3>Tú</h3>
-      <div class="line"><span id="me-line"></span><button class="mini" data-edit="perfil">Cambiar</button></div>
+      <!-- 1. Tú y tu personaje -->
+      <details class="group" name="ajustes" data-group="tu" open>
+        <summary>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+          <span><b>Tú y tu personaje</b><small id="sum-tu"></small></span>
+        </summary>
+        <div class="set">
+          <div class="set-head"><b>Tus datos</b><button class="info" data-tip="tip-me" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-me" hidden>Tu nombre, tu año de nacimiento y cómo quieres que te hable. Se guardan solo en esta PC.</p>
+          <div class="line"><span id="me-line"></span><button class="mini" data-edit="perfil">Cambiar</button></div>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Modelo 3D</b><button class="info" data-tip="tip-model" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-model" hidden>El cuerpo de tu personaje. Elige uno de los incluidos o sube un modelo .vrm (también puedes arrastrarlo a la ventana). Los avatares incluidos siempre quedan disponibles.</p>
+          <div id="model-list" class="model-list"></div>
+          <button id="model-upload" class="ghost">Subir un modelo .vrm</button>
+          <input type="file" id="model-file" accept=".vrm" hidden>
+        </div>
+      </details>
 
-      <h3>Cerebro</h3>
-      <div class="segment" id="provider">
-        <button data-value="gemini"><b>Nube</b><small id="cloud-name">Gemini</small></button>
-        <button data-value="local"><b>Local</b><small>Ollama en esta PC</small></button>
-      </div>
-      <p class="note" id="brain-note"></p>
-      <div class="line"><span id="cloud-line"></span><button class="mini" data-edit="cerebro">Proveedor y clave</button></div>
-      <div class="line"><span id="local-line"></span><button class="mini" data-edit="local">Modelo local</button></div>
+      <!-- 2. Cerebro -->
+      <details class="group" name="ajustes" data-group="cerebro">
+        <summary>
+          <svg viewBox="0 0 24 24"><path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-1.5 5.3A3 3 0 0 0 8 17.5a2.5 2.5 0 0 0 4 1.5V5.5A2.5 2.5 0 0 0 9 4.5ZM15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 1.5 5.3 3 3 0 0 1-3.5 4.7 2.5 2.5 0 0 1-4 1.5"/></svg>
+          <span><b>Cerebro</b><small id="sum-cerebro"></small></span>
+        </summary>
+        <div class="set">
+          <div class="set-head"><b>Dónde piensa</b><button class="info" data-tip="brain-note" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="brain-note" hidden></p>
+          <div class="segment" id="provider">
+            <button data-value="gemini"><b>Nube</b><small id="cloud-name">Gemini</small></button>
+            <button data-value="local"><b>Local</b><small>Ollama en esta PC</small></button>
+          </div>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Nube</b><button class="info" data-tip="tip-cloud" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-cloud" hidden>El proveedor y la clave de API con la que piensa en la nube. Responde mejor y no ocupa tu tarjeta gráfica. La clave se guarda solo en esta PC.</p>
+          <div class="line"><span id="cloud-line"></span><button class="mini" data-edit="cerebro">Proveedor y clave</button></div>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Modelo local</b><button class="info" data-tip="tip-local" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-local" hidden>El modelo que corre en tu PC con Ollama cuando eliges «Local». Nada sale de tu PC, pero comparte la memoria de vídeo de la tarjeta con la voz completa y el oído.</p>
+          <div class="line"><span id="local-line"></span><button class="mini" data-edit="local">Cambiar</button></div>
+        </div>
+      </details>
 
-      <h3>Voz</h3>
-      <div class="line"><span id="voice-line"></span><button class="mini" data-edit="voz">Cambiar</button></div>
+      <!-- 3. Voz y sonido -->
+      <details class="group" name="ajustes" data-group="voz">
+        <summary>
+          <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+          <span><b>Voz y sonido</b><small id="sum-voz"></small></span>
+        </summary>
+        <div class="set">
+          <div class="set-head"><b>Voz</b><button class="info" data-tip="tip-voice" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-voice" hidden>La voz de tu personaje (también le da el nombre) y el motor: la completa suena como la voz clonada y usa la tarjeta gráfica; la ligera corre en el procesador y suena más sintética.</p>
+          <div class="line"><span id="voice-line"></span><button class="mini" data-edit="voz">Cambiar</button></div>
+        </div>
+        <label class="row set">
+          <span><b>Pasar sola a la voz ligera</b><button class="info" data-tip="voice-auto-note" aria-label="Qué es esto">i</button>
+            <small class="tip" id="voice-auto-note" hidden></small></span>
+          <input type="checkbox" id="voice-auto" class="switch">
+        </label>
+        <div class="set">
+          <div class="set-head"><b>Salida de audio</b><button class="info" data-tip="tip-output" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-output" hidden>Por dónde suena tu personaje: altavoces, auriculares o cualquier otra salida de la PC. «Predeterminada» sigue la que tenga Windows en cada momento.</p>
+          <div class="picker"><select id="output-select" aria-label="Salida de audio"></select></div>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Volumen</b><span id="volume-value" class="value"></span><button class="info" data-tip="tip-volume" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-volume" hidden>El volumen de la voz dentro de la app, aparte del volumen de Windows. Por encima de 100 % la refuerza, por si suena baja.</p>
+          <input type="range" id="volume" min="0" max="150" step="5" aria-label="Volumen de la voz">
+        </div>
+      </details>
 
-      <label class="row" id="watch-row">
-        <span><b>Mirada en vivo</b><small id="watch-note">Mientras compartes la cámara o la pantalla, Mika mira cada pocos segundos y comenta por su cuenta lo que le llama la atención.</small></span>
-        <input type="checkbox" id="watch" class="switch">
-      </label>
+      <!-- 4. Micrófono y cámara -->
+      <details class="group" name="ajustes" data-group="dispositivos">
+        <summary>
+          <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
+          <span><b>Micrófono y cámara</b><small id="sum-dispositivos"></small></span>
+        </summary>
+        <div class="set">
+          <div class="set-head"><b>Micrófono</b><button class="info" data-tip="tip-mic" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-mic" hidden>El micrófono con el que te escucha. Habla: la barra debe moverse con tu voz. Tu voz se transcribe en esta PC.</p>
+          <div class="picker">
+            <select id="mic-select-2" aria-label="Micrófono"></select>
+            <div class="meter" aria-hidden="true"><i id="mic-meter-2"></i></div>
+            <button id="mic-allow-2" class="link" hidden>Permitir micrófono</button>
+          </div>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Cámara</b><button class="info" data-tip="tip-cam" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-cam" hidden>La cámara que se enciende con el botón de cámara y al empezar, para que te vea.</p>
+          <div class="picker"><select id="cam-select-2" aria-label="Cámara"></select></div>
+        </div>
+      </details>
 
-      <h3>Acciones en tu PC</h3>
-      <label class="row">
-        <span><b>Permitir que pida acciones</b><small id="actions-note">Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.</small></span>
-        <input type="checkbox" id="actions-on" class="switch">
-      </label>
-      <label class="row">
-        <span><b>Pedir permiso antes de cada acción</b><small>Apagado: lo que le ordenas se hace directamente. Encendido: cada acción espera a que la apruebes en una tarjeta. Los pasos delicados (enviar, comprar, borrar algo que no pediste) se confirman siempre.</small></span>
-        <input type="checkbox" id="actions-ask" class="switch">
-      </label>
-      <div id="actions-always" class="memory-list"></div>
-      <div id="actions-log" class="memory-list"></div>
+      <!-- 5. Compartir -->
+      <details class="group" name="ajustes" data-group="compartir">
+        <summary>
+          <svg viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="12" rx="2.5"/><path d="M8.5 20h7M12 16.5V20"/></svg>
+          <span><b>Pantalla y cámara compartidas</b><small id="sum-compartir"></small></span>
+        </summary>
+        <label class="row set" id="watch-row">
+          <span><b>Mirada en vivo</b><button class="info" data-tip="watch-note" aria-label="Qué es esto">i</button>
+            <small class="tip" id="watch-note" hidden></small></span>
+          <input type="checkbox" id="watch" class="switch">
+        </label>
+        <p class="note">Al compartir la pantalla eliges si también escucha su sonido. El botón de flotar, en la barra de abajo junto a compartir, saca a tu personaje de la ventana para que quede por encima de todo.</p>
+      </details>
 
-      <h3>Modelo 3D</h3>
-      <div id="model-list" class="model-list"></div>
-      <button id="model-upload" class="ghost">Subir un modelo .vrm</button>
-      <input type="file" id="model-file" accept=".vrm" hidden>
-      <p class="note">También puedes arrastrar un .vrm a la ventana. Los avatares incluidos siempre quedan disponibles.</p>
+      <!-- 6. Acciones -->
+      <details class="group" name="ajustes" data-group="acciones">
+        <summary>
+          <svg viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>
+          <span><b>Acciones en tu PC</b><small id="sum-acciones"></small></span>
+        </summary>
+        <label class="row set">
+          <span><b>Permitir que pida acciones</b><button class="info" data-tip="actions-note" aria-label="Qué es esto">i</button>
+            <small class="tip" id="actions-note" hidden>Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.</small></span>
+          <input type="checkbox" id="actions-on" class="switch">
+        </label>
+        <label class="row set">
+          <span><b>Pedir permiso antes de cada acción</b><button class="info" data-tip="tip-ask" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-ask" hidden>Apagado: lo que le ordenas se hace directamente. Encendido: cada acción espera a que la apruebes en una tarjeta. Los pasos delicados (enviar, comprar, borrar algo que no pediste) se confirman siempre.</small></span>
+          <input type="checkbox" id="actions-ask" class="switch">
+        </label>
+        <div id="actions-always" class="memory-list"></div>
+        <div id="actions-log" class="memory-list"></div>
+      </details>
 
-      <h3>Micrófono</h3>
-      <div class="picker">
-        <select id="mic-select-2" aria-label="Micrófono"></select>
-        <div class="meter" aria-hidden="true"><i id="mic-meter-2"></i></div>
-        <button id="mic-allow-2" class="link" hidden>Permitir micrófono</button>
-      </div>
+      <!-- 7. Memoria y datos -->
+      <details class="group" name="ajustes" data-group="memoria">
+        <summary>
+          <svg viewBox="0 0 24 24"><path d="M5 4.5h11l3 3v12H5z"/><path d="M8.5 10h7M8.5 13.5h7M8.5 17h4"/></svg>
+          <span><b>Memoria y datos</b><small id="sum-memoria">Lo que recuerda de ti, y empezar de nuevo</small></span>
+        </summary>
+        <div class="set">
+          <div class="set-head"><b>Lo que recuerda</b><button class="info" data-tip="tip-memory" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-memory" hidden>Lo que <span class="ob-name">Mika</span> recuerda de ti entre sesiones: datos que le cuentas y un resumen de cada conversación pasada. Lo reciente lo tiene presente tal cual.</p>
+          <div id="memory-list" class="memory-list"></div>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Olvidar todo</b><button class="info" data-tip="tip-forget" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-forget" hidden>Borra el historial y lo que <span class="ob-name">Mika</span> recuerda de ti. Tu perfil y tus ajustes se conservan. No se puede deshacer.</p>
+          <button id="forget" class="danger">Olvidar todo</button>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Empezar de nuevo</b><button class="info" data-tip="tip-redo" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-redo" hidden>«Repetir la bienvenida» vuelve a pasar por los pasos del principio con lo que ya tienes guardado, para cambiarlo. «Restablecer mis datos» borra tu perfil, la clave de API, la voz y el personaje elegidos, el micrófono y la cámara recordados, la conversación y los recuerdos: queda como recién instalado. Esto último no se puede deshacer.</p>
+          <div class="buttons">
+            <button id="redo-onboarding" class="ghost">Repetir la bienvenida</button>
+            <button id="reset-all" class="danger">Restablecer mis datos</button>
+          </div>
+        </div>
+      </details>
 
-      <h3>Cámara</h3>
-      <div class="picker">
-        <select id="cam-select-2" aria-label="Cámara"></select>
-      </div>
-      <p class="note">La cámara elegida es la que se enciende con el botón de cámara y al empezar.</p>
-
-      <h3>Estado</h3>
-      <dl id="health"></dl>
-
-      <h3>Memoria</h3>
-      <p class="note">Lo que <span class="ob-name">Mika</span> recuerda de ti entre sesiones: datos que le cuentas y un resumen de cada conversación pasada. Lo reciente lo tiene presente tal cual.</p>
-      <div id="memory-list" class="memory-list"></div>
-
-      <button id="forget" class="danger">Olvidar todo</button>
-      <p class="note">Borra el historial y lo que <span class="ob-name">Mika</span> recuerda de ti. No se puede deshacer.</p>
-
-      <h3>Empezar de nuevo</h3>
-      <button id="redo-onboarding" class="ghost">Repetir la bienvenida</button>
-      <p class="note">Vuelve a pasar por los pasos del principio (tus datos, cerebro, personaje, voz, micrófono y cámara) con lo que ya tienes guardado, para cambiarlo.</p>
-      <button id="reset-all" class="danger">Restablecer mis datos</button>
-      <p class="note">Borra tu perfil, la clave de API, la voz y el personaje elegidos, el micrófono y la cámara recordados, la conversación y los recuerdos. Queda como recién instalado y vuelve a empezar la bienvenida. No se puede deshacer.</p>
+      <!-- 8. Estado -->
+      <details class="group" name="ajustes" data-group="estado">
+        <summary>
+          <svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>
+          <span><b>Estado</b><small id="sum-estado"></small></span>
+        </summary>
+        <dl id="health"></dl>
+      </details>
     </div>
   </aside>
 

@@ -1,5 +1,5 @@
 // Une todo: conexión con el servidor, audio, avatar, cámara/pantalla e interfaz.
-import { AudioIO } from './audio.js';
+import { AudioIO, OUTPUT_KEY, VOLUME_KEY, savedOutput, savedVolume } from './audio.js';
 import { Avatar } from './avatar.js';
 import { Vision } from './vision.js';
 import { initOnboarding } from './onboarding.js';
@@ -286,6 +286,8 @@ async function refreshActions() {
   $('actions-on').checked = a.enabled;
   $('actions-on').disabled = !a.available;
   $('actions-ask').checked = a.ask;
+  $('sum-acciones').textContent = !a.available ? 'No disponibles con este modelo'
+    : !a.enabled ? 'Apagadas' : a.ask ? 'Activadas · piden permiso' : 'Activadas';
   $('actions-note').textContent = a.available
     ? 'Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.'
     : 'El modelo local que usas ahora es demasiado pequeño para pedir acciones con fiabilidad: elige Gemma 4 E2B o E4B, o el cerebro en la nube.';
@@ -351,7 +353,21 @@ function applyConfig(cfg) {
   $('me-line').textContent = cfg.profile.name ? `${cfg.profile.name} · ${cfg.profile.birth_year} · ${GENDER[cfg.profile.gender] || ''}` : 'Sin completar';
   $('cloud-name').textContent = cfg.cloud.name;
   $('cloud-line').textContent = cfg.cloud.has_key ? `${cfg.cloud.name}${cfg.cloud.model ? ' · ' + cfg.cloud.model : ''} · clave ${cfg.cloud.key_hint}` : 'Sin clave de API';
-  $('voice-line').textContent = `${cfg.voice || 'Sin voz'} · ${(cfg.voice_engine_name || '').toLowerCase()}`;
+  const engineName = (id) => (id === 'ligera' ? 'voz ligera' : 'voz completa');
+  const switched = cfg.voice_engine !== cfg.voice_engine_pref;
+  $('voice-line').textContent = `${cfg.voice || 'Sin voz'} · ${engineName(cfg.voice_engine_pref)}${switched ? ` (ahora, ${engineName(cfg.voice_engine)})` : ''}`;
+  $('voice-auto').checked = cfg.voice_auto;
+  $('voice-auto').disabled = cfg.voice_engine_pref !== 'completa';
+  $('voice-auto').closest('.row').classList.toggle('disabled', cfg.voice_engine_pref !== 'completa');
+  $('voice-auto-note').textContent = (cfg.voice_engine_pref !== 'completa'
+    ? 'Solo sirve con la voz completa elegida (en «Voz › Cambiar»). '
+    : '')
+    + 'Encendido: suena la voz completa y, si a la tarjeta gráfica le falta memoria de vídeo (un modelo local grande, un juego abierto), pasa sola a la ligera, que corre en el procesador. Al volver a haber sitio (por ejemplo, con el cerebro en la nube) vuelve la completa.'
+    + (switched && cfg.voice_reason ? ` Ahora usa la ligera porque ${cfg.voice_reason}.` : '');
+  $('sum-tu').textContent = cfg.profile.name ? `${cfg.profile.name} · ${cfg.name}` : cfg.name;
+  $('sum-cerebro').textContent = `${cloud ? 'Nube' : 'Local'} · ${cfg.llm.model}`;
+  $('sum-voz').textContent = `${cfg.voice || 'Sin voz'} · ${engineName(cfg.voice_engine)} · ${Math.round(savedVolume() * 100)} %`;
+  $('sum-compartir').textContent = `Mirada en vivo ${$('watch').checked ? 'encendida' : 'apagada'}`;
   $('local-line').textContent = cfg.local_model + (!cloud && cfg.llm.model !== cfg.local_model ? ` (ahora en uso: ${cfg.llm.model})` : '');
 
   let banner = '';
@@ -372,14 +388,14 @@ function applyConfig(cfg) {
   for (const b of $('provider').children) b.classList.toggle('on', b.dataset.value === cfg.llm.provider);
   $('brain-note').textContent = cloud
     ? `Solo el texto de la conversación (y las imágenes de cámara o pantalla, si las compartes) viaja a ${cfg.cloud.name}. Tu voz y la de ${cfg.name} se procesan en esta PC.`
-    : `Todo se procesa en esta PC${cfg.adult.active ? ', sin filtro para temas +18 si tú los propones' : ''}. El modelo comparte la memoria de vídeo con la voz: si no cabe (un juego, ComfyUI), ${cfg.name} usa uno más pequeño. Pulsa «Local» otra vez para que vuelva a elegir.`;
+    : `Todo se procesa en esta PC${cfg.adult.active ? ', sin filtro para temas +18 si tú los propones' : ''}. El modelo comparte la memoria de vídeo con la voz: si no cabe (un juego, ComfyUI), ${cfg.name} pasa primero a la voz ligera y, si aún falta, a un modelo más pequeño. Pulsa «Local» otra vez para que vuelva a elegir.`;
   $('watch-note').textContent = `Mientras compartes la cámara o la pantalla, ${cfg.name} mira cada pocos segundos y comenta por su cuenta lo que le llama la atención.`
     + (cloud ? ` Con la nube esas imágenes van a ${cfg.cloud.name} (modelo ${cfg.watch.model}).` : ' Con el cerebro local no salen de esta PC.');
 
   const health = [
     ['Cerebro', `${cloud ? cfg.cloud.name : 'Ollama'} · ${cfg.llm.model}`, cfg.llm.ready],
     ['Oído', cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${cfg.stt.device === 'cuda' ? 'GPU' : 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), !cfg.stt.error],
-    ['Voz', cfg.tts ? 'Nodo GPU · activa' : 'No disponible', cfg.tts],
+    ['Voz', cfg.tts ? `${engineName(cfg.voice_engine)} · ${cfg.voice_engine === 'ligera' ? 'procesador' : 'GPU'}` : 'No disponible', cfg.tts],
     ['Modelo 3D', cfg.model ? (/^avatar\d$/.test(cfg.model_id) ? `Avatar ${cfg.model_id.slice(-1)} (incluido)` : 'Modelo propio') : 'Falta el .vrm', cfg.model],
   ];
   if (cfg.llm.detail) health[0][1] += ` · ${cfg.llm.detail}`;
@@ -388,6 +404,8 @@ function applyConfig(cfg) {
     const full = cfg.gpu.used > cfg.gpu.total * 0.95;        // llena: el modelo local iría lento
     health.push(['Memoria de vídeo', `${gb(cfg.gpu.used)} de ${gb(cfg.gpu.total)} GB en uso${full ? ' · llena' : ''}`, !full || cloud]);
   }
+  const bad = health.filter(([, , ok]) => !ok).map(([k]) => k.toLowerCase());
+  $('sum-estado').textContent = bad.length ? `Revisar: ${bad.join(', ')}` : 'Todo funciona';
   $('health').innerHTML = health.map(([k, v, ok]) => `<dt>${k}</dt><dd class="${ok ? '' : 'bad'}">${v}</dd>`).join('');
 
   if (cfg.model && avatar && !avatar.loaded && !loadingModel) loadModel();
@@ -627,7 +645,7 @@ $('mic-allow').onclick = () => withBusy($('mic-allow'), async () => { if (await 
 $('mic-allow-2').onclick = () => withBusy($('mic-allow-2'), () => useMic(savedMic()));
 $('mic-select').onchange = (e) => useMic(e.target.value);
 $('mic-select-2').onchange = (e) => useMic(e.target.value);
-if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', () => { fillMics(); fillCams(); });
+if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', () => { fillMics(); fillCams(); fillOutputs(); });
 
 // ---------------------------------------------------------------- cámara: permiso y elección
 // Se guarda qué cámara usar y si Mika empieza viéndote. Al iniciar se elige en la tarjeta; después, en Ajustes.
@@ -726,6 +744,7 @@ const WATCH_KEY = 'companion.watch';
 function watchOn() { try { return localStorage.getItem(WATCH_KEY) !== '0'; } catch { return true; } }
 $('watch').checked = watchOn();
 $('watch').onchange = () => {
+  $('sum-compartir').textContent = `Mirada en vivo ${$('watch').checked ? 'encendida' : 'apagada'}`;
   try { localStorage.setItem(WATCH_KEY, $('watch').checked ? '1' : '0'); } catch { /* modo privado */ }
   send({ type: 'watch', on: $('watch').checked });
 };
@@ -830,8 +849,12 @@ const openSettings = (open) => {
   refreshActions();
   refreshModels();
   refreshMemory();
-  fillMics();
-  fillCams();
+  Promise.all([fillMics(), fillCams()]).then(() => {
+    const pick = (id) => { const o = $(id).selectedOptions[0]; return o && o.value ? o.textContent : ''; };
+    const mic = pick('mic-select-2'), cam = pick('cam-select-2');
+    $('sum-dispositivos').textContent = [mic || 'Sin micrófono', cam || 'sin cámara'].join(' · ');
+  }).catch(() => {});
+  fillOutputs();
   $('mic-allow-2').hidden = audio.hasMic;
 };
 $('open-settings').onclick = () => openSettings(true);
@@ -841,6 +864,59 @@ $('settings').onclick = (e) => { if (e.target === $('settings')) openSettings(fa
 addEventListener('keydown', (e) => { if (e.key === 'Escape') openSettings(false); });
 
 for (const b of $('provider').children) b.onclick = () => postConfig({ provider: b.dataset.value });
+
+// La «i» de cada opción abre y cierra su explicación (dentro de un interruptor, sin cambiarlo).
+for (const b of document.querySelectorAll('.info[data-tip]')) {
+  b.type = 'button';
+  b.setAttribute('aria-expanded', 'false');
+  b.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const tip = $(b.dataset.tip);
+    tip.hidden = !tip.hidden;
+    b.setAttribute('aria-expanded', String(!tip.hidden));
+  };
+}
+
+$('voice-auto').onchange = async () => {
+  const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice_auto: $('voice-auto').checked }) });
+  if (r.ok) applyConfig(await r.json()); else toast('No se pudo guardar.', true);
+};
+
+// ---------------------------------------------------------------- salida de audio y volumen
+async function fillOutputs() {
+  const sel = $('output-select');
+  const outs = await audio.listOutputs();
+  const wanted = savedOutput();
+  sel.innerHTML = '';
+  sel.add(new Option('Predeterminada de Windows', ''));
+  for (const o of outs) sel.add(new Option(o.label, o.id));
+  sel.value = outs.some((o) => o.id === wanted) ? wanted : '';
+  sel.disabled = !!audio.ctx && !audio.ctx.setSinkId;     // este navegador no deja elegir la salida
+}
+$('output-select').onchange = async (e) => {
+  const id = e.target.value;
+  try {
+    await audio.setOutput(id);
+    try { localStorage.setItem(OUTPUT_KEY, id); } catch { /* modo privado */ }
+    toast(id ? `Ahora suena por ${e.target.selectedOptions[0].textContent}.` : 'Ahora suena por la salida predeterminada de Windows.');
+  } catch (err) {
+    toast(`No pude usar esa salida (${err.name || err}).`, true);
+    fillOutputs();
+  }
+};
+function showVolume(v) {
+  $('volume').value = String(Math.round(v * 100));
+  $('volume-value').textContent = `${Math.round(v * 100)} %`;
+}
+showVolume(savedVolume());
+$('volume').oninput = () => {
+  const v = Number($('volume').value) / 100;
+  audio.setVolume(v);
+  $('volume-value').textContent = `${Math.round(v * 100)} %`;
+  try { localStorage.setItem(VOLUME_KEY, String(v)); } catch { /* modo privado */ }
+};
+$('volume').onchange = () => refreshConfig();
 $('forget').onclick = async () => {
   if (!confirm('¿Borrar todo el historial y los recuerdos? No se puede deshacer.')) return;
   const r = await fetch('/api/memory', { method: 'DELETE' });

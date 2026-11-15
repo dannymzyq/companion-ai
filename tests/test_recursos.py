@@ -124,6 +124,77 @@ class RespaldoDeLaNube(unittest.TestCase):
         self.assertEqual(self.llamadas, [("gemma4:e4b-it-qat", False)])
 
 
+class CambioDeVoz(unittest.TestCase):
+    """Con las dos voces instaladas suena la completa y, si no cabe junto al modelo local, pasa sola a la ligera."""
+
+    def setUp(self):
+        from companion import tts_light, voz_proc
+        self.antes = (settings.llm_provider, settings.ollama_model, settings.voice_engine, settings.voice_reason,
+                      profile._gpu_total, profile._squeezed)
+        self.parches = [mock.patch.object(tts_light, "installed", return_value=True),
+                        mock.patch.object(voz_proc, "installed", return_value=True)]
+        for p in self.parches:
+            p.start()
+        state.save(voice_engine="completa", voice_auto=None)
+        profile.squeeze(False)
+
+    def tearDown(self):
+        for p in self.parches:
+            p.stop()
+        state.save(voice_engine=None, voice_auto=None, provider=None, local_model=None)
+        profile.apply()
+        (settings.llm_provider, settings.ollama_model, settings.voice_engine, settings.voice_reason,
+         profile._gpu_total, profile._squeezed) = self.antes
+
+    def motor(self, gb, provider, model="gemma4:e4b-it-qat"):
+        profile._gpu_total = float(gb)
+        settings.llm_provider, settings.ollama_model = provider, model
+        return profile.engine_now()
+
+    def test_nube_en_6_gb_usa_la_completa(self):
+        self.assertEqual(self.motor(6, "gemini"), ("completa", ""))
+
+    def test_local_en_6_gb_pasa_a_la_ligera(self):
+        motor, motivo = self.motor(6, "local")
+        self.assertEqual(motor, "ligera")
+        self.assertIn("gemma4:e4b-it-qat", motivo)
+
+    def test_16_gb_con_12b_sigue_con_la_completa(self):
+        self.assertEqual(self.motor(16, "local", "gemma4:12b")[0], "completa")
+
+    def test_sin_cambio_automatico_se_respeta_la_eleccion(self):
+        state.save(voice_auto=False)
+        self.assertEqual(self.motor(6, "local"), ("completa", ""))
+
+    def test_sin_voz_ligera_no_cambia(self):
+        from companion import tts_light
+        with mock.patch.object(tts_light, "installed", return_value=False):
+            self.assertEqual(self.motor(6, "local")[0], "completa")
+
+    def test_elegida_la_ligera_no_se_toca(self):
+        state.save(voice_engine="ligera")
+        self.assertEqual(self.motor(16, "gemini"), ("ligera", ""))
+
+    def test_sin_memoria_pasa_a_la_ligera_y_vuelve_con_la_nube(self):
+        profile._gpu_total = 16.0
+        state.save(provider="local", local_model="gemma4:12b")
+        profile.apply()
+        self.assertEqual(settings.voice_engine, "completa")
+        from companion import voz_proc
+        llm._notices.clear()
+        with mock.patch.object(voz_proc, "stop") as parar, mock.patch.object(llm, "_swap", new=mock.AsyncMock()) as recargar:
+            hecho = asyncio.run(llm._free_voice("gemma4:12b"))
+            self.assertTrue(hecho)
+            parar.assert_called_once()
+            recargar.assert_awaited_once_with("gemma4:12b", "gemma4:12b")
+        self.assertEqual(settings.voice_engine, "ligera")
+        self.assertTrue(any("voz ligera" in n for n in llm.pop_notices()))
+        self.assertFalse(asyncio.run(llm._free_voice("gemma4:12b")))     # la segunda vez, ya baja de modelo
+        state.save(provider="gemini")
+        profile.apply()
+        self.assertEqual(settings.voice_engine, "completa")
+
+
 class Personajes(unittest.TestCase):
     def test_nombres_genericos(self):
         nombres = [b["name"] for b in models.BUILTIN]
