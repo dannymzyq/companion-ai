@@ -72,7 +72,12 @@ def running() -> bool:
 def stop():
     global _proc
     if _proc and _proc.poll() is None:
-        _proc.terminate()
+        if os.name == "nt":
+            # Con su árbol: python.exe del entorno es un lanzador que arranca otro proceso de Python debajo.
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(_proc.pid)], capture_output=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            _proc.terminate()
         try:
             _proc.wait(5)
         except subprocess.TimeoutExpired:

@@ -7,10 +7,13 @@
 //   En el Mac lo carga desktop/mac.js (Companion.app) después de instalar y arrancar el servidor.
 //
 // Variables de entorno: COMPANION_URL (por defecto http://127.0.0.1:8200), COMPANION_STOP_ON_EXIT=1 apaga
-// el servidor al cerrar, COMPANION_TEST=1 es para las pruebas automáticas (ventanas fuera de pantalla, sin
+// el servidor al cerrar (y el servidor vigila esta app: si muere sin cerrar bien, se apaga solo),
+// COMPANION_SERVER_PID = el proceso del servidor que acaba de arrancar iniciar.ps1 (si se cierra, la pantalla de
+// carga lo dice en vez de esperar), COMPANION_TEST=1 es para las pruebas automáticas (ventanas fuera de pantalla, sin
 // sonido y con micrófono y cámara simulados).
 const { app, BrowserWindow, ipcMain, session, desktopCapturer, screen, shell } = require('electron');
 const { spawn } = require('child_process');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
@@ -63,6 +66,64 @@ function place(bounds) {
   return TEST ? { ...bounds, x: -4000, y: -4000 } : bounds;     // en pruebas, fuera de la pantalla
 }
 
+// ---------------------------------------------------------------- arranque: la ventana se abre ya
+// iniciar.ps1 arranca el servidor y abre esta app sin esperar: mientras el servidor no responde se ve
+// cargando.html (con el motivo si no llega a arrancar); luego, la interfaz, que enseña lo que falta por cargar.
+let serverReady = false;
+const ROOT_DIR = process.env.COMPANION_HOME || path.join(__dirname, '..');
+
+function serverUp() {
+  return new Promise((resolve) => {
+    const req = http.get(`${URL_BASE}/api/config`, { timeout: 1500 }, (r) => { r.resume(); resolve(r.statusCode === 200); });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
+function serverAlive() {
+  const pid = Number(process.env.COMPANION_SERVER_PID || 0);
+  if (!pid) return true;
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+let ownerSent = false;
+function registerOwner() {          // si esta app muere sin cerrar bien, el servidor se apaga solo (lifecycle.py)
+  if (ownerSent || process.env.COMPANION_STOP_ON_EXIT !== '1') return;
+  ownerSent = true;
+  const body = JSON.stringify({ pid: process.pid });
+  const req = http.request(`${URL_BASE}/api/owner`, { method: 'POST', timeout: 3000,
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (r) => r.resume());
+  req.on('error', () => { ownerSent = false; });
+  req.end(body);
+}
+
+async function boot(w, target) {
+  const t0 = Date.now();
+  const say = (title, text, failure = '') => {
+    if (!w.isDestroyed()) w.webContents.executeJavaScript(`setEstado(${JSON.stringify(title)}, ${JSON.stringify(text)}, ${JSON.stringify(failure)})`).catch(() => {});
+  };
+  w.webContents.on('page-title-updated', (e, title) => {
+    if (title === 'companion:registro') shell.openPath(path.join(ROOT_DIR, 'data', 'companion.log'));
+    if (title === 'companion:cerrar') app.quit();
+  });
+  while (!w.isDestroyed()) {
+    if (await serverUp()) {
+      serverReady = true;
+      registerOwner();
+      if (!w.isDestroyed()) w.loadURL(target);
+      return;
+    }
+    const s = (Date.now() - t0) / 1000;
+    if (!serverAlive() || s > 180) {
+      say('No se pudo abrir Companion', '', (serverAlive() ? 'El servidor local no respondió en 3 minutos.' : 'El servidor local se cerró al arrancar.')
+        + ' El motivo suele estar al final del registro (Companion › data › companion.log). Si otro programa usa el puerto, cámbialo en .env (PORT=8202).');
+      return;
+    }
+    say('Abriendo Companion', s < 6 ? 'Arrancando el servidor local…' : `Arrancando el servidor local… ${Math.round(s)} s (la primera vez tarda más)`);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 function createMain(resume) {
   mode = 'window';
   const w = new BrowserWindow({
@@ -70,7 +131,13 @@ function createMain(resume) {
     autoHideMenuBar: true, title: 'Mika', webPreferences: webPreferences(),
   });
   w.setMenuBarVisibility(false);
-  w.loadURL(`${URL_BASE}/${resume ? '?auto=1&saludo=0' : ''}`);
+  const target = `${URL_BASE}/${resume ? '?auto=1&saludo=0' : ''}`;
+  if (serverReady || resume) {
+    w.loadURL(target);
+  } else {
+    w.loadFile(path.join(__dirname, 'cargando.html'));
+    w.webContents.once('did-finish-load', () => boot(w, target));
+  }
   return w;
 }
 
@@ -294,8 +361,9 @@ app.on('window-all-closed', () => app.quit());
 
 app.on('will-quit', () => {
   if (process.env.COMPANION_STOP_ON_EXIT !== '1') return;
-  // Al cerrar a Mika se apaga también el servidor, para liberar la GPU.
-  const root = process.env.COMPANION_HOME || path.join(__dirname, '..');
+  // Al cerrar a Mika se apaga todo lo que arrancó el companion: el servidor (con un apagado ordenado), la voz
+  // completa, el modelo local de Ollama y Ollama si lo abrió él (detener.ps1 / detener.sh).
+  const root = ROOT_DIR;
   if (process.platform === 'win32') {
     spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'detener.ps1')],
       { detached: true, stdio: 'ignore', windowsHide: true }).unref();

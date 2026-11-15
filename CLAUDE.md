@@ -180,6 +180,22 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   servidor de voz lee en cada petición. Origen y licencias en `voices\CREDITOS.md`.
 - Personajes incluidos: `models.BUILTIN` (avatar1, avatar2, avatar3 = la esfera). La esfera no es un VRM:
   `web/js/orb.js`; una emoción o gesto nuevo hay que añadirlo también ahí.
+- Arranque y cierre (15 nov 2026, `companion/lifecycle.py`): `iniciar.ps1` arranca el servidor y abre Electron SIN
+  esperar (`COMPANION_SERVER_PID`); `desktop\main.js` enseña `cargando.html` hasta que responde y registra su pid
+  (`POST /api/owner`: si muere, el servidor se apaga solo). La interfaz enseña `web/js/loading.js` con
+  `GET /api/loading` al abrir y cuando cambia el oído, la voz o el cerebro. `detener.ps1` hace `POST /api/shutdown`,
+  luego cierra el árbol (solo procesos de esta carpeta con «-m companion» o «servidor:app») y Ollama si está en
+  `data\ollama.pid`. El apagado solo descarga los modelos que cargó ESE proceso (`llm._ours`): uno de prueba no
+  debe tocar el Ollama del usuario. Pruebas: `scripts\prueba_carga.py`, que usa `detener.ps1 -PuertoPrueba 8201
+  -SoloServidor`. PowerShell no distingue mayúsculas: un parámetro nunca puede llamarse como una variable del
+  script (con `-Puerto` y `$puerto`, la prueba apagó el companion real del usuario, 15 nov 2026).
+- Solo nube (15 nov 2026, `profile.cloud_only`, Ajustes › Cerebro): cerebro, oído (`ear.engine` «nube»,
+  `stt_cloud.py`: Groq con `ear.groq_key` y luego Gemini `EAR_GEMINI_MODELS` con la clave del cerebro; si fallan,
+  `Transcriber.local_model()` en CPU) y voz (motor «nube», `tts_cloud.py` con edge-tts; sin red cae a la ligera). Al
+  encenderlo guarda `before_cloud_only` y al apagarlo lo devuelve; elegir algo local lo apaga (`profile.apply`).
+  Quita el respaldo local del cerebro (`settings.local_fallback`). La clave de Groq nunca se devuelve a la interfaz.
+  `scripts\prueba_nube.py` mide RAM, procesador y vídeo (`--turnos 0` no gasta cuota). La clave de Groq no se ha
+  probado de verdad (no había una): solo con peticiones simuladas en `tests\test_nube.py`.
 - Memoria: `store.py` (messages, memories, summaries); los resúmenes los hace `Session._summarize` en ratos de calma.
 
 ## Reglas

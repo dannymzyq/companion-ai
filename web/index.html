@@ -91,6 +91,17 @@
     </div>
   </footer>
 
+  <!-- Pantalla de carga: al abrir y tras cambiar un ajuste que carga un modelo (web/js/loading.js) -->
+  <div id="loading" hidden role="status" aria-live="polite">
+    <div class="card loading-card">
+      <div class="loading-ring" aria-hidden="true"></div>
+      <h2 id="loading-title">Preparando</h2>
+      <ul id="loading-items"></ul>
+      <div class="loading-track"><i id="loading-bar"></i></div>
+      <button id="loading-skip" class="link" hidden>Seguir sin esperar</button>
+    </div>
+  </div>
+
   <div id="start">
     <div class="card">
       <h1 id="start-title">Mika</h1>
@@ -249,6 +260,11 @@
           <svg viewBox="0 0 24 24"><path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-1.5 5.3A3 3 0 0 0 8 17.5a2.5 2.5 0 0 0 4 1.5V5.5A2.5 2.5 0 0 0 9 4.5ZM15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 1.5 5.3 3 3 0 0 1-3.5 4.7 2.5 2.5 0 0 1-4 1.5"/></svg>
           <span><b>Cerebro</b><small id="sum-cerebro"></small></span>
         </summary>
+        <label class="row set">
+          <span><b>Solo nube</b><button class="info" data-tip="cloud-only-note" aria-label="Qué es esto">i</button>
+            <small class="tip" id="cloud-only-note" hidden>Pone el cerebro, el oído y la voz en la nube: no se carga ningún modelo en esta PC, así que casi no usa la tarjeta gráfica ni la RAM (para PC sin tarjeta o mientras juegas). Lo que dices y lo que responde viajan por internet. Las voces son las neuronales de Microsoft, no las clonadas. Al apagarlo vuelve a lo que tenías.</small></span>
+          <input type="checkbox" id="cloud-only" class="switch">
+        </label>
         <div class="set">
           <div class="set-head"><b>Dónde piensa</b><button class="info" data-tip="brain-note" aria-label="Qué es esto">i</button></div>
           <p class="tip" id="brain-note" hidden></p>
@@ -277,7 +293,7 @@
         </summary>
         <div class="set">
           <div class="set-head"><b>Voz</b><button class="info" data-tip="tip-voice" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-voice" hidden>La voz de tu personaje (también le da el nombre) y el motor: la completa suena como la voz clonada y usa la tarjeta gráfica; la ligera corre en el procesador y suena más sintética.</p>
+          <p class="tip" id="tip-voice" hidden>La voz de tu personaje (también le da el nombre) y el motor: la completa suena como la voz clonada y usa la tarjeta gráfica; la ligera corre en el procesador y suena más sintética; la de la nube usa voces neuronales de Microsoft por internet, sin clave y casi sin recursos.</p>
           <div class="line"><span id="voice-line"></span><button class="mini" data-edit="voz">Cambiar</button></div>
         </div>
         <label class="row set">
@@ -305,11 +321,24 @@
         </summary>
         <div class="set">
           <div class="set-head"><b>Micrófono</b><button class="info" data-tip="tip-mic" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-mic" hidden>El micrófono con el que te escucha. Habla: la barra debe moverse con tu voz. Tu voz se transcribe en esta PC.</p>
+          <p class="tip" id="tip-mic" hidden>El micrófono con el que te escucha. Habla: la barra debe moverse con tu voz. Dónde se transcribe lo decide «Oído», abajo.</p>
           <div class="picker">
             <select id="mic-select-2" aria-label="Micrófono"></select>
             <div class="meter" aria-hidden="true"><i id="mic-meter-2"></i></div>
             <button id="mic-allow-2" class="link" hidden>Permitir micrófono</button>
+          </div>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Oído</b><button class="info" data-tip="tip-ear" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-ear" hidden>Dónde se convierte en texto lo que dices. Local: Whisper en esta PC (usa ~1,1 GB de la tarjeta gráfica, o el procesador). Nube: tu voz viaja a Groq, que da unas 2.000 frases al día gratis con una clave propia (gratuita, en console.groq.com); sin ella, o si se acaba, usa Gemini con la clave del cerebro. Si la nube falla, vuelve a Whisper en el procesador. Con el oído en la nube no se transcribe el sonido de la pantalla compartida.</p>
+          <div class="segment" id="ear">
+            <button data-value="local"><b>Local</b><small>Whisper en esta PC</small></button>
+            <button data-value="nube"><b>Nube</b><small id="ear-cloud-name">Groq o Gemini</small></button>
+          </div>
+          <div class="picker" id="groq-box">
+            <input id="groq-key" type="password" autocomplete="off" spellcheck="false" placeholder="Clave de Groq (gsk_…)" aria-label="Clave de Groq">
+            <div class="line"><small id="groq-state"></small><button class="mini" id="groq-save">Guardar clave</button></div>
+            <small><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Conseguir una clave gratis</a> · Se guarda solo en esta PC.</small>
           </div>
         </div>
         <div class="set">

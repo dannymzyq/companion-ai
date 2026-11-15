@@ -3,6 +3,7 @@ import { AudioIO, OUTPUT_KEY, VOLUME_KEY, savedOutput, savedVolume } from './aud
 import { Avatar } from './avatar.js';
 import { Vision } from './vision.js';
 import { initOnboarding } from './onboarding.js';
+import { initLoading } from './loading.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (x) => Math.max(0, Math.min(1, x));
@@ -346,6 +347,17 @@ function applyConfig(cfg) {
   $('text-input').placeholder = `Escríbele a ${cfg.name}…`;
   $('brain').textContent = `${cloud ? 'Nube' : 'Local'} · ${cfg.llm.model}`;
 
+  // Pantalla de carga: al abrir (si ya pasó la bienvenida) y cada vez que un ajuste cambia el oído, la voz o el cerebro.
+  const key = [cfg.stt.engine, cfg.voice_engine, cfg.llm.provider, cfg.local_model, cfg.llm.model].join('|');
+  if (loadKey === null) {
+    if (cfg.onboarded && !floating && !autoStart) loading.start(cfg.name);
+  } else if (key !== loadKey) {
+    loading.watch();
+  }
+  loadKey = key;
+  document.querySelector('#start .fine').textContent = (cfg.stt.engine === 'nube'
+    ? 'Tu voz se transcribe en la nube (Groq o Gemini).' : 'Tu voz se transcribe en esta PC.')
+    + (cfg.llm.provider === 'gemini' ? ' Con el cerebro en la nube, el texto de la conversación y las imágenes que compartas van al proveedor que elegiste.' : '');
   // Primera vez: la bienvenida (perfil, cerebro, voz, modelo). Lo último, micrófono y cámara, es la tarjeta de inicio.
   if (!cfg.onboarded && !welcomed && !floating && !autoStart) { welcomed = true; onboarding.start(); }
   for (const el of document.querySelectorAll('.ob-name')) el.textContent = cfg.name;
@@ -353,7 +365,13 @@ function applyConfig(cfg) {
   $('me-line').textContent = cfg.profile.name ? `${cfg.profile.name} · ${cfg.profile.birth_year} · ${GENDER[cfg.profile.gender] || ''}` : 'Sin completar';
   $('cloud-name').textContent = cfg.cloud.name;
   $('cloud-line').textContent = cfg.cloud.has_key ? `${cfg.cloud.name}${cfg.cloud.model ? ' · ' + cfg.cloud.model : ''} · clave ${cfg.cloud.key_hint}` : 'Sin clave de API';
-  const engineName = (id) => (id === 'ligera' ? 'voz ligera' : 'voz completa');
+  const engineName = (id) => ({ ligera: 'voz ligera', nube: 'voz en la nube' }[id] || 'voz completa');
+  const earCloud = cfg.stt.engine === 'nube';
+  $('cloud-only').checked = !!cfg.cloud_only;
+  for (const b of $('ear').children) b.classList.toggle('on', b.dataset.value === cfg.stt.engine);
+  $('ear-cloud-name').textContent = cfg.stt.cloud.groq ? 'Groq, y Gemini de respaldo' : (cfg.stt.cloud.gemini ? 'Gemini (sin clave de Groq)' : 'Falta una clave');
+  $('groq-state').textContent = (cfg.stt.cloud.groq ? 'Clave de Groq guardada.' : 'Sin clave de Groq: el oído en la nube usa Gemini.')
+    + (cfg.stt.restart_frees ? ' Reinicia el companion para devolver del todo la memoria que usaba Whisper.' : '');
   const switched = cfg.voice_engine !== cfg.voice_engine_pref;
   $('voice-line').textContent = `${cfg.voice || 'Sin voz'} · ${engineName(cfg.voice_engine_pref)}${switched ? ` (ahora, ${engineName(cfg.voice_engine)})` : ''}`;
   $('voice-auto').checked = cfg.voice_auto;
@@ -387,15 +405,19 @@ function applyConfig(cfg) {
 
   for (const b of $('provider').children) b.classList.toggle('on', b.dataset.value === cfg.llm.provider);
   $('brain-note').textContent = cloud
-    ? `Solo el texto de la conversación (y las imágenes de cámara o pantalla, si las compartes) viaja a ${cfg.cloud.name}. Tu voz y la de ${cfg.name} se procesan en esta PC.`
+    ? `${earCloud || cfg.voice_engine === 'nube' ? 'El' : 'Solo el'} texto de la conversación (y las imágenes de cámara o pantalla, si las compartes) viaja a ${cfg.cloud.name}.`
+      + (earCloud || cfg.voice_engine === 'nube'
+        ? `${earCloud ? ' Tu voz se transcribe en la nube.' : ' Tu voz se transcribe en esta PC.'}${cfg.voice_engine === 'nube' ? ` La voz de ${cfg.name} se genera en la nube.` : ` La voz de ${cfg.name} se genera en esta PC.`}`
+        : ` Tu voz y la de ${cfg.name} se procesan en esta PC.`)
     : `Todo se procesa en esta PC${cfg.adult.active ? ', sin filtro para temas +18 si tú los propones' : ''}. El modelo comparte la memoria de vídeo con la voz: si no cabe (un juego, ComfyUI), ${cfg.name} pasa primero a la voz ligera y, si aún falta, a un modelo más pequeño. Pulsa «Local» otra vez para que vuelva a elegir.`;
   $('watch-note').textContent = `Mientras compartes la cámara o la pantalla, ${cfg.name} mira cada pocos segundos y comenta por su cuenta lo que le llama la atención.`
     + (cloud ? ` Con la nube esas imágenes van a ${cfg.cloud.name} (modelo ${cfg.watch.model}).` : ' Con el cerebro local no salen de esta PC.');
 
   const health = [
     ['Cerebro', `${cloud ? cfg.cloud.name : 'Ollama'} · ${cfg.llm.model}`, cfg.llm.ready],
-    ['Oído', cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${cfg.stt.device === 'cuda' ? 'GPU' : 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), !cfg.stt.error],
-    ['Voz', cfg.tts ? `${engineName(cfg.voice_engine)} · ${cfg.voice_engine === 'ligera' ? 'procesador' : 'GPU'}` : 'No disponible', cfg.tts],
+    ['Oído', earCloud ? `Nube · ${cfg.stt.cloud.last ? `${cfg.stt.cloud.last.provider} (${String(cfg.stt.cloud.last.seconds).replace('.', ',')} s)` : (cfg.stt.cloud.groq ? 'Groq' : 'Gemini')}`
+      : cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${cfg.stt.device === 'cuda' ? 'GPU' : 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), !cfg.stt.error],
+    ['Voz', cfg.tts ? `${engineName(cfg.voice_engine)} · ${{ ligera: 'procesador', nube: 'internet' }[cfg.voice_engine] || 'GPU'}` : 'No disponible', cfg.tts],
     ['Modelo 3D', cfg.model ? (/^avatar\d$/.test(cfg.model_id) ? `Avatar ${cfg.model_id.slice(-1)} (incluido)` : 'Modelo propio') : 'Falta el .vrm', cfg.model],
   ];
   if (cfg.llm.detail) health[0][1] += ` · ${cfg.llm.detail}`;
@@ -426,6 +448,16 @@ async function postConfig(body) {
 
 // ---------------------------------------------------------------- modelos 3D: el de fábrica y los propios
 let loadingModel = false;
+let modelFailed = false;
+// Para la pantalla de carga: ¿el personaje 3D ya está a la vista?
+function avatarState() {
+  if (!config) return 'cargando';
+  if (!config.model || !avatar) return 'listo';                 // sin modelo, o sin 3D: la esfera
+  if (modelFailed) return 'error';
+  return avatar.loaded && !loadingModel ? 'listo' : 'cargando';
+}
+const loading = initLoading({ avatarState });
+let loadKey = null;                         // lo que, si cambia, puede poner a cargar algo (oído, voz, cerebro)
 
 function showOrb(show) {
   $('orb').hidden = !show;
@@ -434,6 +466,7 @@ function showOrb(show) {
 
 async function loadModel() {
   loadingModel = true;
+  modelFailed = false;
   try {
     if (config && config.model_kind === 'orb') avatar.loadOrb();              // el personaje neutro no es un archivo
     else await avatar.load(`/api/model?v=${Date.now()}`);
@@ -441,6 +474,7 @@ async function loadModel() {
     showOrb(false);
   } catch (err) {
     console.error(err);
+    modelFailed = true;
     showOrb(true);
     toast('No pude cargar el modelo 3D: ' + err.message, true);
   }
@@ -877,6 +911,26 @@ for (const b of document.querySelectorAll('.info[data-tip]')) {
     b.setAttribute('aria-expanded', String(!tip.hidden));
   };
 }
+
+async function postSetup(body, fail = 'No se pudo guardar.') {
+  const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.ok) { applyConfig(await r.json()); return true; }
+  let msg = fail;
+  try { msg = (await r.json()).detail || fail; } catch { /* sin detalle */ }
+  toast(msg, true);
+  refreshConfig();
+  return false;
+}
+const restartHint = () => { if (config.stt.restart_frees) toast('Listo. Para devolver toda la memoria que usaba el oído local, reinicia el companion.'); };
+$('cloud-only').onchange = async () => { if (await postSetup({ cloud_only: $('cloud-only').checked })) restartHint(); };
+for (const b of $('ear').children) b.onclick = async () => { if (await postSetup({ ear: { engine: b.dataset.value } })) restartHint(); };
+$('groq-save').onclick = async () => {
+  const key = $('groq-key').value.trim();
+  if (!key) { toast('Pega primero la clave de Groq.', true); return; }
+  $('groq-save').disabled = true;
+  if (await postSetup({ ear: { groq_key: key } })) { $('groq-key').value = ''; toast('Clave de Groq guardada.'); }
+  $('groq-save').disabled = false;
+};
 
 $('voice-auto').onchange = async () => {
   const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice_auto: $('voice-auto').checked }) });

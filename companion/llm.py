@@ -593,18 +593,28 @@ async def _swap(old: str, new: str):
     await warm_local(new)
 
 
+warming: dict = {}                        # {"model", "state": cargando|listo|error} (pantalla de carga)
+
+
 async def warm_local(model: str | None = None):
     """Carga el modelo local en la GPU antes del primer turno, para que no se note la espera.
     Sin `model`, primero elige el que cabe ahora."""
-    model = model or await choose_local()
-    _ours.add(model)
-    await _learn_vision(model)
+    warming.update(model=model or settings.ollama_model, state="cargando")
     try:
+        model = model or await choose_local()
+        warming["model"] = model
+        _ours.add(model)
+        await _learn_vision(model)
         r = await _local.post(f"{settings.ollama_url}/api/generate",
                               json={"model": model, "keep_alive": settings.ollama_keep_alive, "options": _options()})
         log.info("Modelo local %s %s", model, "cargado" if r.status_code == 200 else f"no cargó ({r.status_code}: {r.text[:200]})")
+        warming["state"] = "listo" if r.status_code == 200 else "error"
     except httpx.HTTPError as e:
         log.warning("No pude precargar %s: %s", model, type(e).__name__)
+        warming["state"] = "error"
+    except Exception:  # noqa: BLE001
+        warming["state"] = "error"
+        raise
 
 
 async def unload_local(models: list[str] | None = None):

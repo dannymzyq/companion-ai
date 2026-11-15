@@ -29,8 +29,9 @@ class Servidor:
     """with Servidor(): ...  → servidor de prueba listo (Whisper cargado) y apagado al salir.
     Por defecto arranca con la bienvenida ya hecha (un usuario adulto de prueba); `nuevo=True` la deja pendiente."""
 
-    def __init__(self, nuevo: bool = False):
+    def __init__(self, nuevo: bool = False, ajustes: dict | None = None):
         self.nuevo = nuevo
+        self.ajustes = ajustes or {}      # más ajustes guardados de partida (p. ej. «solo nube»)
 
     def __enter__(self):
         modelos = TEST_DIR / "models"
@@ -38,8 +39,10 @@ class Servidor:
         for sobrante in (TEST_DIR / "companion.db", TEST_DIR / "settings.json"):
             sobrante.unlink(missing_ok=True)
         if not self.nuevo:
-            (TEST_DIR / "settings.json").write_text(
-                '{"onboarded": true, "profile": {"name": "Danny", "birth_year": 1990, "gender": "hombre"}}', encoding="utf-8")
+            import json
+            (TEST_DIR / "settings.json").write_text(json.dumps(
+                {"onboarded": True, "profile": {"name": "Danny", "birth_year": 1990, "gender": "hombre"}, **self.ajustes},
+                ensure_ascii=False), encoding="utf-8")
         shutil.rmtree(modelos / "custom", ignore_errors=True)
         for nombre in ("avatar1.vrm", "avatar2.vrm"):                # los personajes incluidos
             original = ROOT / "models" / nombre

@@ -20,6 +20,7 @@ from . import actions, llm, models, profile, state, store, tts, voice_import, vo
 from .config import settings
 from .prompt import adult_active, load_persona
 from .session import Session
+from . import lifecycle
 from .stt import Transcriber
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -40,6 +41,7 @@ def _hint() -> str:
 
 
 transcriber = Transcriber(settings.stt_model, settings.stt_device, settings.stt_compute, settings.stt_language, hint=_hint())
+transcriber.engine = profile.ear_engine()  # con el oído en la nube no se carga Whisper al arrancar
 
 
 _tasks: set = set()
@@ -120,12 +122,23 @@ def public_config() -> dict:
         "voice_engine_pref": profile.voice_engine(), "voice_auto": profile.voice_auto(), "voice_reason": settings.voice_reason,
         "watch": {"interval": settings.watch_interval, "model": settings.watch_model if settings.is_cloud else llm.local_model()},
         "stt": {"ready": transcriber.ready, "device": transcriber.device, "model": transcriber.model_name,
-                "error": transcriber.error},
+                "error": transcriber.error, "engine": transcriber.engine, "cloud": _ear_public(),
+                # Whisper ya se descargó, pero las librerías de CUDA (~200 MB de vídeo, ~500 MB de RAM) siguen
+                # cargadas en este proceso hasta reiniciar el companion.
+                "restart_frees": transcriber.engine == "nube" and transcriber.used_cuda},
+        "cloud_only": profile.cloud_only(),
         "model": model_path() is not None or models.kind(persona["name"]) == "orb",
         "model_id": models.active_id(persona["name"]), "model_kind": models.kind(persona["name"]),
         "barge_in": settings.barge_in, "actions": _actions_state(),
         "started": STARTED,               # iniciar.ps1 lo compara con la fecha del código para saber si reiniciar
     }
+
+
+def _ear_public() -> dict:
+    """Estado del oído en la nube, sin claves: si hay clave de Groq y quién respondió la última vez."""
+    from . import stt_cloud
+    return {"groq": bool(stt_cloud.groq_key()), "gemini": bool(stt_cloud.gemini_key()),
+            "last": dict(stt_cloud.last) or None}
 
 
 async def full_config() -> dict:
@@ -234,6 +247,7 @@ async def get_setup():
                          "fits_now": res["recommended_engine"] == "completa",
                          "light_installed": tts_light.installed(), "light_size_mb": tts_light.SIZE_MB,
                          "light_progress": tts_light.progress or None},
+        "ear": {"engine": profile.ear_engine(), **_ear_public()}, "cloud_only": profile.cloud_only(),
         "onboarded": bool(state.load().get("onboarded")), "character": character_name(), "year": time.localtime().tm_year,
         "profile": profile.get(), "suggested_name": settings.user_name,
         "provider": settings.llm_provider, "cloud": profile.public_cloud(),
@@ -250,7 +264,9 @@ class SetupIn(BaseModel):
     provider: str | None = None           # gemini (= nube) | local
     local_model: str | None = None
     voice: str | None = None
-    voice_engine: str | None = None       # completa | ligera
+    voice_engine: str | None = None       # completa | ligera | nube
+    ear: dict | None = None               # {engine: local|nube, groq_key, remove_groq_key}; sin groq_key se conserva
+    cloud_only: bool | None = None        # cerebro, oído y voz en la nube (al apagarlo vuelve lo de antes)
     voice_auto: bool | None = None        # pasar sola a la ligera cuando la completa no cabe en la tarjeta
     onboarded: bool | None = None
 
@@ -295,7 +311,32 @@ async def set_setup(body: SetupIn):
                 raise ValueError("Motor de voz no reconocido.")
             if body.voice_engine == "ligera" and not tts_light.installed():
                 raise ValueError("La voz ligera todavía no está descargada.")
+            if body.voice_engine == "nube":
+                from . import tts_cloud
+                if not tts_cloud.installed():
+                    raise ValueError("Falta la librería de la voz en la nube: vuelve a ejecutar el instalador.")
             changes["voice_engine"] = body.voice_engine
+        if body.ear is not None:
+            from . import stt_cloud
+            ear = dict(state.load().get("ear") or {})
+            key = str(body.ear.get("groq_key") or "").strip()
+            if key:
+                try:
+                    ok = await stt_cloud.check_groq(key)
+                except stt_cloud.CloudEarError as e:
+                    raise ValueError(str(e)) from None
+                if not ok:
+                    raise ValueError("Groq no acepta esa clave. Cópiala de nuevo desde console.groq.com/keys.")
+                ear["groq_key"] = key
+            if body.ear.get("remove_groq_key"):
+                ear.pop("groq_key", None)
+            if body.ear.get("engine") is not None:
+                if body.ear["engine"] not in profile.EAR_ENGINES:
+                    raise ValueError("Oído no reconocido.")
+                ear["engine"] = body.ear["engine"]
+            if ear.get("engine") == "nube" and not (ear.get("groq_key") or stt_cloud.gemini_key()):
+                raise ValueError("Para el oído en la nube hace falta una clave de Groq o el cerebro con Gemini.")
+            changes["ear"] = ear
         if body.voice_auto is not None:
             changes["voice_auto"] = bool(body.voice_auto)
         if body.provider is not None:
@@ -304,6 +345,8 @@ async def set_setup(body: SetupIn):
             changes["provider"] = body.provider
         if body.onboarded is not None:
             changes["onboarded"] = bool(body.onboarded)
+        if body.cloud_only is not None:
+            changes.update(_cloud_only_changes(bool(body.cloud_only), changes))
     except ValueError as e:
         raise HTTPException(422, str(e))
     state.save(**changes)
@@ -312,6 +355,8 @@ async def set_setup(body: SetupIn):
         profile.squeeze(False)            # se vuelve a decidir si cabe la voz completa
     profile.apply()
     transcriber.hint = _hint()
+    if transcriber.set_engine(profile.ear_engine()):      # se volvió al oído local: Whisper se carga de nuevo
+        asyncio.get_running_loop().run_in_executor(None, transcriber.load)
     if settings.voice_engine != engine or "voice_engine" in changes:   # se arranca o se apaga la voz completa
         await asyncio.to_thread(voz_proc.sync)
     if "cloud" in changes:
@@ -319,6 +364,57 @@ async def set_setup(body: SetupIn):
     if settings.llm_provider != before or "local_model" in changes:
         _background(llm.warm_local() if not settings.is_cloud else llm.unload_local())
     return await full_config()
+
+
+def _cloud_only_changes(on: bool, changes: dict) -> dict:
+    """«Solo nube»: guarda lo que había (cerebro, oído, voz) y lo pasa todo a la nube; al apagarlo lo devuelve."""
+    from . import tts_cloud
+    s = {**state.load(), **changes}
+    if on == bool(s.get("cloud_only")):
+        return {}
+    ear = dict(s.get("ear") or {})
+    if not on:
+        before = s.get("before_cloud_only") or {}
+        ear["engine"] = before.get("ear", "local")
+        return {"cloud_only": False, "provider": before.get("provider", "gemini"), "ear": ear,
+                "voice_engine": before.get("voice_engine", profile.voice_engine())}
+    cloud = s.get("cloud") or {}
+    key = cloud.get("key") or profile.cloud()["key"]
+    if not key:
+        raise ValueError("Para usar solo la nube primero pon la clave del cerebro (Cerebro › Proveedor y clave).")
+    if not (ear.get("groq_key") or (cloud.get("preset", profile.cloud()["preset"]) == "gemini" and key)):
+        raise ValueError("Para el oído en la nube hace falta una clave de Groq o el cerebro con Gemini.")
+    if not tts_cloud.installed():
+        raise ValueError("Falta la librería de la voz en la nube: vuelve a ejecutar el instalador.")
+    before = {"provider": s.get("provider", settings.llm_provider), "ear": ear.get("engine", "local"),
+              "voice_engine": s.get("voice_engine", profile.voice_engine())}
+    ear["engine"] = "nube"
+    return {"cloud_only": True, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
+
+
+# ---------------------------------------------------------------- carga y cierre (lifecycle.py)
+@app.get("/api/loading")
+async def get_loading():
+    """Lo que todavía se está cargando, para la pantalla de carga de la interfaz."""
+    return await lifecycle.loading(transcriber)
+
+
+class OwnerIn(BaseModel):
+    pid: int
+
+
+@app.post("/api/owner", dependencies=[Depends(same_origin)])
+async def set_owner(body: OwnerIn):
+    """La ventana del companion se registra: si su proceso muere sin cerrar bien, el servidor se apaga."""
+    lifecycle.watch_owner(body.pid)
+    return {"ok": True}
+
+
+@app.post("/api/shutdown", dependencies=[Depends(same_origin)])
+async def do_shutdown():
+    """Apagado ordenado (detener.ps1 / detener.sh): voz completa, modelo local de Ollama y este proceso."""
+    _background(lifecycle.shutdown("pedido al cerrar"))
+    return {"ok": True}
 
 
 class ResetIn(BaseModel):
@@ -438,8 +534,9 @@ async def add_custom_voice(request: Request, name: str = "", speaks: str = ""):
     taken = {v["name"] for v in profile.voices()}
 
     def make():                           # con el candado del oído: Whisper no puede transcribir dos cosas a la vez
+        model = transcriber.local_model()   # con el oído en la nube, un Whisper en el procesador solo para esto
         with transcriber._lock:
-            return voice_import.create(bytes(data), name, speaks, transcriber.model, taken)
+            return voice_import.create(bytes(data), name, speaks, model, taken)
     try:
         v = await asyncio.to_thread(make)
     except voice_import.VoiceError as e:

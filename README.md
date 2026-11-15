@@ -168,6 +168,49 @@ cabecera cómo está ahora, y cada opción lleva una «i» con una explicación 
 también la **salida de audio** (altavoces, auriculares… `AudioContext.setSinkId`) y el **volumen** de la voz (0–150 %,
 aparte del de Windows); se recuerdan en esta PC y valen también para la muestra ▶ de las voces.
 
+### Al abrir y al cerrar (15 nov 2026)
+
+- **Pantallas de carga.** La ventana se abre al momento con «Abriendo Companion» (`desktop\cargando.html`) mientras
+  arranca el servidor; si este se cierra al arrancar o no responde en 3 minutos, lo dice y ofrece «Ver el
+  registro». Luego la interfaz enseña «Preparando a…» (`web\js\loading.js`, datos de `GET /api/loading`) con el
+  oído, la voz, el cerebro y el personaje 3D, y se quita sola cuando todo está listo (o con «Seguir sin
+  esperar»). Al cambiar un ajuste que carga algo (oído local, voz completa, modelo local) aparece igual.
+- **Al cerrar, nada se queda en segundo plano.** `detener.ps1` / `detener.sh` piden un apagado ordenado
+  (`POST /api/shutdown`: para la voz completa y saca el modelo local que cargó este companion), cierran lo que
+  quede con su árbol de procesos (el servidor y la voz completa, aunque siga cargando) y cierran Ollama si lo
+  abrió el companion (`data\ollama.pid`; si ya estaba abierto, se queda). La ventana se registra como dueña del
+  servidor (`POST /api/owner`): si su proceso muere sin cerrar bien, el servidor se apaga solo a los ~8 s.
+
+### Solo nube (15 nov 2026)
+
+Ajustes › Cerebro › **Solo nube** pone el cerebro, el oído y la voz en la nube: no se carga ningún modelo en esta
+PC (ni Whisper, ni la voz completa, ni el respaldo local del cerebro). Sirve en PC sin tarjeta gráfica o mientras
+juegas. Al apagarlo vuelve lo que tenías antes. Se elige también por partes:
+
+- **Oído** (Ajustes › Micrófono y cámara › Oído, `companion/stt_cloud.py`): **Groq** (`whisper-large-v3-turbo`, el
+  mismo modelo que el oído local) da unas **2.000 frases y 8 horas de audio al día gratis** con una clave propia
+  gratuita (console.groq.com/keys). Sin ella, o si se acaba, usa **Gemini** (`gemini-3.5-flash-lite` y luego
+  `gemini-3.1-flash-lite`) con la clave del cerebro. Si la nube falla, transcribe con Whisper en el procesador.
+  Con el oído en la nube no se transcribe el sonido de la pantalla compartida (gastaría la cuota en un rato).
+- **Voz** (motor «Voz en la nube», `companion/tts_cloud.py`): las voces neuronales de Microsoft que usa la lectura
+  en voz alta de Edge (librería `edge-tts`): sin clave ni cupo diario, casi sin procesador. Cada personaje tiene una
+  voz parecida (`cloud` en `voices.json`). No es una API oficial: si deja de responder (o no hay internet), la frase
+  suena con la voz ligera.
+
+Medido con `scripts\prueba_nube.py` (RTX 5070 Ti, oído con Gemini porque no había clave de Groq):
+
+| | Solo nube | Oído local + voz ligera |
+|---|---|---|
+| Servidor en reposo: RAM privada | **62 MB** | 627 MB |
+| Servidor en reposo: memoria de vídeo | **0 MB** | 1.294 MB |
+| Servidor hablando: procesador (pico) | **< 1 %** | ~11 % |
+| Desde que dejas de hablar: texto oído | 1,3–1,5 s | al momento |
+| Desde que dejas de hablar: primer audio | 4,5–6 s | ~3 s |
+
+La ventana (Electron con el avatar 3D) es igual en los dos modos: unos 790 MB de RAM privada y 470 MB de vídeo
+con un avatar VRM (menos con la esfera). Pasar a la nube sin reiniciar descarga Whisper, pero las librerías de
+CUDA (~200 MB de vídeo, ~500 MB de RAM) siguen cargadas hasta reiniciar el companion: Ajustes lo avisa.
+
 **Empezar de nuevo** (Ajustes › Memoria y datos): «Repetir la bienvenida» vuelve a pasar por los pasos con lo guardado;
 «Restablecer mis datos» borra perfil, clave, voz y personaje elegidos, dispositivos recordados, conversación y
 recuerdos (`POST /api/setup/reset`), y deja el companion como recién instalado.
@@ -457,6 +500,8 @@ Para «compartir una ventana» la prueba abre su propia tarjeta (`desktop\tarjet
 .venv\Scripts\python.exe scripts\prueba_memoria.py          # memoria a largo plazo: conversación larga, sesión nueva y pregunta sobre lo anterior (cerebro local)
 .venv\Scripts\python.exe scripts\prueba_componentes.py      # etiquetas, voz, detección de voz, Whisper
 .venv\Scripts\python.exe scripts\prueba_ws.py               # conversación hablada completa, sin interfaz
+.venv\Scripts\python.exe scripts\prueba_carga.py            # pantallas de carga, apagado si muere la ventana y detener.ps1 (solo el servidor de prueba)
+.venv\Scripts\python.exe scripts\prueba_nube.py             # «solo nube»: conversación hablada y medición de RAM, procesador y vídeo (--turnos 0: sin gastar cuota)
 .venv\Scripts\python.exe scripts\prueba_ws.py --interrumpir # hablarle encima
 .venv\Scripts\python.exe scripts\prueba_navegador.py        # permiso y selector de micrófono en un Chrome oculto
 .venv\Scripts\python.exe scripts\prueba_dispositivos.py --mic BRIO --cam BRIO   # micrófono y cámara FÍSICOS (enciende la luz de la cámara; nada llega a un modelo)

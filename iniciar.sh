@@ -22,8 +22,9 @@ vivo() { curl -fsS "$URL/api/config" >/dev/null 2>&1; }
 ocupado() { .venv/bin/python -c "import socket,sys; s=socket.socket(); sys.exit(s.connect_ex(('127.0.0.1', int(sys.argv[1]))) != 0)" "$1"; }
 
 if command -v ollama >/dev/null 2>&1 && ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-  if [ "$(uname -s)" = Darwin ] && [ -d /Applications/Ollama.app ]; then open -ga Ollama
-  else nohup ollama serve >/dev/null 2>&1 & fi
+  mkdir -p data   # se anota que lo abrió el companion: detener.sh lo cierra al salir (si ya estaba abierto, no)
+  if [ "$(uname -s)" = Darwin ] && [ -d /Applications/Ollama.app ]; then open -ga Ollama && echo app >data/ollama.started
+  else nohup ollama serve >/dev/null 2>&1 & echo $! >data/ollama.started; fi
 fi
 if ! vivo; then
   if ocupado "$PUERTO"; then   # otro programa usa ese puerto: se elige uno libre y se guarda en .env

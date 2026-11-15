@@ -34,7 +34,7 @@ rm -f "$RES/default_app.asar"
 
 # ---------------------------------------------------------------- la parte de escritorio
 mkdir -p "$RES/app"
-for f in mac.js main.js preload.js picker.html picker-preload.js instalando.html instalando-preload.js tarjeta-prueba.html; do
+for f in mac.js main.js preload.js picker.html picker-preload.js instalando.html instalando-preload.js cargando.html tarjeta-prueba.html; do
   cp "desktop/$f" "$RES/app/"
 done
 cat > "$RES/app/package.json" <<EOF

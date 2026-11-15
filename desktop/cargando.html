@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Companion</title>
+<style>
+  :root { color-scheme: dark; --accent: #a78bfa; --muted: #a8a3bd; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; place-items: center; background: #0c0b14; color: #ece9f6; user-select: none;
+    font: 14px/1.5 "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  }
+  main { width: min(86vw, 340px); text-align: center; }
+  .anillo { width: 44px; height: 44px; margin: 0 auto 18px; border-radius: 50%; border: 3px solid rgba(167, 139, 250, 0.2);
+    border-top-color: var(--accent); animation: girar 0.9s linear infinite; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+  h1 { margin: 0 0 6px; font-size: 1.25rem; font-weight: 600; }
+  p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+  #fallo { display: none; margin-top: 18px; padding: 12px 14px; border-radius: 12px; text-align: left; font-size: 0.85rem;
+    background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.4); white-space: pre-wrap; word-break: break-word; }
+  body.error .anillo { display: none; }
+  body.error #fallo { display: block; }
+  .botones { display: none; gap: 10px; justify-content: center; margin-top: 14px; }
+  body.error .botones { display: flex; }
+  button { font: inherit; font-size: 0.85rem; color: #ece9f6; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.06); }
+</style>
+</head>
+<body>
+  <!-- Lo primero que se ve al abrir la app mientras arranca el servidor (desktop/main.js lo actualiza). -->
+  <main>
+    <div class="anillo" aria-hidden="true"></div>
+    <h1 id="titulo">Abriendo Companion</h1>
+    <p id="texto">Arrancando el servidor local…</p>
+    <div id="fallo"></div>
+    <div class="botones">
+      <button id="registro">Ver el registro</button>
+      <button id="cerrar">Cerrar</button>
+    </div>
+  </main>
+<script>
+  window.setEstado = (titulo, texto, fallo) => {
+    document.getElementById('titulo').textContent = titulo;
+    document.getElementById('texto').textContent = texto || '';
+    document.getElementById('fallo').textContent = fallo || '';
+    document.body.classList.toggle('error', !!fallo);
+  };
+  // Sin preload: los botones avisan a main.js cambiando el título de la página.
+  document.getElementById('registro').onclick = () => { document.title = 'companion:registro'; setTimeout(() => { document.title = 'Companion'; }, 50); };
+  document.getElementById('cerrar').onclick = () => { document.title = 'companion:cerrar'; };
+</script>
+</body>
+</html>

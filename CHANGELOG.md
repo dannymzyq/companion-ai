@@ -4,6 +4,22 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.6.0 — 2026-11-15
+
+- **Pantallas de carga**: la ventana se abre al momento y enseña «Abriendo Companion» mientras arranca el
+  servidor (si no llega a arrancar, dice por qué y deja ver el registro). Después, «Preparando a…» marca el
+  oído, la voz, el cerebro y el personaje 3D según van quedando listos, y lo mismo al cambiar un ajuste que
+  carga un modelo (el oído local, la voz completa, el modelo local).
+- **Al cerrar la app se cierra todo**: el servidor se apaga en orden (para la voz completa y saca el modelo
+  local de la memoria), se cierra lo que quede con sus procesos hijos y también Ollama si lo abrió el companion.
+  Si la ventana se cuelga o se cierra desde el Administrador de tareas, el servidor lo nota y se apaga solo.
+- **Solo nube** (Ajustes › Cerebro): cerebro, oído y voz en la nube, sin modelos en la PC. Medido: el servidor
+  pasa de ~630 MB de RAM y 1,3 GB de vídeo a 62 MB y nada de vídeo. Al apagarlo vuelve lo de antes.
+- **Oído en la nube** (Ajustes › Micrófono y cámara › Oído): Groq con una clave gratuita (unas 2.000 frases al
+  día) o Gemini con la clave del cerebro; si falla, Whisper en el procesador.
+- **Voz en la nube**: voces neuronales de Microsoft (Edge), gratis y sin clave. Sin internet suena la ligera.
+- Incluye también la corrección de la 0.5.1 (voz completa con drivers de NVIDIA anteriores al 580).
+
 ## 0.5.1 — 2026-11-15 (solo Windows)
 
 - **La voz completa arranca con drivers de NVIDIA anteriores a la serie 580** (laptop con RTX 3050). El

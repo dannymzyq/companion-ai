@@ -35,7 +35,10 @@ async def node_available() -> bool:
 
 
 async def available() -> bool:
-    """¿Hay voz con el motor elegido? (ligera: Piper aquí mismo · completa: el servidor de voz)"""
+    """¿Hay voz con el motor elegido? (ligera: Piper aquí mismo · nube: edge-tts · completa: el servidor de voz)"""
+    if settings.voice_engine == "nube":
+        from . import tts_cloud
+        return tts_cloud.installed()
     if settings.voice_engine == "ligera":
         from . import tts_light
         return tts_light.installed()
@@ -44,27 +47,44 @@ async def available() -> bool:
 
 async def stream_speech(text: str, voice: str, speed: float = 1.0, engine: str | None = None) -> AsyncIterator[bytes]:
     """Devuelve PCM de 16 bits mono a 24 kHz en trozos, siempre con un número par de bytes."""
+    engine = engine or settings.voice_engine
+    if engine == "nube":                  # las voces neuronales leen bien el español y el inglés tal cual
+        async for chunk in _with_light_backup(_cloud(text, voice, speed), text, voice, speed, "en la nube"):
+            yield chunk
+        return
     from .pronounce import for_voice
     text = for_voice(text)                 # «Apple Music» → como se pronuncia; «qué» → «ké» (solo para la voz)
-    if (engine or settings.voice_engine) == "ligera":
+    if engine == "ligera":
         from . import tts_light
         async for chunk in tts_light.stream_speech(text, voice, speed):
             yield chunk
         return
     body = {"model": "local", "input": text[:1500], "voice": voice, "response_format": "pcm",
             "stream": True, "speed": speed}
+    async for chunk in _with_light_backup(_full_with_retry(body), text, voice, speed, "completa"):
+        yield chunk
+
+
+async def _cloud(text: str, voice: str, speed: float) -> AsyncIterator[bytes]:
+    from . import tts_cloud
+    async for chunk in tts_cloud.stream_speech(text, voice, speed):
+        yield chunk
+
+
+async def _with_light_backup(source: AsyncIterator[bytes], text: str, voice: str, speed: float,
+                             which: str) -> AsyncIterator[bytes]:
+    """Si la voz completa no pudo cargar (p. ej. PyTorch no ve la tarjeta) o la de la nube no responde (sin
+    internet), la frase suena con la ligera en vez de quedarse muda. Si ya sonó algo, no se mezclan las dos voces."""
     sent = False
     try:
-        async for chunk in _full_with_retry(body):
+        async for chunk in source:
             sent = True
             yield chunk
     except TTSError as e:
-        # La voz completa no pudo cargar (p. ej. PyTorch no ve la tarjeta): la frase suena con la ligera en vez de
-        # quedarse muda. Si ya sonó algo, no se mezclan las dos voces.
         from . import tts_light
         if sent or not tts_light.installed():
             raise
-        log.warning("La voz completa no está disponible (%s): esta frase va con la ligera", e)
+        log.warning("La voz %s no está disponible (%s): esta frase va con la ligera", which, e)
         async for chunk in tts_light.stream_speech(text, voice, speed):
             yield chunk
 

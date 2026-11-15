@@ -1,4 +1,5 @@
-"""Oído: transcripción local con faster-whisper (GPU si se puede, CPU si no)."""
+"""Oído: transcripción local con faster-whisper (GPU si se puede, CPU si no) o en la nube (stt_cloud, `engine`
+«nube»: no se carga Whisper; si la nube falla, se carga en el procesador como respaldo)."""
 import logging
 import os
 import site
@@ -38,13 +39,54 @@ class Transcriber:
         self.model = None
         self.device = None
         self.error: str | None = None
+        self.engine = "local"             # local | nube (Ajustes › Oído; profile.ear_engine)
+        self.used_cuda = False            # cargó en la tarjeta alguna vez: CUDA no se suelta hasta reiniciar
+        self._backup = None               # Whisper en el procesador, por si la nube falla (solo se carga entonces)
         self._lock = threading.Lock()
+        self._load_lock = threading.Lock()
 
     @property
     def ready(self) -> bool:
-        return self.model is not None
+        return self.engine == "nube" or self.model is not None
+
+    def set_engine(self, engine: str):
+        """Cambia entre el oído local y el de la nube. Al pasar a la nube se descarga Whisper (devuelve la memoria de
+        vídeo y la RAM); al volver a local hay que llamar a load() (tarda unos segundos)."""
+        global on_gpu
+        engine = "nube" if engine == "nube" else "local"
+        if engine == self.engine and (engine == "nube" or self.model is not None or self.error):
+            return False
+        self.engine = engine
+        if engine == "nube":
+            with self._lock:
+                self.model, self._backup, self.error = None, None, None
+                self.device = "nube"
+                on_gpu = False
+            import gc
+            gc.collect()
+            log.info("Oído en la nube: Whisper descargado de esta PC")
+            return False
+        self.device = None
+        return True                       # quien llama carga el modelo local (load) en segundo plano
+
+    def local_model(self):
+        """Un Whisper local para lo que no se hace en la nube (crear una voz propia) o si la nube falla: el del oído
+        si está cargado; si no, el modelo instalado en el procesador (sin memoria de vídeo)."""
+        if self.model is not None:
+            return self.model
+        with self._load_lock:
+            if self._backup is None:
+                from faster_whisper import WhisperModel
+                local = ROOT / "models" / "whisper" / self.model_name
+                self._backup = WhisperModel(str(local) if (local / "model.bin").is_file() else self.model_name,
+                                            device="cpu", compute_type="int8")
+                log.info("Whisper %s cargado en CPU (respaldo del oído en la nube)", self.model_name)
+            return self._backup
 
     def load(self):
+        if self.engine == "nube":         # con el oído en la nube no se carga nada al arrancar
+            self.device = "nube"
+            return
         from faster_whisper import WhisperModel as _Whisper
 
         def WhisperModel(name, **kw):       # el modelo que trajo el instalador a models/whisper; si no, se descarga
@@ -57,7 +99,7 @@ class Transcriber:
                 _add_cuda_dlls()
                 model = WhisperModel(self.model_name, device="cuda", compute_type=self.compute)
                 list(model.transcribe(silence, language=self.language, beam_size=1)[0])   # fuerza la carga de las DLL
-                self.model, self.device = model, "cuda"
+                self.model, self.device, self.used_cuda = model, "cuda", True
                 global on_gpu
                 on_gpu = True
                 log.info("Whisper %s en GPU (%s)", self.model_name, self.compute)
@@ -79,10 +121,19 @@ class Transcriber:
 
     def transcribe(self, audio: np.ndarray) -> str:
         """audio: float32 mono a 16 kHz. Devuelve el texto, o '' si no hubo habla reconocible."""
-        if self.model is None:
+        if self.engine == "nube":
+            from . import stt_cloud
+            try:
+                return _clean(stt_cloud.transcribe(audio, self.language, self.hint), len(audio))
+            except stt_cloud.CloudEarError as e:
+                log.warning("El oído en la nube falló (%s): transcribo en esta PC", e)
+                model = self.local_model()
+        else:
+            model = self.model
+        if model is None:
             return ""
         with self._lock:
-            segments, _ = self.model.transcribe(
+            segments, _ = model.transcribe(
                 audio, language=self.language, beam_size=1, temperature=0.0, vad_filter=False,
                 condition_on_previous_text=False, initial_prompt=self.hint or None, without_timestamps=True)
             parts = [s.text.strip() for s in segments
@@ -91,8 +142,9 @@ class Transcriber:
 
     def transcribe_media(self, audio: np.ndarray) -> str:
         """Sonido de la pantalla compartida (vídeos, juegos, llamadas): el idioma se detecta solo, el filtro de voz
-        salta la música y el silencio, y sin la pista de nombres del usuario (no es él quien habla)."""
-        if self.model is None:
+        salta la música y el silencio, y sin la pista de nombres del usuario (no es él quien habla). Con el oído en
+        la nube no se transcribe: serían 10 peticiones por minuto y agotarían la cuota del día en un rato."""
+        if self.model is None or self.engine == "nube":
             return ""
         with self._lock:
             segments, _ = self.model.transcribe(

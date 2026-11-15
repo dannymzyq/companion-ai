@@ -58,7 +58,11 @@ VOICE_ENGINES = {
                  "note": "Voces clonadas, la de más calidad. Necesita tarjeta NVIDIA: usa alrededor de 1,5 GB de memoria de vídeo."},
     "ligera": {"name": "Voz ligera", "vram_gb": 0.0,
                "note": "Voces sintéticas (Piper). Corre en el procesador: no usa memoria de vídeo. Suena más artificial y no es la voz clonada."},
+    # Voces neuronales de Edge (tts_cloud): sin clave ni cupo, casi sin procesador; necesita internet.
+    "nube": {"name": "Voz en la nube", "vram_gb": 0.0,
+             "note": "Voces neuronales de Microsoft, muy naturales. Gratis y sin clave, pero necesita internet: lo que dice sale de tu PC. No es la voz clonada."},
 }
+EAR_ENGINES = ("local", "nube")
 EAR_GB = 1.1                              # Whisper large-v3-turbo
 DESKTOP_GB = 2.0                          # Windows, el navegador y la propia ventana (si no se puede medir)
 
@@ -67,6 +71,17 @@ def voice_engine() -> str:
     """El motor que eligió el usuario (el que se usa de verdad lo decide engine_now)."""
     e = state.load().get("voice_engine")
     return e if e in VOICE_ENGINES else (_ENV_ENGINE if _ENV_ENGINE in VOICE_ENGINES else "completa")
+
+
+def ear_engine() -> str:
+    """Dónde se transcribe lo que dices: local (Whisper en esta PC) o nube (stt_cloud)."""
+    e = (state.load().get("ear") or {}).get("engine")
+    return e if e in EAR_ENGINES else "local"
+
+
+def cloud_only() -> bool:
+    """Modo «solo nube»: cerebro, oído y voz en la nube; nada de modelos en esta PC (ni el respaldo local)."""
+    return bool(state.load().get("cloud_only"))
 
 
 def voice_auto() -> bool:
@@ -148,6 +163,9 @@ def engine_now() -> tuple[str, str]:
     sin memoria (un juego abierto), llm._too_slow marca _squeezed y también se pasa a la ligera."""
     from . import tts_light, voz_proc
     pref = voice_engine()
+    if pref == "nube":
+        from . import tts_cloud
+        return ("nube", "") if tts_cloud.installed() else ("ligera", "falta la librería de la voz en la nube")
     if pref != "completa" or not voice_auto() or not tts_light.installed():
         return pref, ""
     if not voz_proc.installed():
@@ -200,6 +218,7 @@ _ENV_KEY = settings.gemini_api_key          # la clave que venía en .env, si la
 _ENV_NAME = settings.user_name
 _ENV_VOICE = settings.tts_voice
 _ENV_ENGINE = settings.voice_engine
+_ENV_LOCAL_FALLBACK = settings.local_fallback
 _ENV_PROVIDER, _ENV_LOCAL, _ENV_FALLBACK = settings.llm_provider, settings.ollama_model, list(settings.ollama_fallback)
 
 
@@ -273,6 +292,12 @@ def apply():
         # respaldo si va lento: los del catálogo más pequeños que el elegido (uno propio: los que piden menos vídeo)
         settings.ollama_fallback = (ids[ids.index(s["local_model"]) + 1:] if s["local_model"] in ids else
                                     [m["id"] for m in LOCAL_MODELS if m["vram_gb"] < model_vram(s["local_model"])])
+    # «Solo nube» se apaga solo si después se elige algo local (el cerebro, el oído o la voz) desde otro ajuste.
+    if s.get("cloud_only") and (s.get("provider", "gemini") != "gemini" or ear_engine() != "nube"
+                                or voice_engine() != "nube"):
+        s = state.save(cloud_only=False)
+    # En «solo nube» no se carga el modelo local ni como respaldo cuando se acaba la cuota (ocuparía RAM o vídeo).
+    settings.local_fallback = _ENV_LOCAL_FALLBACK and not cloud_only()
     settings.voice_engine, settings.voice_reason = engine_now()
     v = voice()
     settings.tts_voice = v["tts_voice"] if v else _ENV_VOICE

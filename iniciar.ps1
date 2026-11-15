@@ -17,7 +17,10 @@ if (-not (Test-Path ".venv\Scripts\python.exe") -or -not (Test-Path "web\vendor\
 $ollama = (Get-Command ollama -ErrorAction SilentlyContinue).Source
 if (-not $ollama -and (Test-Path "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe")) { $ollama = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" }
 if ($ollama -and -not (Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue)) {
-    Start-Process -FilePath $ollama -ArgumentList "serve" -WindowStyle Hidden
+    # Se anota que lo abrió el companion: al cerrar la app, detener.ps1 lo cierra también (si ya estaba abierto, no).
+    $o = Start-Process -FilePath $ollama -ArgumentList "serve" -WindowStyle Hidden -PassThru
+    New-Item -ItemType Directory -Force "data" | Out-Null
+    Set-Content -Path "data\ollama.pid" -Value $o.Id -Encoding ascii
 }
 if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env" }
 . "$raiz\scripts\comun_instalacion.ps1"
@@ -89,6 +92,17 @@ if (-not (Test-Vivo)) {
     $env:PORT = "$puerto"
     $servidor = Start-Process -FilePath "$raiz\.venv\Scripts\python.exe" -ArgumentList "-m", "companion" -WorkingDirectory $raiz `
         -WindowStyle Hidden -PassThru -RedirectStandardOutput "$raiz\data\companion.out.log" -RedirectStandardError "$raiz\data\companion.log"
+    # Con la app de escritorio no se espera aquí: la ventana se abre ya con su pantalla de carga, espera ella al
+    # servidor y, si este se cierra al arrancar, lo dice (COMPANION_SERVER_PID).
+    $electron = Join-Path $raiz "desktop\electron\electron.exe"
+    if (-not $SinVentana -and (Test-Path $electron)) {
+        $env:COMPANION_URL = $url
+        $env:COMPANION_STOP_ON_EXIT = "1"
+        $env:COMPANION_SERVER_PID = "$($servidor.Id)"
+        Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+        Start-Process -FilePath $electron -ArgumentList "`"$raiz\desktop`"" -WorkingDirectory $raiz
+        exit 0
+    }
     # La primera vez, en una PC más lenta, cargar todo puede pasar de 20 s: se espera hasta 2 minutos, salvo que
     # el servidor se cierre antes (entonces ya no va a responder).
     $listo = $false
