@@ -6,8 +6,6 @@ name: Mac
 
 on:
   workflow_dispatch:
-  push:
-    branches: [app-mac]       # mientras se prepara la app (se quita al unirla a main)
   workflow_call:
     inputs:
       publicar:
