@@ -22,8 +22,6 @@ jobs:
   app:
     runs-on: macos-14            # Apple Silicon (M1), macOS 14: lo mínimo que pide la app
     timeout-minutes: 120
-    env:
-      CASA: ${{ runner.temp }}/casa             # en vez de ~/Library/Application Support/Companion
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +32,7 @@ jobs:
             echo "VERSION dice $v pero la etiqueta es ${{ github.ref_name }}"; exit 1
           fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "CASA=$RUNNER_TEMP/casa" >> "$GITHUB_ENV"     # en vez de ~/Library/Application Support/Companion
 
       - name: Crear Companion.app y el .dmg
         run: bash scripts/crear_app_mac.sh
