@@ -51,7 +51,8 @@ actor Cerebro {
             }
         }
         let t0 = Date()
-        let input = try await container.prepare(input: UserInput(chat: chat))
+        // Sin «pensar en voz alta» (Qwen3 y similares): es una conversación por voz, cuenta el primer texto.
+        let input = try await container.prepare(input: UserInput(chat: chat, additionalContext: ["enable_thinking": false]))
         let params = GenerateParameters(maxTokens: maxTokens, temperature: temperatura, topP: topP)
         var medida = Medida()
         for await g in try await container.generate(input: input, parameters: params) {

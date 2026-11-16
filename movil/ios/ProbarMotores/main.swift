@@ -39,12 +39,15 @@ do {
     case "cerebro":
         let max = args.count > 4 ? Int(args[4]) ?? 200 : 200
         print("carga:", s(try await Cerebro.shared.cargar(carpeta)))
-        let sistema = "Eres Mika, 25 años, asistente personal. Hablas en voz alta: 1 a 3 frases cortas, sin emojis. "
-            + "Empieza cada respuesta con una etiqueta de emoción como [emo:feliz]."
-        for vez in 1...2 {
+        // PROBAR_SISTEMA: archivo con el prompt de sistema real (movil/core/prompt.js); preguntas separadas por «||».
+        let sistema = (ProcessInfo.processInfo.environment["PROBAR_SISTEMA"]).flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+            ?? ("Eres Mika, 25 años, asistente personal. Hablas en voz alta: 1 a 3 frases cortas, sin emojis. "
+                + "Empieza cada respuesta con una etiqueta de emoción como [emo:feliz].")
+        let preguntas = args[3].components(separatedBy: "||")
+        for (vez, pregunta) in preguntas.enumerated() {
             final class Texto: @unchecked Sendable { var v = "" }
             let out = Texto()
-            let m = try await Cerebro.shared.generar([["role": "system", "content": sistema], ["role": "user", "content": args[3]]],
+            let m = try await Cerebro.shared.generar([["role": "system", "content": sistema], ["role": "user", "content": pregunta]],
                                                      temperatura: 0.7, topP: 0.92, maxTokens: max) { out.v += $0 }
             print("vez \(vez): primer texto \(s(m.primerTrozo)), \(m.promptTokens) tokens de entrada, \(m.tokens) generados, "
                   + String(format: "%.1f tokens/s", m.tokensPorSegundo))

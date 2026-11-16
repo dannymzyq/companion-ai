@@ -48,7 +48,7 @@ extension Bridge {
             var liberado: [String] = []
             if await Cerebro.shared.cargado != carpeta.path {
                 await Cerebro.shared.descargar()
-                liberado = try await hacerSitio(Self.tamano(carpeta) + 300_000_000, para: "cerebro")
+                liberado = try await hacerSitio(Self.tamano(carpeta) * 108 / 100 + 300_000_000, para: "cerebro")
             }
             return ["seconds": try await Cerebro.shared.cargar(carpeta), "unloaded": liberado]
             #endif

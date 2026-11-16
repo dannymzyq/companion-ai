@@ -54,13 +54,22 @@ Probado en el simulador: se canceló a 152 de 646 MB, se reanudó y los 22 archi
 |---|---|---|---|
 | Oído | Whisper large-v3 turbo (`argmaxinc/whisperkit-coreml`, `…turbo_632MB`) | 646 MB | 0,47 s por 4,6 s de habla; primera carga 2 min (compila CoreML, una vez); texto exacto |
 | Oído | Whisper small (`…small_216MB`) | 217 MB | 0,32 s; se equivoca («Cien años de solegad») |
+| Cerebro | **Llama 3.2 3B** (`mlx-community/Llama-3.2-3B-Instruct-4bit`), por defecto | 1,8 GB | 93 tokens/s; respuestas cortas y naturales, etiquetas bien |
+| Cerebro | LFM2 2.6B (`mlx-community/LFM2-2.6B-4bit`) | 1,45 GB | 132 tokens/s; buen español, se alarga |
+| Cerebro | (descartados: Qwen3.5 2B se enreda; Qwen3 1.7B entra en bucle) | | |
 | Cerebro | Gemma 4 E2B solo texto (`mlx-community/Gemma4-E2B-IT-Text-int4`) | 2,7 GB | 117–124 tokens/s; primer texto 0,06 s (5,5 s la primera vez: compila Metal) |
 | Cerebro | Gemma 4 E2B (`mlx-community/gemma-4-e2b-it-4bit`) | 3,6 GB | 120–125 tokens/s |
 | Cerebro | Gemma 4 E4B (`mlx-community/gemma-4-e4b-it-4bit`) | 5,2 GB | 72 tokens/s |
 | Voz ligera | Piper `es_MX-claude-high` (sherpa-onnx, `csukuangfj/vits-piper-*`) | 81 MB | 0,14 s por 4,8 s de audio |
 | Detector | Silero VAD de sherpa-onnx (`asr-models/silero_vad.onnx`) | 0,6 MB | 143 tramas en 0,01 s; en la app, 3 ms por trama con el puente. El `silero_vad_v6.onnx` de faster-whisper no lo admite sherpa |
 
-Por defecto se usan el oído turbo y el cerebro E2B solo texto. En Ajustes › Cerebro › Modelos del teléfono se
+En el iPhone 16 Pro del usuario (8 GB, Apple ID gratuito), medido el 16 nov 2026:
+- iOS deja **3,5 GB** a la app (jetsam «per-process-limit» a ~3,3 GiB);
+- Gemma 4 E2B solo texto ocupó 2,9 GB (1,08 veces el archivo): con el oído encima, iOS cerró la app al generar;
+- el E2B iba a 16-21 tokens/s, con el primer texto en 2,4-10 s (unos 1.600 tokens de entrada).
+
+Por eso el cerebro por defecto es Llama 3.2 3B. Un cerebro solo se ofrece si deja sitio al oído más pequeño
+(cerebro: × 1,08 + 0,3 GB; oído: × 1,4 + 0,1 GB). En Ajustes › Cerebro › Modelos del teléfono se
 puede elegir el E2B completo (3,6 GB; entiende imágenes, pero la app aún no usa la cámara) o el E4B (con aviso de
 memoria). Silero manda en los dos modos si está bajado; si falla, el detector por energía. Con un Apple ID gratuito no se puede pedir el
 permiso de más memoria (`increased-memory-limit` se activa en el portal de desarrolladores, que no está disponible
