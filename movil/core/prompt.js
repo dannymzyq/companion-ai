@@ -79,7 +79,7 @@ export const GREETING = '(El usuario acaba de abrir la aplicación y todavía no
   + 'en una sola frase corta, según la hora.)';
 
 export const SUMMARIZE = `Resume esta conversación entre {user} y {name} para que {name} la recuerde más adelante.
-Escribe de 2 a 4 frases en tercera persona y en pasado: de qué hablaron, qué decidió o planeó {user}, qué le preocupaba o le alegraba, y cualquier cosa pendiente. Solo hechos que aparezcan en la conversación; sin saludos, sin listas y sin etiquetas.
+Escribe de 2 a 4 frases en tercera persona y en pasado: de qué hablaron, qué decidió o planeó {user}, qué le preocupaba o le alegraba, y cualquier cosa pendiente. Solo hechos que aparezcan en la conversación; sin saludos, sin listas y sin etiquetas. Llama a {user} por su nombre; si la conversación no deja claro su género, no uses «él» ni «ella» ni adjetivos con género para {user} (escribe «{user} prefería», no «ella prefería»).
 
 Después, si en la conversación aparece algún dato duradero NUEVO sobre {user} (gustos, personas de su vida, trabajo o estudios, planes con fecha), añade una línea por dato que empiece por «DATO:», en tercera persona y en una frase corta. Como mucho tres. Nunca contraseñas, documentos, números de cuentas o tarjetas, ni datos de salud. Si no hay ninguno, no escribas ninguna línea DATO. Ya sabe esto (no lo repitas): {known}
 
