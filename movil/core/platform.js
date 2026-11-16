@@ -42,10 +42,12 @@ export async function call(cmd, args = {}) {
 
 export function stream(cmd, args, onEvent) {
   const id = ++seq;
-  return new Promise((resolve, reject) => {
+  const p = new Promise((resolve, reject) => {
     streams.set(id, { onEvent, resolve, reject });
     call(cmd, { ...args, stream: id }).catch((err) => { streams.delete(id); reject(err); });
   });
+  p.id = id;                   // para cortarlo con cancel(id)
+  return p;
 }
 
 export function cancel(id) { return call('stream.cancel', { id }).catch(() => {}); }

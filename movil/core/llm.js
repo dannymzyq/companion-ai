@@ -3,6 +3,7 @@
 // (fase 3). Con la nube nunca se cae al modelo del teléfono: allí no hay respaldo local.
 import { kv, lines, request } from './platform.js';
 import { getSettings } from './store.js';
+import { elegidos, pensar } from './local.js';
 
 export const PRESETS = {
   gemini: { name: 'Google Gemini', base: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -32,6 +33,8 @@ let blocked = {};                          // modelo → hasta cuándo (ms) no s
 const noReasoning = new Set();
 const notices = [];
 let hasKey = false;
+const local = { simulado: false, listo: false };     // modo teléfono: cerebro simulado (simulador) y si está bajado
+export const setLocal = (x) => Object.assign(local, x);
 
 export async function init(keyPresent) {
   hasKey = keyPresent;
@@ -76,8 +79,10 @@ export function status() {
     if (ready && current !== models[0]) detail = `Cuota de ${models[0]} agotada por ahora`;
     return { provider: 'gemini', model: current || models[0] || GEMINI_MODEL, ready: ready && !!current, detail };
   }
-  return { provider: 'local', model: getSettings().local_model || 'gemma-4-e2b', ready: false,
-    detail: 'El cerebro dentro del teléfono llega en la siguiente fase' };
+  const m = elegidos().cerebro;
+  if (local.simulado) return { provider: 'local', model: `${m.nombre} (simulado)`, ready: true, detail: 'En el simulador el cerebro es de prueba' };
+  return { provider: 'local', model: m.nombre, ready: local.listo,
+    detail: local.listo ? '' : 'Falta descargar el cerebro del teléfono (Ajustes › Cerebro)' };
 }
 
 // Respuesta completa, sin voz (resúmenes).
@@ -88,7 +93,15 @@ export async function complete(messages, maxTokens = 220, background = true) {
 }
 
 export async function* streamChat(messages, sampling, background = false) {
-  if (!isCloud()) throw new LLMError('El cerebro dentro del teléfono todavía no está listo en esta versión.');
+  if (!isCloud()) {
+    if (!local.simulado && !local.listo) throw new LLMError('Falta descargar el cerebro del teléfono (Ajustes › Cerebro).');
+    try {
+      yield* pensar(messages, sampling, { simulado: local.simulado });
+    } catch (e) {
+      throw new LLMError(`El cerebro del teléfono falló: ${e.message}`);
+    }
+    return;
+  }
   const chain = geminiModels(background);
   if (!hasKey || !chain.length) {
     throw new LLMError('Falta la clave del cerebro en la nube. Ponla en Ajustes › Cerebro.');

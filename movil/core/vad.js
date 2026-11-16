@@ -28,10 +28,13 @@ export class EnergyVAD {
 }
 
 export class TurnDetector {
-  // on: { start(), end(Int16Array audio, speechFrames), isPlaying(), bargeIn }
+  // on: { start(), end(Int16Array audio, speechFrames), isPlaying(), bargeIn,
+  //       prob?: (frame) => Promise<number> | null  (Silero; si falla o no hay, la energía) }
   constructor(on) {
     this.on = on;
     this.vad = new EnergyVAD();
+    this.queue = [];
+    this.pumping = false;
     this.pending = new Int16Array(0);
     this.preroll = [];
     this.inSpeech = false;
@@ -44,12 +47,32 @@ export class TurnDetector {
     const all = new Int16Array(this.pending.length + incoming.length);
     all.set(this.pending); all.set(incoming, this.pending.length);
     let pos = 0;
-    while (all.length - pos >= FRAME) { this._frame(all.slice(pos, pos + FRAME)); pos += FRAME; }
+    while (all.length - pos >= FRAME) { this.queue.push(all.slice(pos, pos + FRAME)); pos += FRAME; }
     this.pending = all.slice(pos);
+    if (this.queue.length > 60) this.queue.splice(0, this.queue.length - 60);   // ~2 s de retraso como mucho
+    this._pump();
   }
 
-  _frame(frame) {
-    const p = this.vad.prob(frame);
+  async _pump() {
+    if (this.pumping) return;
+    this.pumping = true;
+    try {
+      while (this.queue.length) {
+        const frame = this.queue.shift();
+        const energy = this.vad.prob(frame);           // sigue el ruido de fondo aunque mande Silero
+        let p = energy;
+        const silero = this.on.prob && this.on.prob();
+        if (silero) {
+          try { p = await silero(frame); } catch { this.on.prob = null; }
+        }
+        this._frame(frame, p);
+      }
+    } finally {
+      this.pumping = false;
+    }
+  }
+
+  _frame(frame, p) {
     if (!this.inSpeech) {
       this.preroll.push([frame, p]);
       if (this.preroll.length > PREROLL_FRAMES) this.preroll.shift();

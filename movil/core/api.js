@@ -4,6 +4,8 @@ import * as llm from './llm.js';
 import { secrets } from './platform.js';
 import * as store from './store.js';
 import { describeUser } from './session.js';
+import { elegidos } from './local.js';
+import * as modelos from './modelos.js';
 
 const GENDER_IDS = ['mujer', 'hombre', 'no_binario', ''];
 export const BUILTIN = [
@@ -36,7 +38,8 @@ export function createApi(core) {
   }
   const voice = () => voices().find((v) => v.selected) || null;
   const character = () => (voice() || { name: core.persona.name }).name;
-  const engine = () => (S().voice_engine in ENGINES ? S().voice_engine : (S().mode === 'telefono' ? 'ligera' : 'nube'));
+  // En la nube, todo en la nube (voz de Edge); en el teléfono, nada sale de él (voz ligera Piper).
+  const engine = () => (S().mode === 'telefono' ? 'ligera' : 'nube');
   const modelId = () => (BUILTIN.some((m) => m.id === S().model_id) ? S().model_id : 'avatar1');
 
   function publicCloud() {
@@ -68,10 +71,10 @@ export function createApi(core) {
   function setup() {
     const eng = engine();
     return {
-      resources: { total_gb: 0, tier: 'telefono', ear_gb: 0, desktop_gb: 0, room: {}, engines: core.can.LIGHT_VOICE ? ENGINES : { nube: ENGINES.nube },
+      resources: { total_gb: 0, tier: 'telefono', ear_gb: 0, desktop_gb: 0, room: {}, engines: { [eng]: ENGINES[eng] },
         recommended_engine: 'nube', recommended_model: '' },
       voice_engine: { selected: eng, in_use: eng, reason: '', auto: false, recommended: llm.isCloud() ? 'nube' : 'ligera', node: false,
-        fits_now: false, light_installed: !!core.can.LIGHT_VOICE, light_size_mb: 0, light_progress: null },
+        fits_now: false, light_installed: !!core.listos.voz, light_size_mb: 0, light_progress: null },
       ear: { engine: llm.isCloud() ? 'nube' : 'local', groq: !!core.keys.groq, gemini: llm.keyPresent(), last: null },
       cloud_only: llm.isCloud(), onboarded: !!S().onboarded, character: character(), year: new Date().getFullYear(),
       profile: profile(), suggested_name: profile().name, provider: llm.isCloud() ? 'gemini' : 'local', cloud: publicCloud(),
@@ -113,11 +116,17 @@ export function createApi(core) {
       if (!voices().some((v) => v.id === body.voice)) throw new HttpError(422, 'Esa voz todavía no está disponible.');
       changes.voice = body.voice;
     }
-    if (body.voice_engine != null) {
-      if (!(body.voice_engine in ENGINES) || (body.voice_engine === 'ligera' && !core.can.LIGHT_VOICE)) {
-        throw new HttpError(422, 'Ese motor de voz no está disponible en el teléfono.');
+    // voice_engine: lo decide el modo (nube → voz de Edge, teléfono → voz ligera); se acepta y se ignora.
+    if (body.phone_models) {
+      const pm = { ...(S().phone_models || {}) };
+      for (const k of ['oido', 'cerebro']) {
+        const id = body.phone_models[k];
+        if (id != null) {
+          if (!modelos.CATALOGO[k].some((m) => m.id === id)) throw new HttpError(422, 'Modelo no reconocido.');
+          pm[k] = id;
+        }
       }
-      changes.voice_engine = body.voice_engine;
+      changes.phone_models = pm;
     }
     if (body.mode != null || body.provider != null) {
       const mode = body.mode || (body.provider === 'local' ? 'telefono' : 'nube');
@@ -126,7 +135,35 @@ export function createApi(core) {
     }
     if (body.onboarded != null) changes.onboarded = !!body.onboarded;
     await store.saveSettings(changes);
+    if (changes.mode || changes.phone_models || changes.voice) await core.revisar().catch(() => {});
     return config();
+  }
+
+  // ---------------------------------------------------------------- modelos del modo teléfono
+  // Lo que hace falta para «todo dentro del teléfono», con tamaños, lo que ya está y el progreso de la descarga.
+  function piezas() {
+    const e = elegidos();
+    const v = voice() && core.voices.find((x) => x.id === voice().id);
+    return { oido: e.oido, cerebro: e.cerebro, voz: modelos.vozLigera(((v && v.light) || { model: 'es_MX-claude-high' }).model),
+      silero: e.silero };
+  }
+  const buscar = (id) => [...modelos.CATALOGO.oido, ...modelos.CATALOGO.cerebro, ...modelos.CATALOGO.silero,
+    ...Object.values(piezas())].find((m) => m.id === id);
+
+  async function telefono() {
+    const p = piezas();
+    const lista = await Promise.all(Object.entries(p).map(async ([kind, m]) => {
+      try {
+        return { kind, ...(await modelos.estado(m)), note: m.nota || '', progress: modelos.progreso(m.id) };
+      } catch (e) {
+        return { kind, id: m.id, nombre: m.nombre, error: `No pude ver su tamaño: ${e.message}`, progress: modelos.progreso(m.id) };
+      }
+    }));
+    const falta = lista.filter((x) => !x.listo).reduce((a, x) => a + Math.max(0, (x.total || 0) - (x.present || 0)), 0);
+    return { mode: S().mode || 'nube', models: lista, missing_bytes: falta, missing: modelos.gb(falta),
+      options: { oido: modelos.CATALOGO.oido.map(({ id, nombre, nota }) => ({ id, nombre, nota })),
+        cerebro: modelos.CATALOGO.cerebro.map(({ id, nombre, nota }) => ({ id, nombre, nota })) },
+      can: core.can, simulated_brain: !!core.can.simulator && !core.can.LOCAL_BRAIN };
   }
 
   async function models() {
@@ -163,11 +200,15 @@ export function createApi(core) {
     'GET /api/loading': () => {
       const cloudMode = llm.isCloud();
       const st = llm.status();
-      const items = [
-        { id: 'oido', label: 'El oído', state: 'listo', detail: cloudMode ? 'en la nube' : 'en el teléfono' },
-        { id: 'voz', label: cloudMode ? 'La voz en la nube' : 'La voz ligera', state: core.ttsAvailable(engine()) ? 'listo' : 'error',
-          detail: core.ttsAvailable(engine()) ? '' : 'llega en la siguiente fase: responde con texto' },
-        { id: 'cerebro', label: cloudMode ? 'El cerebro en la nube' : 'El cerebro en el teléfono', state: st.ready ? 'listo' : 'error', detail: st.detail },
+      const ok = (x) => (x ? 'listo' : 'error');
+      const items = cloudMode ? [
+        { id: 'oido', label: 'El oído', state: 'listo', detail: 'en la nube' },
+        { id: 'voz', label: 'La voz en la nube', state: 'listo', detail: '' },
+        { id: 'cerebro', label: 'El cerebro en la nube', state: ok(st.ready), detail: st.detail },
+      ] : [
+        { id: 'oido', label: 'El oído', state: ok(core.listos.oido), detail: core.listos.oido ? 'en el teléfono' : 'falta descargarlo: puedes escribirle' },
+        { id: 'voz', label: 'La voz ligera', state: ok(core.listos.voz), detail: core.listos.voz ? 'en el teléfono' : 'falta descargarla: responde con texto' },
+        { id: 'cerebro', label: 'El cerebro en el teléfono', state: ok(st.ready), detail: st.detail },
       ];
       return { items, busy: false };
     },
@@ -184,6 +225,25 @@ export function createApi(core) {
     'GET /api/actions': () => ({ enabled: false, ask: false, always: [], available: false, catalog: {}, history: [] }),
     'POST /api/actions': () => ({ enabled: false, ask: false, always: [], available: false, catalog: {}, history: [] }),
     'POST /api/owner': () => ({ ok: true }),
+    'GET /api/phone': () => telefono(),
+    // Empieza a bajar (no espera): el progreso se lee con GET /api/phone.
+    'POST /api/phone/download': async (b) => {
+      const ids = b.id ? [b.id] : Object.values(piezas()).map((m) => m.id);
+      for (const id of ids) {
+        const m = buscar(id);
+        if (!m) throw new HttpError(422, 'Modelo no reconocido.');
+        modelos.bajar(m, { datosMoviles: !!b.cellular }).then(() => core.revisar(), (e) => console.warn(`Descarga de ${id}: ${e.message}`));
+      }
+      return telefono();
+    },
+    'POST /api/phone/cancel': async (b) => { const m = buscar(b.id); if (m) await modelos.cancelar(m); return telefono(); },
+    'POST /api/phone/delete': async (b) => {
+      const m = buscar(b.id);
+      if (!m) throw new HttpError(422, 'Modelo no reconocido.');
+      await modelos.borrar(m);
+      await core.revisar();
+      return telefono();
+    },
   };
 
   function memory() {

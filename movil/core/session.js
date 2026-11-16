@@ -56,6 +56,7 @@ export class Session {
         return this.clientPlaying;
       },
       bargeIn: true,
+      prob: () => (this.ctx.vadProb ? this.ctx.vadProb() : null),
     });
   }
 

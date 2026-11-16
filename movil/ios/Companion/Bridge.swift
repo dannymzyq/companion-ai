@@ -9,7 +9,8 @@ let webLog = Logger(subsystem: "local.companion", category: "web")
 @MainActor
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
     weak var webView: WKWebView?
-    private var streams: [Int: Task<Void, Never>] = [:]
+    var streams: [Int: Task<Void, Never>] = [:]
+    var streamCuts: [Int: Corte] = [:]
     #if DEBUG
     var testHook: TestHook?
     #endif
@@ -47,7 +48,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
             #endif
             return ["platform": "ios", "simulator": simulator,
                     "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "",
-                    "can": ["LIGHT_VOICE": false]]
+                    "can": Bridge.capacidades()]
         case "log":
             webLog.log("[web \(a["level"] as? String ?? "", privacy: .public)] \(a["text"] as? String ?? "", privacy: .public)")
             return true
@@ -93,10 +94,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
                 return ["error": f.message, "date": f.serverDate as Any]
             }
         case "stream.cancel":
-            if let id = a["id"] as? Int { streams.removeValue(forKey: id)?.cancel() }
+            if let id = a["id"] as? Int {
+                streamCuts.removeValue(forKey: id)?.cortar()
+                streams.removeValue(forKey: id)?.cancel()
+            }
             return true
         default:
-            throw BridgeError("Orden desconocida: \(cmd)")
+            return try await motores(cmd, a)
         }
     }
 
@@ -134,7 +138,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
         }
     }
 
-    private func emit(_ id: Int, _ kind: String, _ data: Any) {
+    func emit(_ id: Int, _ kind: String, _ data: Any) {
         guard let json = try? JSONSerialization.data(withJSONObject: [data], options: [.fragmentsAllowed]),
               let text = String(data: json, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("window.__native.event(\(id), \"\(kind)\", \(text)[0])", completionHandler: nil)
