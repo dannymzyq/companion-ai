@@ -17,7 +17,9 @@ export function elegidos() {
 async function cargar(motor, cmd, m) {
   if (cargados[motor] === m.id) return;
   const t = performance.now();
-  await call(cmd, { id: m.id });
+  const r = await call(cmd, { id: m.id });
+  // Si no cabían los dos, el teléfono soltó el otro motor: se volverá a cargar cuando haga falta.
+  for (const otro of (r && r.unloaded) || []) delete cargados[otro];
   cargados[motor] = m.id;
   console.info(`${motor}: ${m.id} cargado en ${((performance.now() - t) / 1000).toFixed(1)} s`);
 }

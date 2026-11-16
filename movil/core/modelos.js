@@ -80,4 +80,13 @@ export async function bajar(m, { datosMoviles = false } = {}) {
 export const cancelar = (m) => call('models.cancel', { id: m.id });
 export const borrar = (m) => { bajando.delete(m.id); return call('models.delete', { id: m.id }); };
 
+// ¿Cabe en la memoria que iOS deja a la app? (cerebro: lo que ocupa + 0,3 GB; oído: × 1,4 + 0,1 GB, como el nativo)
+export function cabe(kind, total, memoria) {
+  if (!memoria || !total) return true;
+  const hace = kind === 'cerebro' ? total + 300e6 : kind === 'oido' ? total * 1.4 + 100e6 : total;
+  return hace <= memoria;
+}
+
+export const necesita = (kind, total) => (kind === 'cerebro' ? total + 300e6 : kind === 'oido' ? total * 1.4 + 100e6 : total);
+
 export const gb = (bytes) => `${(bytes / 1e9).toFixed(bytes > 1e9 ? 1 : 2).replace('.', ',')} GB`;

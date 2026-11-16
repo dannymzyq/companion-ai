@@ -124,7 +124,12 @@ export function createApi(core) {
       for (const k of ['oido', 'cerebro']) {
         const id = body.phone_models[k];
         if (id != null) {
-          if (!modelos.CATALOGO[k].some((m) => m.id === id)) throw new HttpError(422, 'Modelo no reconocido.');
+          const m = modelos.CATALOGO[k].find((x) => x.id === id);
+          if (!m) throw new HttpError(422, 'Modelo no reconocido.');
+          const e = await modelos.estado(m).catch(() => ({}));
+          if (!modelos.cabe(k, e.total || 0, core.can.memory_available)) {
+            throw new HttpError(422, `${m.nombre} no cabe en la memoria que iOS le deja a la app en este iPhone.`);
+          }
           pm[k] = id;
         }
       }
@@ -179,7 +184,8 @@ export function createApi(core) {
       options: Object.fromEntries(await Promise.all(['oido', 'cerebro'].map(async (k) => [k, await Promise.all(
         modelos.CATALOGO[k].map(async (m) => {
           const e = await modelos.estado(m).catch(() => ({}));
-          return { id: m.id, nombre: m.nombre, nota: m.nota, total: e.total || 0, listo: !!e.listo };
+          return { id: m.id, nombre: m.nombre, nota: m.nota, total: e.total || 0, listo: !!e.listo,
+            cabe: modelos.cabe(k, e.total || 0, core.can.memory_available) };
         }))]))),
       can: core.can, simulated_brain: !!core.can.simulator && !core.can.LOCAL_BRAIN };
   }

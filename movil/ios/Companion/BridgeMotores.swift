@@ -31,14 +31,26 @@ extension Bridge {
             return true
 
         case "ear.load":
-            return try await Oido.shared.cargar(try Descargas.carpeta(try texto(a["id"])))
+            // CoreML necesita algo más que lo que ocupa el modelo mientras lo prepara.
+            let carpeta = try Descargas.carpeta(try texto(a["id"]))
+            var liberado: [String] = []
+            if await Oido.shared.cargado != carpeta.path {
+                liberado = try await hacerSitio(Self.tamano(carpeta) * 7 / 5 + 100_000_000, para: "oido")
+            }
+            return ["seconds": try await Oido.shared.cargar(carpeta), "unloaded": liberado]
         case "ear.transcribe":
             return try await Oido.shared.transcribir(try pcm16(a["pcm"]))
         case "brain.load":
             #if targetEnvironment(simulator)
             throw BridgeError("El cerebro del teléfono necesita un iPhone de verdad (MLX no corre en el simulador)")
             #else
-            return try await Cerebro.shared.cargar(try Descargas.carpeta(try texto(a["id"])))
+            let carpeta = try Descargas.carpeta(try texto(a["id"]))
+            var liberado: [String] = []
+            if await Cerebro.shared.cargado != carpeta.path {
+                await Cerebro.shared.descargar()
+                liberado = try await hacerSitio(Self.tamano(carpeta) + 300_000_000, para: "cerebro")
+            }
+            return ["seconds": try await Cerebro.shared.cargar(carpeta), "unloaded": liberado]
             #endif
         case "brain.unload":
             await Cerebro.shared.descargar()
@@ -103,6 +115,45 @@ extension Bridge {
         return ["LIGHT_VOICE": true, "LOCAL_EAR": true, "LOCAL_BRAIN": !simulador, "SILERO": true,
                 "simulator": simulador, "memory_available": libre,
                 "memory_total": Int(ProcessInfo.processInfo.physicalMemory)]
+    }
+
+    /// Memoria que iOS todavía deja usar a la app (en un iPhone de 8 GB con Apple ID gratuito, unos 3,3 GB en
+    /// total). Si lo que se va a cargar no cabe, primero se suelta el otro motor; si aun así no cabe, error (mejor
+    /// que dejar que iOS cierre la app).
+    static func libre() -> Int64 {
+        #if os(iOS) && !targetEnvironment(simulator)
+        return Int64(os_proc_available_memory())
+        #else
+        return Int64.max / 2
+        #endif
+    }
+
+    private func hacerSitio(_ hace: Int64, para motor: String) async throws -> [String] {
+        var liberado: [String] = []
+        if Self.libre() < hace, motor == "cerebro", await Oido.shared.cargado != nil {
+            await Oido.shared.descargar(); liberado.append("oido")
+        }
+        if Self.libre() < hace, motor == "oido", await Cerebro.shared.cargado != nil {
+            await Cerebro.shared.descargar(); liberado.append("cerebro")
+        }
+        if Self.libre() < hace { await VozLigera.shared.descargar() }
+        let libre = Self.libre()
+        #if PRUEBAS
+        Registro.anotar("Memoria: \(motor) necesita \(hace / 1_000_000) MB, quedan \(libre / 1_000_000) MB\(liberado.isEmpty ? "" : " (soltado: \(liberado.joined(separator: ", ")))")")
+        #endif
+        if libre < hace {
+            let gb = { (b: Int64) in String(format: "%.1f", Double(b) / 1e9).replacingOccurrences(of: ".", with: ",") }
+            throw BridgeError("No cabe en la memoria: iOS le deja \(gb(libre)) GB a la app y \(motor == "cerebro" ? "este cerebro" : "este oído") "
+                              + "necesita unos \(gb(hace)) GB. Elige uno más pequeño en Ajustes › Cerebro › Modelos del teléfono.")
+        }
+        return liberado
+    }
+
+    static func tamano(_ carpeta: URL) -> Int64 {
+        let e = FileManager.default.enumerator(at: carpeta, includingPropertiesForKeys: [.fileSizeKey])
+        var total: Int64 = 0
+        while let u = e?.nextObject() as? URL { total += Int64((try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        return total
     }
 
     private func liberar(_ id: String) async {

@@ -7,7 +7,7 @@ import { describeUser, Session } from './session.js';
 import { transcribe } from './ear_cloud.js';
 import { cloudVoice } from './voice_cloud.js';
 import { elegidos, oir, sileroListo, sileroTrama, vozLocal } from './local.js';
-import { estado, vozLigera } from './modelos.js';
+import { cabe, CATALOGO, estado, necesita, vozLigera } from './modelos.js';
 import * as store from './store.js';
 
 let open = null;          // la sesión de la conexión abierta (la interfaz abre una sola)
@@ -41,6 +41,36 @@ export async function start(realFetch) {
   core.vozLocal = vozLocal(selectedVoice, () => Number((core.persona.voice || {}).speed || 1));
   // Qué modelos del modo teléfono ya están en el teléfono (al arrancar y tras cada descarga).
   core.revisar = async () => {
+    // Si lo elegido no cabe en la memoria de este teléfono (p. ej. el E2B completo en un iPhone de 8 GB con Apple ID
+    // gratuito), se pasa al primero que cabe: mejor que dejar que iOS cierre la app al cargarlo.
+    const pm = { ...(store.getSettings().phone_models || {}) };
+    let cambio = false;
+    for (const k of ['oido', 'cerebro']) {
+      const actual = elegidos()[k];
+      const total = (await estado(actual).catch(() => ({}))).total || 0;
+      if (!cabe(k, total, core.can.memory_available)) {
+        for (const m of CATALOGO[k]) {
+          const t = (await estado(m).catch(() => ({}))).total || 0;
+          if (cabe(k, t, core.can.memory_available)) { pm[k] = m.id; cambio = true; break; }
+        }
+      }
+    }
+    // Cerebro y oído a la vez: si no caben juntos, el oído más pequeño que sí quepa (si no, se turnarían en cada
+    // respuesta, varios segundos más lentas).
+    if (core.can.memory_available) {
+      const pick = (k) => CATALOGO[k].find((m) => m.id === pm[k]) || CATALOGO[k][0];
+      const tot = async (m) => (await estado(m).catch(() => ({}))).total || 0;
+      const cerebro = necesita('cerebro', await tot(pick('cerebro')));
+      if (cerebro + necesita('oido', await tot(pick('oido'))) > core.can.memory_available) {
+        for (const m of CATALOGO.oido) {
+          if (cerebro + necesita('oido', await tot(m)) <= core.can.memory_available) {
+            if (pm.oido !== m.id) { pm.oido = m.id; cambio = true; }
+            break;
+          }
+        }
+      }
+    }
+    if (cambio) await store.saveSettings({ phone_models: pm });
     const e = elegidos();
     const v = selectedVoice();
     const voz = vozLigera(((v && v.light) || { model: 'es_MX-claude-high' }).model);

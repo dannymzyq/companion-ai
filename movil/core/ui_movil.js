@@ -117,6 +117,20 @@ async function fill(section, { fail, poll }) {
         const chosen = by[kind] && by[kind].id === o.id;
         const size = o.total ? gb(o.total) : '';
         const ready = o.listo ? ' · descargado' : '';
+        if (o.cabe === false) {
+          const row = opcion(o.nombre, `${size} · No cabe en la memoria que iOS le deja a la app en este iPhone`, false, () => {});
+          row.querySelector('button').disabled = true;
+          row.querySelector('button').style.opacity = '0.45';
+          if (o.listo) {                       // bajado pero inservible aquí: que se pueda recuperar el espacio
+            const del = el('button', 'mini', `Borrar (${size})`);
+            del.onclick = async () => {
+              try { await api('/api/phone/delete', { id: o.id }); await refrescar(); } catch (e) { fail(e.message); }
+            };
+            row.append(del);
+          }
+          list.append(row);
+          continue;
+        }
         list.append(opcion(o.nombre, [size + ready, o.nota].filter(Boolean).join(' · '), chosen, async () => {
           try { await api('/api/setup', { phone_models: { [kind]: o.id } }); await refrescar(); } catch (e) { fail(e.message); }
         }));
