@@ -4,6 +4,8 @@ import * as llm from './llm.js';
 import { call, secrets } from './platform.js';
 import { loadPersona } from './prompt.js';
 import { describeUser, Session } from './session.js';
+import { transcribe } from './ear_cloud.js';
+import { cloudVoice } from './voice_cloud.js';
 import * as store from './store.js';
 
 let open = null;          // la sesión de la conexión abierta (la interfaz abre una sola)
@@ -23,16 +25,21 @@ export async function start(realFetch) {
     keys: { groq: await secrets.has('groq_key').catch(() => false) },
     can: { LIGHT_VOICE: false, ...(info.can || {}) },
     started: Date.now() / 1000,
-    // Fase 1: sin voz (la interfaz da a cada frase su tiempo de lectura).
-    ttsAvailable: () => false,
-    voice: null,
+    // Voz: en la nube, edge (voice_cloud.js). La ligera (Piper, dentro del teléfono) llega con el modo teléfono.
+    ttsAvailable: (engine) => engine === 'nube',
   };
+  const selectedVoice = () => {
+    const s = store.getSettings();
+    return core.voices.find((x) => x.id === s.voice) || core.voices.find((x) => x.default) || core.voices[0];
+  };
+  core.voice = cloudVoice(selectedVoice, () => Number((core.persona.voice || {}).speed || 1));
+  // Oído en la nube: Groq si hay clave, si no Gemini con la clave del cerebro.
+  core.ear = (pcm) => transcribe(pcm, { hasGroq: core.keys.groq, hasGemini: llm.keyPresent() });
   const api = createApi(core);
 
   // La ficha común con el nombre y la forma de hablar de la voz elegida (como profile.character).
   const character = () => {
-    const s = store.getSettings();
-    const v = core.voices.find((x) => x.id === s.voice) || core.voices.find((x) => x.default) || core.voices[0];
+    const v = selectedVoice();
     return v ? { ...core.persona, name: v.name, speaks: v.speaks === 'm' ? 'm' : 'f' } : core.persona;
   };
   const profile = () => describeUser(store.getSettings().profile || {});
@@ -41,7 +48,10 @@ export async function start(realFetch) {
     api,
     connect(deliver) {
       if (open) open.close();
-      const session = new Session(deliver, { persona: character, profile, voice: core.voice });
+      const cloudMode = () => llm.isCloud();
+      const session = new Session(deliver, { persona: character, profile,
+        get voice() { return cloudMode() ? core.voice : null; },
+        get ear() { return cloudMode() ? core.ear : null; } });
       open = session;
       // Como el servidor al abrir /ws: primero «hello» con la configuración.
       api('GET', new URL('/api/config', location.href), null, realFetch).then((r) => r.json())
@@ -53,7 +63,8 @@ export async function start(realFetch) {
             try { msg = JSON.parse(data); } catch { return; }
             session.onMessage(msg).catch((e) => console.error(e));
           }
-          // Binario = micrófono: llega en la fase 2.
+          else if (data instanceof ArrayBuffer) session.onAudio(data);   // micrófono (audio.js)
+          else if (ArrayBuffer.isView(data)) session.onAudio(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
         },
         close() { session.close(); if (open === session) open = null; },
       };

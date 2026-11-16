@@ -75,8 +75,8 @@ export const secrets = {
 
 // Petición HTTP hecha por el teléfono (sin CORS). `auth`: nombre del secreto para «Authorization: Bearer …»;
 // `bearer`: una clave recién escrita que aún no está guardada (solo para comprobarla).
-export async function request({ url, method = 'GET', headers = {}, body = null, auth = null, bearer = null, timeout = 30 }) {
-  return call('http.request', { url, method, headers, body, auth, bearer, timeout });   // {status, body}
+export async function request({ url, method = 'GET', headers = {}, body = null, auth = null, bearer = null, timeout = 30, multipart = null }) {
+  return call('http.request', { url, method, headers, body, auth, bearer, timeout, multipart });   // {status, body}
 }
 
 // Respuesta por líneas (eventos SSE). Devuelve un iterador asíncrono de {status} y después de cada línea.

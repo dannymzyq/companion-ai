@@ -31,6 +31,7 @@ struct CompanionView: UIViewRepresentable {
         context.coordinator.testHook = TestHook(webView: web)
         #endif
         context.coordinator.webView = web
+        web.uiDelegate = context.coordinator
         web.load(URLRequest(url: URL(string: "\(AppScheme.scheme)://companion/index.html")!))
         return web
     }

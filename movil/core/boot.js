@@ -59,6 +59,7 @@
         if (this.readyState !== 0) return;
         this.readyState = 1;
         this._peer = c.connect((data) => this._deliver(data));
+        window.__coreSocket = this;          // para las pruebas (meter audio como si fuera el micrófono)
         this._fire('open', new Event('open'));
       }, () => this.close());
     }
