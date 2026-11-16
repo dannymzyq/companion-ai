@@ -86,5 +86,33 @@ await prueba('modo nube: con la cuota agotada en todos los modelos no se usa un 
   assert.ok(!sent.some((m) => m.cmd.startsWith('brain.')), 'llamó al cerebro del teléfono');
 });
 
+await prueba('modo nube: un modelo lento dos turnos seguidos cede el primer puesto al siguiente', async () => {
+  await store.saveSettings({ mode: 'nube' });
+  llm.resetCloud();
+  llm.setHasKey(true);
+  sent.length = 0;
+  answer = (msg) => {
+    if (msg.cmd === 'http.stream') {
+      const id = msg.args.stream;
+      const model = JSON.parse(msg.args.body).model;
+      const wait = model === 'gemini-3.6-flash' ? 8200 : 10;
+      setTimeout(() => {
+        window.__native.event(id, 'head', { status: 200, id });
+        window.__native.event(id, 'line', 'data: {"choices":[{"delta":{"content":"hola"}}]}');
+        window.__native.event(id, 'line', 'data: [DONE]');
+        window.__native.event(id, 'end', null);
+      }, wait);
+    }
+    return { value: true };
+  };
+  const turno = async () => { const out = []; for await (const p of llm.streamChat([{ role: 'user', content: 'hola' }], { temperature: 0.7, top_p: 0.9, max_tokens: 50 })) out.push(p); };
+  await turno(); await turno();
+  sent.length = 0;
+  await turno();
+  const usado = sent.filter((m) => m.cmd === 'http.stream').map((m) => JSON.parse(m.args.body).model);
+  assert.deepEqual(usado, ['gemini-3.5-flash-lite']);
+  assert.ok(llm.popNotices().some((n) => /va lento/.test(n)));
+});
+
 console.log(fallos ? `\n${fallos} pruebas fallaron` : '\nTodas bien');
 process.exit(fallos ? 1 : 0);

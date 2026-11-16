@@ -52,7 +52,25 @@ function block(model, waitS) {
   kv.set('cuota', blocked).catch(() => {});
 }
 export function resetCloud() { blocked = {}; noReasoning.clear(); kv.set('cuota', {}).catch(() => {}); }
-const usable = (m) => !(blocked[m] > Date.now());
+// Modelos lentos (como llm._too_slow en la PC): si uno tarda más de LENTO_S en dar el primer texto dos turnos
+// seguidos, se empieza por el siguiente del relevo durante LENTO_PAUSA. Se vuelve a probar pasado ese rato.
+const LENTO_S = 8, LENTO_PAUSA = 30 * 60 * 1000;
+const lentos = {};                         // modelo → turnos lentos seguidos
+const apartado = {};                       // modelo → hasta cuándo (ms) no se empieza por él
+const usable = (m) => !(blocked[m] > Date.now()) && !(apartado[m] > Date.now());
+
+function medir(model, segundos, chain) {
+  if (segundos <= LENTO_S) { lentos[model] = 0; return; }
+  lentos[model] = (lentos[model] || 0) + 1;
+  console.info(`Nube ${model}: primer texto a los ${segundos.toFixed(1)} s (lento ${lentos[model]} de 2)`);
+  if (lentos[model] >= 2) {
+    lentos[model] = 0;
+    apartado[model] = Date.now() + LENTO_PAUSA;
+    const nxt = chain.find(usable);
+    if (nxt) notices.push(`${model} va lento ahora (más de ${LENTO_S} s en empezar): sigo con ${nxt} durante media hora.`);
+    else delete apartado[model];          // no hay otro: mejor lento que nada
+  }
+}
 
 export function cloud() {
   const c = getSettings().cloud || {};
@@ -77,7 +95,9 @@ export function status() {
     const ready = hasKey && models.length > 0;
     const current = models.find(usable) || null;
     let detail = ready ? '' : 'Falta la clave del cerebro en la nube: ponla en Ajustes › Cerebro';
-    if (ready && current !== models[0]) detail = `Cuota de ${models[0]} agotada por ahora`;
+    if (ready && current !== models[0]) {
+      detail = apartado[models[0]] > Date.now() ? `${models[0]} va lento: ahora responde ${current}` : `Cuota de ${models[0]} agotada por ahora`;
+    }
     return { provider: 'gemini', model: current || models[0] || GEMINI_MODEL, ready: ready && !!current, detail };
   }
   const m = elegidos().cerebro;
@@ -110,8 +130,13 @@ export async function* streamChat(messages, sampling, background = false) {
   for (const model of chain) {
     if (!usable(model)) continue;
     let sent = false;
+    const t0 = performance.now();
     try {
-      for await (const piece of gemini(model, messages, sampling)) { sent = true; yield piece; }
+      for await (const piece of gemini(model, messages, sampling)) {
+        if (!sent && !background) medir(model, (performance.now() - t0) / 1000, chain);
+        sent = true;
+        yield piece;
+      }
       return;
     } catch (e) {
       if (e instanceof QuotaExceeded) {
