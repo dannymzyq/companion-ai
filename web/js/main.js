@@ -398,7 +398,9 @@ function applyConfig(cfg) {
   } else if (!cfg.tts) {
     banner = cfg.voice_engine === 'ligera'
       ? `La voz ligera no está instalada: descárgala en Ajustes › Voz. ${cfg.name} responderá solo con texto.`
-      : `La voz completa no está disponible (su servidor no responde; mira data\\voz.log). ${cfg.name} responderá solo con texto; en Ajustes › Voz puedes pasar a la voz ligera.`;
+      : cfg.voice_engine === 'nube'
+        ? `La voz en la nube no está disponible ahora. ${cfg.name} responderá solo con texto.`
+        : `La voz completa no está disponible (su servidor no responde; mira data\\voz.log). ${cfg.name} responderá solo con texto; en Ajustes › Voz puedes pasar a la voz ligera.`;
   }
   $('banner').innerHTML = banner;
   $('banner').hidden = !banner;

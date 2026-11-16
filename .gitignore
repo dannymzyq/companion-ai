@@ -17,3 +17,7 @@ models/whisper/
 models/piper/
 # instaladores creados con scripts\crear_instalador.ps1
 dist/
+# app del teléfono (movil/): lo generado y lo descargado
+movil/vendor/
+movil/ios/*.xcodeproj/
+movil/ios/build/
