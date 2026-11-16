@@ -104,6 +104,8 @@ def ollama(modelo: str):
     import json
 
     import httpx
+
+    from companion.config import MLX_EQUIV
     url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
     tags = httpx.get(f"{url}/api/tags", timeout=5).json().get("models", [])
     if any(m.get("name") in (modelo, f"{modelo}:latest") for m in tags):
@@ -118,6 +120,12 @@ def ollama(modelo: str):
             except ValueError:
                 continue
             if d.get("error"):
+                pc = next((k for k, v in MLX_EQUIV.items() if v == modelo and k.endswith("-it-qat")), None)
+                if pc:      # un Ollama anterior a los modelos MLX: se baja la versión de PC del mismo modelo
+                    print(f"Cerebro local: {modelo} no se pudo descargar ({d['error']}). Los modelos MLX necesitan "
+                          f"Ollama 0.31 o más reciente: actualízalo desde https://ollama.com/download. "
+                          f"Mientras, descargo {pc}.", flush=True)
+                    return ollama(pc)
                 sys.exit(f"Cerebro local: {d['error']}")
             total, hecho = d.get("total") or 0, d.get("completed") or 0
             if total and time.monotonic() - ultimo > 0.5:

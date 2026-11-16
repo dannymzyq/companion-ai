@@ -35,7 +35,17 @@ la primera vez, Ajustes del Sistema › Privacidad y seguridad › «Abrir igual
 derecho › Abrir). Al abrirla por primera vez, y con cada versión nueva, una ventana instala lo que falta en
 `~/Library/Application Support/Companion` (copia solo lo que cambió y conserva tus datos); luego arranca el
 servidor y se abre la ventana de siempre. Al cerrarla se apaga el servidor. El cerebro local necesita
-[Ollama para Mac](https://ollama.com/download) (opcional). En el Mac funcionan:
+[Ollama para Mac](https://ollama.com/download) (opcional, 0.31 o más reciente). En el Mac el cerebro local usa los
+Gemma 4 en versión **MLX** (el motor de Apple), el doble de rápidos allí que los de PC. Medidos en una MacBook M5 Pro de
+24 GB con Ollama 0.40.13 (`scripts/medir_modelos_locales.py`):
+
+| Modelo | Memoria cargado | Velocidad | Ve imágenes |
+|---|---|---|---|
+| Gemma 4 12B (MLX), `gemma4:12b-mlx` | 7,7 GB (9,4 en una charla del companion) | 59 tokens/s (el de PC: 32) | sí |
+| Gemma 4 E4B (MLX), `gemma4:e4b-mlx` | 8,8 GB (9,5 en una charla) | 124 tokens/s (el de PC: 64) | sí |
+| Gemma 4 E2B (MLX), `gemma4:e2b-mlx` | 6,9 GB | 173 tokens/s | sí |
+
+Si ya tenías elegido un Gemma 4 de PC, el companion pasa solo a su versión MLX. En el Mac funcionan:
 - la conversación por voz, el avatar y el modo flotante;
 - las dos voces: la completa usa la GPU del Mac y el oído, el procesador;
 - compartir pantalla y cámara;

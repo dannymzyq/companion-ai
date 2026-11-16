@@ -34,6 +34,11 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   En el Mac: memoria unificada (`llm._mac_memory`: dos tercios de la RAM para la GPU), oído en el procesador con el
   modelo instalado, voz completa en MPS y sin la comprobación con Whisper (solo se hace con el oído en CUDA),
   acciones con `open` y `osascript`. No hay `controlar`, `multimedia` ni sonido de lo compartido (`CAN_AUDIO`).
+  Cerebro local en el Mac (15 nov 2026, petición del usuario): Gemma 4 MLX de Ollama (`profile.MAC_MODELS`, RUNNER
+  mlx en `ollama ps`); `config.for_this_pc` traduce los nombres de PC (`MLX_EQUIV`) en `.env` y en lo guardado. En
+  MLX el E4B ocupa más que el 12B: el catálogo va por capacidad, no por memoria. Medidos con
+  `scripts\medir_modelos_locales.py` en la MacBook del usuario (M5 Pro, 24 GB); `scripts\prueba_mlx.py` prueba el
+  companion aislado con ellos (solo en el Mac).
   Se prueba en `.github\workflows\mac.yml` (macos-15; `release.yml` lo llama y adjunta el .dmg al Release). Nadie
   lo ha probado aún en un Mac con micrófono: el usuario lo probará.
 - Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\ventana_instalar.ps1` (WPF) que ejecuta

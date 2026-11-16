@@ -6,7 +6,23 @@ from unittest import mock
 from tests import ROOT  # noqa: F401  (fija el entorno de prueba)
 
 from companion import llm, models, profile, state
+from companion import config
 from companion.config import settings
+
+# Estas pruebas son del catálogo de PC (tarjeta NVIDIA). En un Mac con Apple Silicon el catálogo es el de MLX
+# (tests/test_mac_mlx.py): aquí se fija el de PC para que pasen igual en las dos máquinas.
+_parches = [mock.patch.object(config, "MAC", False), mock.patch.object(profile, "LOCAL_MODELS", profile.PC_MODELS),
+            mock.patch.object(profile, "TOP_RECOMMENDED", next(m["id"] for m in profile.PC_MODELS if m.get("recommend", True)))]
+
+
+def setUpModule():
+    for p in _parches:
+        p.start()
+
+
+def tearDownModule():
+    for p in _parches:
+        p.stop()
 
 
 def gpu(gb):

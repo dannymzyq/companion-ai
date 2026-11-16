@@ -1,5 +1,7 @@
 """Ajustes del companion: se leen de .env (ver .env.example)."""
 import os
+import platform
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,6 +17,19 @@ def _bool(name: str, default: bool) -> bool:
 
 def _list(name: str, default: str) -> list:
     return [x.strip() for x in os.getenv(name, default).split(",") if x.strip()]
+
+
+# Mac con Apple Silicon (15 nov 2026): Ollama trae los mismos modelos en versión MLX (el motor de Apple), más
+# rápidos allí. Lo guardado o escrito en .env con el nombre de la versión de PC se traduce a su versión MLX.
+MAC = sys.platform == "darwin" and platform.machine() == "arm64"
+MLX_EQUIV = {"gemma4:12b": "gemma4:12b-mlx", "gemma4:12b-it-qat": "gemma4:12b-mlx",
+             "gemma4:e4b-it-qat": "gemma4:e4b-mlx", "gemma4:e4b": "gemma4:e4b-mlx",
+             "gemma4:e2b-it-qat": "gemma4:e2b-mlx", "gemma4:e2b": "gemma4:e2b-mlx"}
+
+
+def for_this_pc(model: str) -> str:
+    """El nombre del modelo local para esta máquina (en el Mac, su versión MLX si la hay)."""
+    return MLX_EQUIV.get(model, model) if MAC else model
 
 
 def _path(value: str) -> Path:
@@ -48,8 +63,8 @@ class Settings:
     ollama_url: str = field(default_factory=lambda: os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"))
     # El modelo local comparte los 16 GB de la GPU con la voz (~5 GB) y Whisper (~2 GB): tiene que ser pequeño.
     # gemma4:12b no cabe (medido el 11 nov 2026). Si el principal no cabe se pasa a los de OLLAMA_FALLBACK.
-    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "gemma4:e4b-it-qat").strip())
-    ollama_fallback: list = field(default_factory=lambda: _list("OLLAMA_FALLBACK", "gemma4:e2b-it-qat"))
+    ollama_model: str = field(default_factory=lambda: for_this_pc(os.getenv("OLLAMA_MODEL", "gemma4:e4b-it-qat").strip()))
+    ollama_fallback: list = field(default_factory=lambda: [for_this_pc(m) for m in _list("OLLAMA_FALLBACK", "gemma4:e2b-it-qat")])
     ollama_num_ctx: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_CTX", "8192")))
     ollama_keep_alive: str = field(default_factory=lambda: os.getenv("OLLAMA_KEEP_ALIVE", "15m").strip())
     ollama_timeout: float = field(default_factory=lambda: float(os.getenv("OLLAMA_TIMEOUT", "45")))

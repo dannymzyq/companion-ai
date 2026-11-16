@@ -65,5 +65,13 @@ class Servidor:
         raise SystemExit("El servidor de prueba tardó demasiado en estar listo")
 
     def __exit__(self, *_):
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True)
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True)
+        else:                             # Mac/Linux: el servidor y sus hijos (la voz completa, si la arrancó)
+            subprocess.run(["pkill", "-TERM", "-P", str(self.proc.pid)], capture_output=True)
+            self.proc.terminate()
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
         self.log.close()

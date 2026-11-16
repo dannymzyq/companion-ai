@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from . import state, voice_import
-from .config import ROOT, settings
+from .config import MAC, ROOT, for_this_pc, settings
 
 GENDERS = {"mujer": "en femenino", "hombre": "en masculino",
            "no_binario": "con lenguaje neutro, sin masculino ni femenino",
@@ -33,7 +33,7 @@ PRESETS = {
 
 # Modelos locales ligeros que se ofrecen. vram = memoria de vídeo que ocupan (medida); min_gpu = tarjeta mínima
 # para usarlos junto a la voz y el oído, que también viven en la GPU.
-LOCAL_MODELS = [                          # de mayor a menor
+PC_MODELS = [                             # de mayor a menor
     # 8,0 GB en disco y 10,6 GB cargado; con la voz propia (~1 GB) cabe en 16 GB y va a 58-93 tokens/s (medido el
     # 13 nov 2026). No se recomienda sola (recommend False): con un juego abierto ya no cabe y se desborda a la RAM.
     {"id": "gemma4:12b", "name": "Gemma 4 12B", "size_gb": 8.0, "vram_gb": 10.6, "vision": True, "recommend": False,
@@ -48,6 +48,22 @@ LOCAL_MODELS = [                          # de mayor a menor
      "note": "El más pequeño: funciona incluso sin tarjeta gráfica. Respuestas sencillas. No ve imágenes."},
 ]
 
+# Mac con Apple Silicon (15 nov 2026): los Gemma 4 en versión MLX de Ollama (el motor de Apple, RUNNER mlx en
+# `ollama ps`). Medido en una MacBook M5 Pro de 24 GB con Ollama 0.40.13 (scripts/medir_modelos_locales.py): el doble
+# de rápidos que los de PC en el mismo Mac (12B: 59 frente a 32 tokens/s; E4B: 124 frente a 64) y todos ven
+# imágenes. vram_gb es la memoria unificada que ocupan cargados en una conversación del companion (`ollama ps`:
+# 12B 9,4 GB, E4B 9,5 GB; el E2B, estimado). Van de más a menos capaz, no por memoria: en MLX el E4B ocupa lo que el 12B.
+# Los dos más pequeños no tienen versión MLX: se quedan los de PC.
+MAC_MODELS = [
+    {"id": "gemma4:12b-mlx", "name": "Gemma 4 12B (MLX)", "size_gb": 7.7, "vram_gb": 9.5, "vision": True,
+     "note": "El más listo, optimizado para Apple Silicon (unos 60 tokens/s en un M5 Pro). Ocupa unos 9,5 GB. Ve imágenes."},
+    {"id": "gemma4:e4b-mlx", "name": "Gemma 4 E4B (MLX)", "size_gb": 9.5, "vram_gb": 9.6, "vision": True,
+     "note": "Optimizado para Apple Silicon y el doble de rápido que el 12B, y ocupa lo mismo (unos 9,5 GB). Ve imágenes."},
+    {"id": "gemma4:e2b-mlx", "name": "Gemma 4 E2B (MLX)", "size_gb": 7.5, "vram_gb": 8.0, "vision": True, "control": False,
+     "note": "Optimizado para Apple Silicon, el más rápido (unos 170 tokens/s); se equivoca algo más. Ve imágenes."},
+    *[m for m in PC_MODELS if m["id"] in ("qwen3:1.7b", "gemma3:1b-it-qat")],
+]
+LOCAL_MODELS = MAC_MODELS if MAC else PC_MODELS
 TOP_RECOMMENDED = next(m["id"] for m in LOCAL_MODELS if m.get("recommend", True))   # el mayor que se llega a recomendar
 
 # Memoria de vídeo (GB) de lo que convive con el modelo local, medida en esta PC (RTX 5070 Ti, nov 2026).
@@ -288,6 +304,8 @@ def apply():
     settings.ollama_model, settings.ollama_fallback = _ENV_LOCAL, list(_ENV_FALLBACK)
     if s.get("local_model"):
         ids = [m["id"] for m in LOCAL_MODELS]
+        if for_this_pc(s["local_model"]) != s["local_model"]:     # elegido antes de que el Mac usara los MLX
+            s = state.save(local_model=for_this_pc(s["local_model"]))
         settings.ollama_model = s["local_model"]
         # respaldo si va lento: los del catálogo más pequeños que el elegido (uno propio: los que piden menos vídeo)
         settings.ollama_fallback = (ids[ids.index(s["local_model"]) + 1:] if s["local_model"] in ids else

@@ -4,6 +4,13 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.6.1 — 2026-11-16
+
+- **Mac: modelos MLX.** En un Mac con Apple Silicon el cerebro local usa los Gemma 4 en versión MLX de Ollama
+  (12B, E4B y E2B, recomendados en la lista de descarga): el doble de rápidos que los de PC en el mismo Mac y ven
+  imágenes. Lo elegido antes con un nombre de PC pasa solo a su versión MLX. Necesita Ollama 0.31 o más reciente
+  (si es anterior, el instalador lo dice y descarga la versión de PC).
+
 ## 0.6.0 — 2026-11-15
 
 - **Pantallas de carga**: la ventana se abre al momento y enseña «Abriendo Companion» mientras arranca el
