@@ -4,6 +4,32 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.7.0 — 2026-11-16
+
+Correcciones y mejoras de una revisión general del companion en Windows y en el Mac.
+
+- **Seguridad: «abrir una carpeta» ya no acepta carpetas de red.** Con una ruta como `\\servidor\carpeta`, solo
+  comprobar si existía hacía que Windows se conectara a ese servidor y le diera una huella de tu contraseña, antes
+  de pedir permiso (por ejemplo, si el modelo la sacaba de un texto que se veía en la pantalla compartida).
+- **Las claves de API se guardan cifradas**: en Windows con la protección de tu cuenta (copiadas a otra PC no
+  sirven) y en el Mac en el Llavero. Las que ya tenías se cifran solas al arrancar.
+- **Los ajustes ya no se pueden perder** si el companion se cierra justo al guardarlos (antes el archivo podía
+  quedar a medias y se perdían la clave y la bienvenida). Queda además una copia del anterior.
+- **La hora es la de tu PC.** Antes el instalador dejaba fija la de Lima en todas las PC.
+- **Si Gemini va lento, pasa al siguiente modelo**: si un modelo tarda más de 8 s en empezar a responder dos
+  veces seguidas, avisa y durante media hora empieza por el siguiente de la lista (hay días en que
+  `gemini-3.6-flash` tarda 20–30 s y Flash-Lite responde en 3).
+- **Aviso de versión nueva**: al abrir, si hay una versión publicada más nueva, lo dice y Ajustes › Estado trae
+  el enlace para descargarla (una consulta anónima a GitHub como mucho cada 12 horas; `UPDATE_CHECK=0` la apaga).
+- **Mac:** los textos ya hablan del Mac (no de «esta PC», «tarjeta gráfica» o «memoria de vídeo»), el estado
+  dice que el oído va en la GPU del Mac (antes decía «CPU»), y un Mac con un chip más modesto ya no baja de modelo
+  local sin motivo: allí «lento» se mide contra lo que suele ir ese modelo en ese Mac.
+- **Privacidad:** los registros ya no guardan lo que dices ni lo que responde (solo cuántos caracteres;
+  `LOG_TEXT=1` lo vuelve a activar), y «Borrar todo» compacta la base de datos para que lo borrado no quede dentro.
+- Los resúmenes de la memoria no usan «él» ni «ella» cuando la conversación no deja claro tu género.
+- Las ventanas se llaman «Companion» y la de compartir pantalla ya no nombra a un personaje fijo.
+- La versión de Windows corre también las pruebas antes de publicarse.
+
 ## 0.6.2 — 2026-11-16
 
 - **Mac: respuestas mucho más rápidas.** Con la voz completa, el companion empieza a hablar a los 3–4 s de que

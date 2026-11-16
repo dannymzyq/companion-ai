@@ -155,6 +155,26 @@ def _folders() -> dict[str, Path]:
             "musica": pick("Music", "Música"), "videos": pick("Videos", "Vídeos"), "inicio": h}
 
 
+_NETWORK = re.compile(r"^(\\\\|//|[a-z][a-z0-9+.-]*://)", re.I)
+
+
+def _network_path(text: str) -> bool:
+    """¿Ruta de red o dirección? (\\\\servidor, //servidor, \\\\?\\UNC\\…, smb://, file://…)"""
+    t = text.strip().replace("/", "\\") if sys.platform == "win32" else text.strip()
+    return bool(_NETWORK.match(text.strip()) or t.startswith("\\\\"))
+
+
+def _remote_drive(path: Path) -> bool:
+    """Windows: una letra de unidad conectada a una carpeta de red (Z: → \\\\servidor)."""
+    if sys.platform != "win32" or not path.drive or not path.drive.endswith(":"):
+        return False
+    try:
+        import ctypes
+        return ctypes.windll.kernel32.GetDriveTypeW(path.drive + "\\") == 4      # DRIVE_REMOTE
+    except Exception:  # noqa: BLE001
+        return True
+
+
 _ALIASES = {"descarga": "descargas", "downloads": "descargas", "documento": "documentos", "documents": "documentos",
             "mis documentos": "documentos", "desktop": "escritorio", "imagen": "imagenes", "fotos": "imagenes",
             "pictures": "imagenes", "music": "musica", "video": "videos", "carpeta personal": "inicio",
@@ -269,9 +289,16 @@ def prepare(name: str, args: list[str]) -> Request:
         if key in folders:
             path = folders[key]
         else:
-            path = Path(os.path.expandvars(first)).expanduser()
+            raw = os.path.expandvars(first).strip()
+            # Una ruta de red (\\servidor\carpeta, //servidor, smb://…) no se toca: solo comprobar si existe hace que
+            # Windows se conecte a ese servidor y le entregue una huella de la contraseña, antes de cualquier permiso.
+            if _network_path(raw):
+                raise ActionError("Solo abro carpetas de este equipo, no de la red.")
+            path = Path(raw).expanduser()
             if not path.is_absolute():
                 raise ActionError("Dime una carpeta conocida (descargas, documentos, escritorio, imágenes, música, vídeos) o una ruta completa.")
+            if _network_path(str(path)) or _remote_drive(path):
+                raise ActionError("Solo abro carpetas de este equipo, no de la red.")
         if not path.is_dir():
             raise ActionError(f"La carpeta {path} no existe.")
         return Request(name, args, title, f"Abrir la carpeta {path}", {"path": str(path)})

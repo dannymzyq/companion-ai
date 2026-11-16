@@ -128,7 +128,7 @@ function createMain(resume) {
   mode = 'window';
   const w = new BrowserWindow({
     ...place({ width: 520, height: 880 }), minWidth: 380, minHeight: 560, backgroundColor: '#0c0b14',
-    autoHideMenuBar: true, title: 'Mika', webPreferences: webPreferences(),
+    autoHideMenuBar: true, title: 'Companion', webPreferences: webPreferences(),
   });
   w.setMenuBarVisibility(false);
   const target = `${URL_BASE}/${resume ? '?auto=1&saludo=0' : ''}`;
@@ -148,7 +148,7 @@ function createFloat() {
   const bounds = floatBounds || { width, height, x: area.x + area.width - width - 28, y: area.y + area.height - height - 12 };
   const w = new BrowserWindow({
     ...place(bounds), transparent: true, frame: false, resizable: false, maximizable: false, fullscreenable: false,
-    hasShadow: false, backgroundColor: '#00000000', title: 'Mika', webPreferences: webPreferences(),
+    hasShadow: false, backgroundColor: '#00000000', title: 'Companion', webPreferences: webPreferences(),
   });
   w.setAlwaysOnTop(true, 'screen-saver');           // por encima también de las ventanas a pantalla completa sin borde
   w.setVisibleOnAllWorkspaces(true);
@@ -248,7 +248,7 @@ async function pickSource(audio) {
   const width = Math.min(820, area.width - 40), height = Math.min(640, area.height - 40);
   const w = new BrowserWindow({
     ...place({ width, height, x: Math.round(area.x + (area.width - width) / 2), y: Math.round(area.y + (area.height - height) / 2) }),
-    minWidth: 420, minHeight: 360, backgroundColor: '#0c0b14', autoHideMenuBar: true, title: 'Compartir con Mika',
+    minWidth: 420, minHeight: 360, backgroundColor: '#0c0b14', autoHideMenuBar: true, title: 'Compartir pantalla',
     minimizable: false, maximizable: false, fullscreenable: false,
     webPreferences: { preload: path.join(__dirname, 'picker-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });

@@ -83,6 +83,8 @@ def reset_cloud():
     """Al cambiar de proveedor o de clave: lo que se sabía de cuotas agotadas ya no vale."""
     _blocked_until.clear()
     _no_reasoning.clear()
+    _slow_cloud.clear()
+    _slow_until.clear()
     try:
         _QUOTA_FILE.unlink(missing_ok=True)
     except OSError:
@@ -163,12 +165,15 @@ async def _cloud(messages: list[dict], sampling: dict, images, background: bool 
     if not settings.gemini_api_key or not chain:
         raise LLMError("Falta la clave del cerebro en la nube. Ponla en Ajustes › Cerebro, o usa el cerebro local.")
     payload = _images_openai(messages, images)
-    for model in chain:
+    for model in _by_speed(chain):
         if not _usable(model):
             continue
         sent = False
+        t0 = time.monotonic()
         try:
             async for piece in _gemini(model, payload, sampling):
+                if not sent and not background:
+                    _note_wait(model, time.monotonic() - t0, chain)
                 sent = True
                 yield piece
             if not background:
@@ -209,6 +214,35 @@ async def _cloud(messages: list[dict], sampling: dict, images, background: bool 
                            if cpu else ": todo queda en esta PC."))
     async for piece in _ollama(_images_ollama(messages, images), sampling, model=model, cpu=cpu):
         yield piece
+
+
+# Lento: hay días en que un modelo de Gemini tarda 20-30 s en empezar a responder (gemini-3.6-flash, 16 nov 2026)
+# mientras Flash-Lite contesta en 3. Si tarda más de CLOUD_SLOW_S en dar el primer texto dos turnos seguidos, se
+# empieza por el siguiente de la lista durante CLOUD_REST_S (lo mismo que hace la app de iOS).
+CLOUD_SLOW_S, CLOUD_SLOW_TURNS, CLOUD_REST_S = 8.0, 2, 1800
+_slow_cloud: dict[str, int] = {}          # modelo → turnos lentos seguidos
+_slow_until: dict[str, float] = {}        # modelo → hasta cuándo se empieza por otro
+
+
+def _by_speed(chain: list[str]) -> list[str]:
+    """La lista de relevo con los modelos que van lentos ahora al final (siguen ahí por si los demás fallan)."""
+    now = time.time()
+    return [m for m in chain if _slow_until.get(m, 0) <= now] + [m for m in chain if _slow_until.get(m, 0) > now]
+
+
+def _note_wait(model: str, waited: float, chain: list[str]):
+    if waited <= CLOUD_SLOW_S:
+        _slow_cloud[model] = 0
+        return
+    _slow_cloud[model] = _slow_cloud.get(model, 0) + 1
+    log.info("Nube: %s tardó %.1f s en empezar a responder (%d seguidos)", model, waited, _slow_cloud[model])
+    others = [m for m in chain if m != model and _usable(m) and _slow_until.get(m, 0) <= time.time()]
+    if _slow_cloud[model] >= CLOUD_SLOW_TURNS and others:
+        _slow_cloud[model] = 0
+        _slow_until[model] = time.time() + CLOUD_REST_S
+        log.warning("Nube: %s va lento; durante %d min empiezo por %s", model, CLOUD_REST_S // 60, others[0])
+        _notices.append(f"{model} está tardando mucho en responder hoy: durante media hora uso {others[0]}, "
+                        "que responde antes.")
 
 
 _fallback_loaded = False                  # el respaldo local de la nube está cargado en Ollama
@@ -558,8 +592,10 @@ async def _too_slow(model: str, why: str):
         _keep(asyncio.create_task(_swap(model, nxt)))
     elif time.time() - _slow_told > SLOW_FOR:
         _slow_told = time.time()
-        _notices.append(f"La memoria de vídeo está llena{gpu} y el modelo local responde lento. Cierra el juego o "
-                        "ComfyUI, o usa el cerebro en la nube desde Ajustes.")
+        _notices.append(f"La memoria está llena{gpu} y el modelo local responde lento. Cierra otras aplicaciones "
+                        "que usen mucha memoria, o usa el cerebro en la nube desde Ajustes." if sys.platform == "darwin" else
+                        f"La memoria de vídeo está llena{gpu} y el modelo local responde lento. Cierra el juego u otro "
+                        "programa que use la tarjeta gráfica, o usa el cerebro en la nube desde Ajustes.")
 
 
 async def _free_voice(model: str) -> bool:
@@ -689,6 +725,21 @@ async def _ollama(messages: list[dict], sampling: dict, model: str | None = None
             raise LLMError(f"Se cortó la conexión con Ollama ({type(e).__name__}). Vuelve a intentarlo.") from e
 
 
+_best_tps: dict[str, float] = {}          # Mac: la mejor velocidad vista de cada modelo en esta sesión
+
+
+def slow_limit(model: str, tps: float) -> float:
+    """Por debajo de cuántos tokens/s el turno cuenta como lento. PC: SLOW_TPS fijo (en la tarjeta va a más de
+    100; desbordado a la RAM cae a 9-19). Mac: no hay desborde (la memoria es una sola) y la velocidad normal depende
+    del chip: un 12B va a 59 en un M5 Pro y a ~20 en un M1. Ahí es lento si cae a menos de la mitad de lo mejor que
+    ha ido ese modelo (la memoria se llenó y macOS tira del disco); el primer turno nunca lo es."""
+    if sys.platform != "darwin":
+        return SLOW_TPS
+    best = max(_best_tps.get(model, 0.0), tps)
+    _best_tps[model] = best
+    return best * 0.45
+
+
 async def _measure(model: str, done: dict):
     """Velocidad real del turno. Si es muy baja, el modelo no está entero en la GPU."""
     n, ns = done.get("eval_count") or 0, done.get("eval_duration") or 0
@@ -699,7 +750,8 @@ async def _measure(model: str, done: dict):
     # que el modelo ya no cabe en la memoria de vídeo.
     global _slow_turns
     if n >= 12:
-        _slow_turns = _slow_turns + 1 if tps < SLOW_TPS else 0
-        if _slow_turns >= 2 or tps < SLOW_TPS / 2:
+        limit = slow_limit(model, tps)
+        _slow_turns = _slow_turns + 1 if tps < limit else 0
+        if _slow_turns >= 2 or tps < limit / 2:
             _slow_turns = 0
             await _too_slow(model, f"{tps:.0f} tokens por segundo")

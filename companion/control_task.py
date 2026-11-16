@@ -10,7 +10,7 @@ import re
 import time
 
 from . import actions, control, llm
-from .config import settings
+from .config import settings, shown
 from .prompt import ACTION_RESULT, OPERATOR, OPERATOR_COORDS, OPERATOR_STEP
 
 log = logging.getLogger("companion.session")
@@ -77,7 +77,8 @@ async def run(sess, req: actions.Request):
                                                                   images, background=True)])
                 llm.pop_notices()
                 step = control.parse(reply)
-                log.info("Control %d%s: %r → %s", n, " (con imagen)" if shot else "", reply[:120], step and (step[0], [a[:60] for a in step[1]]))
+                log.info("Control %d%s: %s → %s", n, " (con imagen)" if shot else "", shown(reply[:120]),
+                         step and (step[0], [a[:60] if settings.log_text else f"<{len(a)}>" for a in step[1]]))
                 if esc.pressed or sess.control_stop:
                     result = f"{settings.user_name} lo paró" + (" con Esc" if esc.pressed else "")
                     break

@@ -15,6 +15,7 @@ Protocolo del WebSocket (/ws):
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from collections import deque
@@ -22,7 +23,7 @@ from collections import deque
 import numpy as np
 
 from . import actions, llm, profile, screen_audio, store, tts, voicecheck
-from .config import settings
+from .config import settings, shown
 from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
                      local_time, sampling_for, turn_context)
 from .tags import Sentence, TagStream
@@ -374,8 +375,8 @@ class Session:
             text = await early
         else:
             text = await asyncio.get_running_loop().run_in_executor(None, self.stt.transcribe, audio)
-        log.info("STT %.2fs de espera%s (%.1fs de audio): %r", time.perf_counter() - t0,
-                 " (adelantado)" if early is not None else "", len(audio) / 16000, text)
+        log.info("STT %.2fs de espera%s (%.1fs de audio): %s", time.perf_counter() - t0,
+                 " (adelantado)" if early is not None else "", len(audio) / 16000, shown(text))
         if not text and not self.carry_text:
             self.phase, self.turn_audio = "idle", None
             await self.set_state("speaking" if self.client_playing else "idle")
@@ -658,7 +659,7 @@ class Session:
             store.add_memory(fact)
         if len(summary) > 20:
             store.add_summary(summary[:900], rows[0][0], rows[-1][0], rows[-1][3])
-            log.info("Recuerdo guardado (%d mensajes, %d datos nuevos): %r", len(rows), len(facts), summary[:120])
+            log.info("Recuerdo guardado (%d mensajes, %d datos nuevos): %s", len(rows), len(facts), shown(summary[:120]))
 
     def _messages(self, instruction: str | None = None, hint: tuple[str, list[str]] | None = None,
                   refuse: str = "") -> list[dict]:
@@ -755,7 +756,7 @@ class Session:
         parser = TagStream()
         quiet = _SILENCE_TAG.search(reply) or _SILENCE_ONLY.fullmatch(reply)
         sentences = [] if quiet else [*parser.feed(reply), *parser.flush()][:2]
-        log.info("Mirada en vivo (%s, %d imágenes, %.2fs): %r", "+".join(clips), len(images), time.perf_counter() - t0, reply[:120])
+        log.info("Mirada en vivo (%s, %d imágenes, %.2fs): %s", "+".join(clips), len(images), time.perf_counter() - t0, shown(reply[:120]))
         if not sentences or self.in_speech:
             self.phase = "idle"
             return
@@ -831,11 +832,11 @@ class Session:
                 best, best_lost = pcm, lost
             if not voicecheck.bad(lost):
                 break
-            log.info("Voz: faltó %s en %r (oído %r); repito", lost, text[:60], got[:60])
+            log.info("Voz: faltó %s en %s (oído %s); repito", shown(" ".join(lost)), shown(text[:60]), shown(got[:60]))
             if attempt < retries:
                 pcm = b"".join([c async for c in tts.stream_speech(text, voice, speed)])
         if best_lost and voicecheck.bad(best_lost):
-            log.info("Voz: tras %d intentos sigue faltando %s en %r", retries + 1, best_lost, text[:60])
+            log.info("Voz: tras %d intentos sigue faltando %s en %s", retries + 1, shown(" ".join(best_lost)), shown(text[:60]))
         return best
 
     async def _speak(self, queue: asyncio.Queue, t0: float):
@@ -888,7 +889,7 @@ class Session:
                 except tts.TTSError as e:
                     tts_ok = False
                     log.warning("Sin voz: %s", e)
-                    await self.send_json({"type": "error", "message": "La voz no está disponible ahora (mira data\\voz.log, "
+                    await self.send_json({"type": "error", "message": f"La voz no está disponible ahora (mira data{os.sep}voz.log, "
                                                                       "o pasa a la voz ligera en Ajustes). Sigo en texto."})
             self.sent_sentences.append(sentence.text)
             await self.send_json({"type": "sentence_end", "id": idx})

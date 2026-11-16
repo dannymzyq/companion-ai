@@ -119,3 +119,9 @@ def delete_memory(fact: str):
 def forget_all():
     _db.executescript("DELETE FROM messages; DELETE FROM memories; DELETE FROM summaries;")
     _db.commit()
+    # Sin esto, lo borrado sigue dentro de companion.db (SQLite solo marca las páginas como libres) y se podría
+    # recuperar con una herramienta. VACUUM reescribe el archivo sin ello.
+    try:
+        _db.execute("VACUUM")
+    except sqlite3.Error:
+        pass

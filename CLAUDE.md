@@ -62,7 +62,8 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Versiones fijas: el instalador usa `requirements.lock` y `voz\requirements.lock` (uv 0.13.8 con su SHA-256).
   Tras cambiar dependencias y probar, rehazlos con `scripts\fijar_versiones.ps1`.
 - Registros: `iniciar.ps1` guarda las tres sesiones anteriores (`data\companion.1.log`…) y `voz_proc` la anterior
-  de la voz (`voz.1.log`). Llevan lo que transcribe del usuario: no los muestres ni los subas.
+  de la voz (`voz.1.log`). Desde la 0.7.0 no llevan lo que se dice (`config.shown`: solo cuántos caracteres;
+  `LOG_TEXT=1` en `.env` lo vuelve a escribir). Aun así, no los muestres ni los subas.
 - El panel de navegador de Claude bloquea el micrófono: ahí la interfaz se prueba escribiendo; el avatar,
   con `scripts\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
   Para el micrófono de verdad, `scripts\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).
@@ -123,6 +124,21 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   y clave, modelo local, voz). Lo guardado manda sobre `.env`. La clave nunca se devuelve a la interfaz ni se
   imprime en las pruebas (ni siquiera sus últimos caracteres). `_prueba.Servidor()` arranca con la bienvenida
   hecha; `Servidor(nuevo=True)` la deja pendiente.
+  Auditoría (16 nov 2026, 0.7.0): `state.save` escribe en un temporal y lo cambia de una vez (con copia
+  `settings.json.bak`, que `load` usa si el bueno está roto). Las claves (`cloud.key`, `ear.groq_key`) van cifradas
+  con `companion/secret.py`: DPAPI en Windows (`dpapi:…`), Llavero en el Mac (`llavero:<cuenta>`, una entrada por
+  carpeta de datos; las pruebas ponen `COMPANION_KEYCHAIN=0`). Para leer la clave en un script, `secret.reveal`
+  sobre el json, nunca el json a mano. `state.protect_keys` cifra al arrancar las guardadas en claro.
+  `TIMEZONE` vacío (o el `America/Lima` que copiaba el instalador) = la hora del sistema.
+  Aviso de versión nueva: `companion/update.py` (`GET /api/update`, Releases de GitHub cada 12 h, solo etiquetas
+  vX.Y.Z con el instalador de ese sistema; `UPDATE_CHECK=0` lo apaga, y las pruebas rápidas lo apagan).
+  Textos en el Mac: `web/js/platform.js` adapta «esta PC», «tarjeta gráfica», «memoria de vídeo»… al Mac en toda
+  la página (también lo que se escribe después); un texto nuevo de la interfaz no necesita nada más.
+  Nube lenta (como en iOS): si un modelo tarda más de 8 s en dar el primer texto dos turnos seguidos, se empieza
+  por el siguiente del relevo 30 min (`llm._note_wait`, `_by_speed`). En el Mac, un turno local es lento si cae por
+  debajo del 45 % de lo mejor que ha ido ese modelo (`llm.slow_limit`); en la PC sigue `SLOW_TPS`.
+  `abrir_carpeta` rechaza rutas de red (`\\servidor`, `//`, `smb://`, unidades de red) ANTES de comprobar si
+  existen: comprobarlo ya conectaba con el servidor y Windows le daba una huella de la contraseña.
 - El personaje se llama como la voz elegida (`profile.character`): `personas/mika.json` es la ficha común y su
   `name` solo sirve para el archivo del modelo por defecto. Voces y personajes no llevan etiquetas de género en
   la interfaz (decisión del usuario, 12 nov 2026); `speaks` en `voices.json` solo decide cómo habla de sí.

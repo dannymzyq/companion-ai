@@ -26,6 +26,22 @@ class Preparar(unittest.TestCase):
         for mal in ("javascript:alert(1)", "file:///C:/Windows"):
             self.assertTrue(actions.prepare("abrir_web", [mal]).target["url"].startswith("https://www.google.com/search?q="))
 
+    def test_carpeta_de_red_nunca(self):
+        # Ni siquiera se comprueba si existe: eso ya conecta con el servidor (y Windows le da una huella de la clave)
+        from pathlib import Path
+        from unittest import mock
+        real = Path.is_dir
+
+        def is_dir(p):
+            if "servidor" in str(p):
+                raise AssertionError(f"tocó la red: {p}")
+            return real(p)
+        with mock.patch("pathlib.Path.is_dir", is_dir):
+            for mal in (r"\\servidor.ejemplo\carpeta", "//servidor.ejemplo/carpeta", r"\\?\UNC\servidor\x",
+                        "smb://servidor/x", "file://servidor/x"):
+                with self.assertRaises(actions.ActionError, msg=mal):
+                    actions.prepare("abrir_carpeta", [mal])
+
     def test_catalogo_cerrado(self):
         for nombre in ("borrar_archivo", "ejecutar", "enviar_correo", "comprar"):
             with self.assertRaises(actions.ActionError):

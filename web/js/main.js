@@ -4,6 +4,9 @@ import { Avatar } from './avatar.js';
 import { Vision } from './vision.js';
 import { initOnboarding } from './onboarding.js';
 import { initLoading } from './loading.js';
+import { adaptToMac } from './platform.js';
+
+adaptToMac();                               // en el Mac, «esta PC», «tarjeta gráfica»… se dicen como en un Mac
 
 const $ = (id) => document.getElementById(id);
 const clamp = (x) => Math.max(0, Math.min(1, x));
@@ -204,6 +207,7 @@ function handle(ev) {
       setState('idle');
       send({ type: 'watch', on: watchOn() });          // cada conexión es una sesión nueva en el servidor
       if (autoStart && !autoTried) { autoTried = true; begin(true); }
+      checkUpdate();
       break;
     case 'state': setState(ev.value); break;
     case 'user_text':
@@ -409,14 +413,14 @@ function applyConfig(cfg) {
       + (earCloud || cfg.voice_engine === 'nube'
         ? `${earCloud ? ' Tu voz se transcribe en la nube.' : ' Tu voz se transcribe en esta PC.'}${cfg.voice_engine === 'nube' ? ` La voz de ${cfg.name} se genera en la nube.` : ` La voz de ${cfg.name} se genera en esta PC.`}`
         : ` Tu voz y la de ${cfg.name} se procesan en esta PC.`)
-    : `Todo se procesa en esta PC${cfg.adult.active ? ', sin filtro para temas +18 si tú los propones' : ''}. El modelo comparte la memoria de vídeo con la voz: si no cabe (un juego, ComfyUI), ${cfg.name} pasa primero a la voz ligera y, si aún falta, a un modelo más pequeño. Pulsa «Local» otra vez para que vuelva a elegir.`;
+    : `Todo se procesa en esta PC${cfg.adult.active ? ', sin filtro para temas +18 si tú los propones' : ''}. El modelo comparte la memoria de vídeo con la voz: si no cabe (por ejemplo, con un juego abierto),${cfg.name} pasa primero a la voz ligera y, si aún falta, a un modelo más pequeño. Pulsa «Local» otra vez para que vuelva a elegir.`;
   $('watch-note').textContent = `Mientras compartes la cámara o la pantalla, ${cfg.name} mira cada pocos segundos y comenta por su cuenta lo que le llama la atención.`
     + (cloud ? ` Con la nube esas imágenes van a ${cfg.cloud.name} (modelo ${cfg.watch.model}).` : ' Con el cerebro local no salen de esta PC.');
 
   const health = [
     ['Cerebro', `${cloud ? cfg.cloud.name : 'Ollama'} · ${cfg.llm.model}`, cfg.llm.ready],
     ['Oído', earCloud ? `Nube · ${cfg.stt.cloud.last ? `${cfg.stt.cloud.last.provider} (${String(cfg.stt.cloud.last.seconds).replace('.', ',')} s)` : (cfg.stt.cloud.groq ? 'Groq' : 'Gemini')}`
-      : cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${cfg.stt.device === 'cuda' ? 'GPU' : 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), !cfg.stt.error],
+      : cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${{ cuda: 'GPU', mps: 'GPU del Mac' }[cfg.stt.device] || 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), !cfg.stt.error],
     ['Voz', cfg.tts ? `${engineName(cfg.voice_engine)} · ${{ ligera: 'procesador', nube: 'internet' }[cfg.voice_engine] || 'GPU'}` : 'No disponible', cfg.tts],
     ['Modelo 3D', cfg.model ? (/^avatar\d$/.test(cfg.model_id) ? `Avatar ${cfg.model_id.slice(-1)} (incluido)` : 'Modelo propio') : 'Falta el .vrm', cfg.model],
   ];
@@ -429,6 +433,14 @@ function applyConfig(cfg) {
   const bad = health.filter(([, , ok]) => !ok).map(([k]) => k.toLowerCase());
   $('sum-estado').textContent = bad.length ? `Revisar: ${bad.join(', ')}` : 'Todo funciona';
   $('health').innerHTML = health.map(([k, v, ok]) => `<dt>${k}</dt><dd class="${ok ? '' : 'bad'}">${v}</dd>`).join('');
+  if (update && update.newer && /^https:\/\/github\.com\//.test(update.url)) {
+    const dt = document.createElement('dt'), dd = document.createElement('dd'), a = document.createElement('a');
+    dt.textContent = 'Versión';
+    a.href = update.url; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = `Hay una nueva: ${update.latest} (tienes ${update.current}). Descargar`;
+    dd.append(a);
+    $('health').append(dt, dd);
+  }
 
   if (cfg.model && avatar && !avatar.loaded && !loadingModel) loadModel();
   if (!cfg.model || !avatar) showOrb(true);
@@ -990,6 +1002,22 @@ $('redo-onboarding').onclick = () => resetSetup(false);
 $('reset-all').onclick = () => {
   if (confirm('¿Restablecer tus datos? Se borran tu perfil, la clave de API, la voz y el personaje elegidos, la conversación y los recuerdos. No se puede deshacer.')) resetSetup(true);
 };
+
+// ---------------------------------------------------------------- versión nueva
+// Una vez por apertura: si hay una versión publicada más nueva, se avisa y Ajustes › Estado enseña el enlace.
+let update = null;
+let updateAsked = false;
+async function checkUpdate() {
+  if (updateAsked || floating) return;
+  updateAsked = true;
+  try {
+    const r = await fetch('/api/update');
+    update = r.ok ? await r.json() : null;
+  } catch { update = null; }
+  if (!update || !update.newer) return;
+  toast(`Hay una versión nueva de Companion (${update.latest}). Descárgala desde Ajustes › Estado.`);
+  if (config) applyConfig(config);
+}
 
 let toastTimer = 0;
 function toast(message, isError = false) {

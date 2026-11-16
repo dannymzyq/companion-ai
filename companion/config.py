@@ -80,7 +80,10 @@ class Settings:
 
     persona_path: Path = field(default_factory=lambda: _path(os.getenv("PERSONA", "personas/mika.json")))
     user_name: str = field(default_factory=lambda: os.getenv("USER_NAME", "").strip() or os.getenv("USERNAME", "amigo"))
-    timezone: str = field(default_factory=lambda: os.getenv("TIMEZONE", "America/Lima").strip())
+    # "" = la zona horaria del sistema. Hasta la 0.7.0 .env.example traía America/Lima y el instalador la copiaba en
+    # todas las PC: ese valor heredado también cuenta como «la del sistema».
+    timezone: str = field(default_factory=lambda: "" if os.getenv("TIMEZONE", "").strip() == "America/Lima"
+                          else os.getenv("TIMEZONE", "").strip())
 
     tts_url: str = field(default_factory=lambda: os.getenv("TTS_URL", "http://127.0.0.1:8210").rstrip("/"))
     tts_token: str = field(default_factory=_tts_token)
@@ -96,6 +99,10 @@ class Settings:
     stt_device: str = field(default_factory=lambda: os.getenv("STT_DEVICE", "auto").strip().lower())
     stt_compute: str = field(default_factory=lambda: os.getenv("STT_COMPUTE", "int8_float16").strip())
     stt_language: str = field(default_factory=lambda: os.getenv("STT_LANGUAGE", "es").strip())
+
+    # Registros (data\companion.log): sin esto, lo que se dice en la conversación no se escribe, solo cuánto ocupa.
+    # LOG_TEXT=1 lo vuelve a escribir, para buscar un fallo.
+    log_text: bool = field(default_factory=lambda: _bool("LOG_TEXT", False))
 
     end_silence_ms: int = field(default_factory=lambda: int(os.getenv("END_SILENCE_MS", "550")))
     barge_in: bool = field(default_factory=lambda: _bool("BARGE_IN", True))
@@ -119,5 +126,11 @@ class Settings:
 
 
 settings = Settings()
+
+
+def shown(text) -> str:
+    """Un texto de la conversación tal como va al registro: entero solo con LOG_TEXT=1."""
+    text = "" if text is None else str(text)
+    return repr(text) if settings.log_text else f"<{len(text)} caracteres>"
 settings.models_dir.mkdir(parents=True, exist_ok=True)
 settings.data_dir.mkdir(parents=True, exist_ok=True)

@@ -299,7 +299,10 @@ def medir_ventana(segundos_carga: float = 25.0) -> dict:
 
 def clave() -> str:
     try:
-        return (json.loads((ROOT / "data" / "settings.json").read_text(encoding="utf-8")).get("cloud") or {}).get("key", "")
+        sys.path.insert(0, str(ROOT))
+        from companion import secret     # desde la 0.7.0 la clave va cifrada (DPAPI / Llavero)
+        guardado = secret.reveal(json.loads((ROOT / "data" / "settings.json").read_text(encoding="utf-8")))
+        return (guardado.get("cloud") or {}).get("key", "")
     except (OSError, ValueError):
         return ""
 

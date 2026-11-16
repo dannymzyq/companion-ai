@@ -28,7 +28,11 @@ log = logging.getLogger("companion")
 STARTED = int(time.time())
 
 persona = load_persona(settings.persona_path)
-profile.apply()                           # lo elegido en la bienvenida manda sobre .env
+try:
+    state.protect_keys()                  # claves guardadas en claro por una versión anterior → cifradas
+except Exception:  # noqa: BLE001
+    log.exception("No se pudieron cifrar las claves guardadas")
+profile.apply()                         # lo elegido en la bienvenida manda sobre .env
 
 
 def character_name() -> str:
@@ -403,6 +407,13 @@ def _cloud_only_changes(on: bool, changes: dict) -> dict:
               "voice_engine": s.get("voice_engine", profile.voice_engine())}
     ear["engine"] = "nube"
     return {"cloud_only": True, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
+
+
+@app.get("/api/update")
+async def get_update():
+    """¿Hay una versión nueva publicada? (companion/update.py; como mucho una consulta a GitHub cada 12 horas)"""
+    from . import update
+    return await update.check()
 
 
 # ---------------------------------------------------------------- carga y cierre (lifecycle.py)

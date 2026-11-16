@@ -387,7 +387,10 @@ Cuando un modelo se agota, el companion avisa y pasa al siguiente de `GEMINI_FAL
 
 Los cuatro primeros usan la misma clave de Google AI Studio y todos ven imágenes. Google ya no publica estos
 límites: los de tu cuenta se ven en <https://ai.dev/rate-limit>. No encontré ningún LLM en la nube gratuito y
-sin límite; el que más se acerca es Gemma 4 con tu misma clave. En la capa gratuita, Google puede usar lo que
+sin límite; el que más se acerca es Gemma 4 con tu misma clave.
+
+Si un modelo tarda más de 8 s en empezar a responder dos turnos seguidos (hay días en que `gemini-3.6-flash` tarda
+20–30 s), el companion avisa y durante media hora empieza por el siguiente de la lista, que responde antes. En la capa gratuita, Google puede usar lo que
 envías (también las capturas) para mejorar sus productos; con facturación activada, no.
 
 ## Cerebro local
@@ -461,6 +464,9 @@ siempre que no haya un juego usando la tarjeta.
 | `PERSONA` | Personalidad y voz (`personas/mika.json`) |
 | `END_SILENCE_MS` | Silencio que marca el fin de tu turno (más bajo = responde antes, pero corta más) |
 | `BARGE_IN` | `false` si usas altavoces y Mika se interrumpe con su propia voz |
+| `TIMEZONE` | Vacío: la hora de esta PC. Solo para forzar otra zona (`Europe/Madrid`…) |
+| `LOG_TEXT` | `1`: los registros guardan también lo que se dice (para buscar un fallo). Por defecto, no |
+| `UPDATE_CHECK` | `0`: no mirar en GitHub si hay versión nueva (por defecto mira como mucho cada 12 h) |
 
 Los cambios hechos desde Ajustes duran hasta reiniciar; para dejarlos fijos, edita `.env`. Si el servidor ya
 estaba en marcha, `Companion.bat` lo reinicia solo cuando `.env` o el código son más nuevos que él.
@@ -475,12 +481,16 @@ estaba en marcha, `Companion.bat` lo reinicia solo cuando `.env` o el código so
 - El servidor solo escucha en `127.0.0.1` y rechaza peticiones de otras páginas web: cambios y conversación
   solo desde su propio origen, y cualquier petición que no llame al servidor por `127.0.0.1` o `localhost` (una
   página con un truco de DNS, «DNS rebinding») recibe un 400, también al leer los recuerdos.
+- Las claves de API se guardan cifradas en `data\settings.json`: en Windows con la protección de tu cuenta
+  (DPAPI: copiadas a otra PC no sirven), en el Mac en el Llavero.
+- «Abrir una carpeta» solo abre carpetas de este equipo, nunca de la red.
+- «Borrar todo» compacta la base de datos: lo borrado no queda dentro del archivo.
 
 ## Registros
 
 - `data\companion.log`: lo que hizo el companion en esta sesión. Cada arranque guarda las tres anteriores
-  (`companion.1.log` es la última), así que si se cerró por un error, el motivo sigue ahí. Llevan lo que
-  transcribe de lo que dices: están solo en esta PC, como todo `data\`.
+  (`companion.1.log` es la última), así que si se cerró por un error, el motivo sigue ahí. No guardan lo que
+  dices ni lo que responde (solo cuántos caracteres), salvo con `LOG_TEXT=1` en `.env`.
 - `data\voz.log` (y `voz.1.log`, la vez anterior): el servidor de la voz completa. Si se cae, el companion lo
   vuelve a arrancar en la siguiente frase; al arrancar, la primera frase espera a que cargue (hasta un minuto)
   en vez de quedarse sin voz.
