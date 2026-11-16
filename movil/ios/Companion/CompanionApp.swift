@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct CompanionApp: App {
     init() {
-        #if DEBUG
+        #if DEBUG || PRUEBAS
         DebugKeys.importFromEnvironment()
         #endif
     }

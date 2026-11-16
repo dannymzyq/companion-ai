@@ -26,7 +26,7 @@ struct CompanionView: UIViewRepresentable {
         web.scrollView.isScrollEnabled = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.allowsBackForwardNavigationGestures = false
-        #if DEBUG
+        #if DEBUG || PRUEBAS
         web.isInspectable = true            // Safari › Desarrollo › Simulador para ver la consola
         context.coordinator.testHook = TestHook(webView: web)
         #endif

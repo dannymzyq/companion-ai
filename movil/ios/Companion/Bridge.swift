@@ -11,7 +11,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
     weak var webView: WKWebView?
     var streams: [Int: Task<Void, Never>] = [:]
     var streamCuts: [Int: Corte] = [:]
-    #if DEBUG
+    #if DEBUG || PRUEBAS
     var testHook: TestHook?
     #endif
 
@@ -51,6 +51,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
                     "can": Bridge.capacidades()]
         case "log":
             webLog.log("[web \(a["level"] as? String ?? "", privacy: .public)] \(a["text"] as? String ?? "", privacy: .public)")
+            #if PRUEBAS
+            // Compilación de pruebas en el iPhone: los tiempos (solo las líneas «info») van a Documents/registro.txt,
+            // que se copia al Mac con devicectl. No llevan lo que dice el usuario.
+            if a["level"] as? String == "info", let t = a["text"] as? String {
+                Registro.anotar(t)
+            }
+            #endif
             return true
         case "kv.get":
             let url = try kvURL(a["key"])
@@ -198,3 +205,14 @@ struct BridgeError: Error {
     let message: String
     init(_ message: String) { self.message = message }
 }
+
+#if PRUEBAS
+enum Registro {
+    static let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("registro.txt")
+    static func anotar(_ t: String) {
+        let linea = "\(ISO8601DateFormatter().string(from: Date())) \(t)\n"
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(linea.utf8)); try? h.close() }
+        else { try? linea.write(to: url, atomically: true, encoding: .utf8) }
+    }
+}
+#endif

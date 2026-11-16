@@ -18,6 +18,28 @@
   style.textContent = css;
   (document.head || document.documentElement).append(style);
 
+  // En el teléfono no hay cámara (window.CAN.CAMERA = false): la interfaz de la PC la pide al listar dispositivos,
+  // al mirar sus permisos y al empezar. Aquí, para la interfaz, la cámara no existe: así iOS nunca llega a pedirla
+  // (sin esto, en el iPhone la app se cerraba al tocar el micrófono o al abrir Ajustes).
+  const md = navigator.mediaDevices;
+  if (md) {
+    const gum = md.getUserMedia && md.getUserMedia.bind(md);
+    if (gum) {
+      md.getUserMedia = (c = {}) => {
+        if (c.video && !c.audio) return Promise.reject(new DOMException('En el teléfono no se usa la cámara', 'NotAllowedError'));
+        return gum({ ...c, video: false });
+      };
+    }
+    const enumerate = md.enumerateDevices && md.enumerateDevices.bind(md);
+    if (enumerate) md.enumerateDevices = async () => (await enumerate()).filter((d) => d.kind !== 'videoinput');
+  }
+  if (navigator.permissions && navigator.permissions.query) {
+    const query = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (d) => (d && d.name === 'camera'
+      ? Promise.resolve({ name: 'camera', state: 'denied', onchange: null, addEventListener() {}, removeEventListener() {} })
+      : query(d));
+  }
+
   // La consola de la web va al registro de la app (Xcode, o «simctl launch --console»).
   const nativeLog = (level, args) => {
     try {

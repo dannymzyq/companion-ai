@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || PRUEBAS
 import Foundation
 import WebKit
 

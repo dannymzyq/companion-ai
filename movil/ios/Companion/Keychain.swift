@@ -36,7 +36,7 @@ enum Keychain {
     }
 }
 
-#if DEBUG
+#if DEBUG || PRUEBAS
 /// Solo para probar en el simulador: si el lanzamiento trae las claves en el entorno (SIMCTL_CHILD_…), se guardan
 /// en el llavero del simulador. No se escriben en ningún archivo ni registro.
 enum DebugKeys {
