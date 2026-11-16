@@ -31,8 +31,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `instalar.sh` con `COMPANION_UI=1` en `instalando.html` (mismas marcas que `instalar.ps1`), arranca
   `iniciar.sh --sin-ventana` y carga `main.js` (`COMPANION_BOOTED=1`: el candado es suyo). Versiones fijas:
   `requirements-mac.lock` y `voz\requirements-mac.lock` (macOS 14, de los locks de Windows con `fijar_versiones.ps1`).
-  En el Mac: memoria unificada (`llm._mac_memory`: dos tercios de la RAM para la GPU), oído en el procesador con el
-  modelo instalado, voz completa en MPS y sin la comprobación con Whisper (solo se hace con el oído en CUDA),
+  En el Mac: memoria unificada (`llm._mac_memory`: dos tercios de la RAM para la GPU), oído en la GPU (CTranslate2
+  `device="mps"`, 0,7 s por 4 s de habla; si falla, procesador con 10 hilos), voz completa en MPS (16 nov 2026:
+  `voz_proc` pone `VOZ_NFE=16`, `VOZ_REF_CORTA=1` y `VOZ_LARGA=90`; `servidor.py` pasa F5 a float16 en MPS y usa el
+  tramo `short` del .json de la muestra, de `scripts\recortar_muestras.py` / `voice_import.add_short`; primer audio
+  ~3 s, antes 33 s de media; en la PC la muestra corta no gana nada) y sin la comprobación con Whisper (solo se hace
+  con el oído en CUDA; sin comprobación, `Session._say` manda el audio según llega),
   acciones con `open` y `osascript`. No hay `controlar`, `multimedia` ni sonido de lo compartido (`CAN_AUDIO`).
   Cerebro local en el Mac (15 nov 2026, petición del usuario): Gemma 4 MLX de Ollama (`profile.MAC_MODELS`, RUNNER
   mlx en `ollama ps`); `config.for_this_pc` traduce los nombres de PC (`MLX_EQUIV`) en `.env` y en lo guardado. En

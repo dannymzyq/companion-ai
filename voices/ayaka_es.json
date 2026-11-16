@@ -3,5 +3,11 @@
  "ref_seconds": 8.5,
  "nfe_step": 32,
  "stream_nfe_step": 16,
- "ref_text": "¡Buenos días! Ya revisé tu agenda. A las diez tienes una reunión y por la tarde queda libre. ¿Quieres que te recuerde algo más?"
+ "ref_text": "¡Buenos días! Ya revisé tu agenda. A las diez tienes una reunión y por la tarde queda libre. ¿Quieres que te recuerde algo más?",
+ "short": {
+  "start": 2.73,
+  "end": 6.48,
+  "text": "A las diez tienes una reunión y por la tarde queda libre.",
+  "speed": 1.015
+ }
 }

@@ -1,1 +1,13 @@
-{"engine": "f5", "ref_seconds": 8.1, "nfe_step": 32, "stream_nfe_step": 16, "ref_text": "Si empezamos por lo más fácil, el resto va a salir solito. ¿Ves? Te dije que no era para tanto."}
+{
+ "engine": "f5",
+ "ref_seconds": 8.1,
+ "nfe_step": 32,
+ "stream_nfe_step": 16,
+ "ref_text": "Si empezamos por lo más fácil, el resto va a salir solito. ¿Ves? Te dije que no era para tanto.",
+ "short": {
+  "start": 0.0,
+  "end": 4.26,
+  "text": "Si empezamos por lo más fácil, el resto va a salir solito.",
+  "speed": 0.864
+ }
+}

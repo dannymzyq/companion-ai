@@ -153,6 +153,61 @@ def write_sample(out_dir: Path, name: str, y: np.ndarray, text: str) -> float:
     return secs
 
 
+SHORT_MIN_S, SHORT_MAX_S = 3.5, 5.2      # muestra corta (voz/servidor.py con VOZ_REF_CORTA, el Mac)
+
+
+def short_window(model, wav: Path, ref_text: str) -> dict | None:
+    """El tramo de 3,5 a 5,2 s de una muestra para la voz rápida, cortado en un final de frase (si no hay, en una
+    pausa). `speed` es lo que hay que ajustar la velocidad para que hable al ritmo de la muestra entera: F5 calcula la
+    duración de lo que dice por letras por segundo de la muestra, y en un tramo más rápido hablaba un 15 % más deprisa."""
+    x = decode(wav)
+    words = transcribe_words(model, x)
+    for cuts, top in (("sentence", SHORT_MAX_S), ("pause", SHORT_MAX_S), ("sentence", 6.0), ("pause", 6.0)):
+        best = max(windows(words, SHORT_MIN_S, top, cuts), key=lambda w: w[3], default=None)
+        if best:
+            break
+    else:
+        return None
+    t0, t1, text, _ = best
+    # El texto, del ref_text de la muestra si las palabras cuadran una a una: Whisper escribe «10» donde suena
+    # «diez», y F5 necesita lo que suena tal cual
+    mine = ref_text.split()
+    if len(mine) == len(words):
+        a = next((i for i, w in enumerate(words) if w.start >= t0 - 0.01), 0)
+        text = " ".join(mine[a:a + len(text.split())])
+    full_rate = len(x) / SR / max(1, len(ref_text.encode("utf-8")))
+    short_rate = (t1 - t0) / max(1, len(text.encode("utf-8")))
+    return {"start": round(t0, 2), "end": round(t1, 2), "text": text,
+            "speed": round(float(np.clip(short_rate / full_rate, 0.8, 1.25)), 3)}
+
+
+def add_short(model, base: Path) -> bool:
+    """Añade `short` al .json de la muestra `base` (sin extensión) si no lo tiene. True si lo añadió."""
+    cfg_path = base.with_suffix(".json")
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if "short" in cfg or not cfg.get("ref_text") or not base.with_suffix(".wav").is_file():
+        return False
+    cfg["short"] = short_window(model, base.with_suffix(".wav"), cfg["ref_text"]) or False   # False: no tiene tramo
+    tmp = cfg_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(cfg_path)
+    return bool(cfg["short"])
+
+
+def backfill_short(model) -> int:
+    """Las voces propias creadas antes de la muestra corta: se les añade una vez (unos segundos por voz)."""
+    n = 0
+    for v in custom():
+        try:
+            n += add_short(model, folder() / f"{v['id']}_es")
+        except Exception:  # noqa: BLE001  (una muestra rara no frena el resto)
+            pass
+    return n
+
+
 def light_for(pitch: float) -> dict:
     """La voz ligera más parecida en tono (no es la misma voz: Piper no clona)."""
     if pitch <= 0:
@@ -227,6 +282,10 @@ def create(data: bytes, name: str, speaks: str = "", model=None, taken: set[str]
         while any(v["id"] == vid for v in items):
             vid, n = f"{base}_{n}", n + 1
         secs = write_sample(folder(), f"{vid}_es", y, text)
+        try:
+            add_short(model, folder() / f"{vid}_es")
+        except Exception:  # noqa: BLE001  (sin tramo corto la voz funciona igual, con la muestra entera)
+            pass
         entry = {"id": vid, "name": name, "speaks": speaks if speaks in ("f", "m") else ("m" if 0 < pitch < 160 else "f"),
                  "note": "Tu voz", "light": light_for(pitch), "pitch_hz": round(pitch)}
         _save([*items, entry])

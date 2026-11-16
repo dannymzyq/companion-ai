@@ -49,6 +49,10 @@ def start():
     env["VOICES_CUSTOM_DIR"] = str(settings.data_dir / "voces")     # las voces propias del usuario
     if sys.platform == "darwin":
         env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"     # lo que la GPU de Apple aún no sabe hacer va al procesador
+        # En la GPU del Mac F5 con 32 pasos tarda 15–25 s por frase; con 16, la mitad (M5 Pro, 16 nov 2026)
+        env.setdefault("VOZ_NFE", "16")
+        env.setdefault("VOZ_REF_CORTA", "1")         # muestra de 4–5 s: cada frase tarda la mitad (voz/servidor.py)
+        env.setdefault("VOZ_LARGA", "90")            # las frases de más de 90 letras se parten en las comas
     if _log:
         _log.close()
     path = settings.data_dir / "voz.log"

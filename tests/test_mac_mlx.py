@@ -32,6 +32,13 @@ class TestMacMLX(unittest.TestCase):
             r = profile.resources(gpu, is_cloud=False, local_model=profile.MAC_MODELS[0]["id"], node_ok=True, others=3.0)
             self.assertTrue(r["recommended_model"].endswith("-mlx"), r["recommended_model"])
 
+    def test_en_el_mac_recomienda_la_voz_completa(self):
+        gpu = {"total": int(24 * 1024 * 0.67), "used": 4000}
+        with mock.patch.object(profile, "LOCAL_MODELS", profile.MAC_MODELS), mock.patch.object(profile, "MAC", True):
+            r = profile.resources(gpu, is_cloud=False, local_model=profile.MAC_MODELS[0]["id"], node_ok=True, others=3.0)
+            self.assertEqual(r["recommended_engine"], "completa")       # con float16 y la muestra corta, a tiempo real
+            self.assertTrue(r["recommended_model"].endswith("-mlx"))
+
     def test_guardado_de_pc_pasa_a_mlx(self):
         guardado = {"local_model": "gemma4:e4b-it-qat", "provider": "local"}
         guardados = []

@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import actions, llm, models, profile, state, store, tts, voice_import, voz_proc
+from . import actions, config, llm, models, profile, state, store, tts, voice_import, voz_proc
 from .config import settings
 from .prompt import adult_active, load_persona
 from .session import Session
@@ -60,11 +60,24 @@ def _quiet_resets(loop, context):
         loop.default_exception_handler(context)
 
 
+def _load_ear():
+    transcriber.load()
+    if config.MAC and transcriber.model is not None:
+        # En el Mac la voz completa usa la muestra corta (voz_proc): las voces propias de antes no la tenían
+        try:
+            with transcriber._lock:
+                n = voice_import.backfill_short(transcriber.model)
+            if n:
+                log.info("Muestra corta añadida a %d voces propias", n)
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo preparar la muestra corta de las voces propias")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     loop = asyncio.get_running_loop()
     loop.set_exception_handler(_quiet_resets)
-    loop.run_in_executor(None, transcriber.load)   # el modelo carga sin frenar el arranque
+    loop.run_in_executor(None, _load_ear)          # el modelo carga sin frenar el arranque
     log.info("Companion en http://%s:%s · cerebro: %s", settings.host, settings.port, llm.status())
     # Local: se carga ya. Nube: se saca de la tarjeta el modelo local que hubiera dejado una sesión anterior
     # cerrada de golpe (con 6 GB no deja sitio a la voz completa).

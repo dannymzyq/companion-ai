@@ -78,6 +78,9 @@ VOICE_ENGINES = {
     "nube": {"name": "Voz en la nube", "vram_gb": 0.0,
              "note": "Voces neuronales de Microsoft, muy naturales. Gratis y sin clave, pero necesita internet: lo que dice sale de tu PC. No es la voz clonada."},
 }
+if MAC:
+    VOICE_ENGINES["completa"] = {**VOICE_ENGINES["completa"], "note": (
+        "Voces clonadas, la de más calidad. Usa la GPU del Mac: empieza a hablar unos 3 segundos después que la ligera.")}
 EAR_ENGINES = ("local", "nube")
 EAR_GB = 1.1                              # Whisper large-v3-turbo
 DESKTOP_GB = 2.0                          # Windows, el navegador y la propia ventana (si no se puede medir)
@@ -215,6 +218,8 @@ def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bo
     # Voz recomendada: la completa solo si, además de ella, cabe el cerebro que se va a usar.
     need = 0.0 if is_cloud else model_vram(local_model, installed)
     full_fits = total >= _need_full(others, need)
+    # En el Mac también: con float16 y la muestra corta (voz/servidor.py) va a tiempo real, primer audio ~3 s en una
+    # M5 Pro (16 nov 2026; antes, 33 s de media).
     engine = "completa" if node_ok and full_fits else "ligera"
 
     def best(key: str) -> str:

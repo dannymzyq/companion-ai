@@ -785,6 +785,33 @@ class Session:
         elif msg_id is not None:
             store.delete_message(msg_id)
 
+    def _checks_voice(self, engine: str | None) -> bool:
+        """¿Se escucha la frase con Whisper antes de que suene? Solo con la voz completa y el oído en CUDA: en el
+        procesador o en la GPU del Mac, escucharla otra vez tarda casi lo que la frase."""
+        return ((engine or settings.voice_engine) == "completa" and self.stt.ready
+                and getattr(self.stt, "device", None) == "cuda")
+
+    async def _say(self, text: str, voice: str, speed: float, engine: str | None = None):
+        """El audio de la frase en trozos. Sin comprobación, cada trozo sale según lo manda la voz: voz/servidor.py
+        va cláusula a cláusula, y esperar a la frase entera retrasaba el primer audio unos 6 s en el Mac (16 nov
+        2026). Con comprobación, la frase entera ya comprobada."""
+        if not self._checks_voice(engine):
+            async for chunk in tts.stream_speech(text, voice, speed, engine):
+                yield chunk
+            return
+        yield await self._say_checked(text, voice, speed, engine)
+
+    async def _send_audio(self, pcm: bytes, t0: float) -> bool:
+        for k in range(0, len(pcm), 9600):
+            chunk = pcm[k:k + 9600]
+            if not self.client_playing:
+                self.client_playing, self.play_started, self.audio_bytes = True, time.monotonic(), 0
+                log.info("Primer audio a los %.2fs", time.perf_counter() - t0)
+                await self.set_state("speaking")
+            self.audio_bytes += len(chunk)
+            await self.send_bytes(chunk)
+        return bool(pcm)
+
     async def _say_checked(self, text: str, voice: str, speed: float, engine: str | None = None) -> bytes:
         """La frase en audio, comprobada: con la voz completa se escucha con Whisper y, si se comió una palabra, se
         genera otra vez (hasta VOICE_RETRIES) y se queda la mejor. La voz ligera (Piper) no lo necesita."""
@@ -841,27 +868,23 @@ class Session:
                 self.phase = "audio"
                 log.info("Primera frase a los %.2fs", time.perf_counter() - t0)
             if tts_ok:
+                sent = False
                 try:
                     try:
-                        pcm = await self._say_checked(sentence.text, voice, speed, engine)
+                        async for pcm in self._say(sentence.text, voice, speed, engine):
+                            sent = await self._send_audio(pcm, t0) or sent
                     except tts.TTSError as e:
                         # La voz completa no responde (sin memoria de vídeo, o se cayó): con el cambio automático
-                        # encendido, esta respuesta sigue con la ligera en vez de quedarse en texto.
-                        if engine or settings.voice_engine != "completa" or not self._light_fallback():
+                        # encendido, esta respuesta sigue con la ligera en vez de quedarse en texto. Si ya sonó
+                        # parte de la frase, no se repite con la otra voz.
+                        if sent or engine or settings.voice_engine != "completa" or not self._light_fallback():
                             raise
                         log.warning("Voz completa sin respuesta (%s): sigo con la ligera", e)
                         engine = "ligera"
                         await self.send_json({"type": "notice", "message": "La voz completa no responde ahora: "
                                               "sigo con la voz ligera en esta respuesta."})
-                        pcm = await self._say_checked(sentence.text, voice, speed, engine)
-                    for k in range(0, len(pcm), 9600):
-                        chunk = pcm[k:k + 9600]
-                        if not self.client_playing:
-                            self.client_playing, self.play_started, self.audio_bytes = True, time.monotonic(), 0
-                            log.info("Primer audio a los %.2fs", time.perf_counter() - t0)
-                            await self.set_state("speaking")
-                        self.audio_bytes += len(chunk)
-                        await self.send_bytes(chunk)
+                        async for pcm in self._say(sentence.text, voice, speed, engine):
+                            await self._send_audio(pcm, t0)
                 except tts.TTSError as e:
                     tts_ok = False
                     log.warning("Sin voz: %s", e)

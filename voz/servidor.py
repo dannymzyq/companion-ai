@@ -15,6 +15,7 @@ import os
 import shutil
 import sys
 import re
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,6 +40,16 @@ PAUSA_S = 0.12
 # ~9 % de las palabras; con 32 pasos y un ritmo de 0,9, ~4 %. Cuesta ~0,6 s más por frase.
 NFE = int(os.getenv("VOZ_NFE", "32"))
 RITMO = float(os.getenv("VOZ_RITMO", "0.9"))
+# Muestra corta (VOZ_REF_CORTA=1, el companion lo pone en el Mac): con la de 8 s, F5 en la GPU del Mac tardaba
+# 6–10 s por frase; con 4–5 s, la mitad (16 nov 2026). En la PC no gana nada (1,15 s por frase con las dos: en CUDA
+# el coste es fijo), así que allí va la entera. (Dar más duración a las frases largas no evita que alguna vez se
+# coma el final: lo empeoraba, medido con 10 tiradas por frase.)
+CORTA_REF = os.getenv("VOZ_REF_CORTA") == "1"
+# Frases largas: se parten a partir de LARGA letras, en las comas y, si no hay, antes de una conjunción (el primer
+# trozo suena antes, y un trozo corto se genera antes de que acabe de sonar el anterior). En el Mac, donde cada
+# frase tarda más, voz_proc lo baja a 90.
+LARGA = int(os.getenv("VOZ_LARGA", "150"))
+_CONJ = re.compile(r"\s(?=(?:y|e|o|u|pero|porque|que|cuando|aunque|mientras|para|si)\s)", re.IGNORECASE)
 CORTA, MIN_S = 25, 1.7                     # una frase de menos letras recibe al menos MIN_S segundos para decirse
 _ref_s: dict[str, float] = {}
 estado = {"tts": None, "error": "", "voz": None, "dispositivo": ""}
@@ -78,6 +89,27 @@ def _voz(nombre: str) -> tuple[Path, dict]:
     raise HTTPException(404, f"No hay muestra para la voz «{nombre}»")
 
 
+def _muestra_corta(wav: Path, corta: dict) -> tuple[Path, str, float]:
+    """El tramo corto de la muestra (`short` en su .json, de scripts/recortar_muestras.py): F5 genera la muestra junto
+    con cada frase, así que con 4–5 s en vez de 8 cada frase tarda la mitad. Se recorta una vez y se guarda en la
+    carpeta temporal. Devuelve (wav, su texto, ajuste de velocidad para que hable al mismo ritmo que con la entera)."""
+    import soundfile as sf
+    t0, t1 = float(corta["start"]), float(corta["end"])
+    destino = Path(tempfile.gettempdir()) / "companion_voz" / f"{wav.stem}_{wav.stat().st_mtime_ns}_{t0:.2f}_{t1:.2f}.wav"
+    if not destino.is_file():
+        x, sr = sf.read(str(wav), dtype="float32", always_2d=False)
+        y = x[int(t0 * sr):int(t1 * sr)].copy()
+        n = min(len(y), int(sr * 0.03))
+        if n:
+            y[:n] *= np.linspace(0.0, 1.0, n, dtype=np.float32)
+            y[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        tmp = destino.with_suffix(".tmp.wav")
+        sf.write(str(tmp), y, sr)
+        tmp.replace(destino)
+    return destino, str(corta["text"]), min(1.25, max(0.8, float(corta.get("speed", 1.0))))
+
+
 def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:
     """Una cláusula → audio float32 a 24 kHz, sin el silencio de los extremos."""
     import librosa
@@ -85,15 +117,19 @@ def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:
     import soundfile as sf
     wav, cfg = _voz(nombre)
     velocidad *= RITMO
+    ref_text = cfg["ref_text"]
+    if CORTA_REF and isinstance(cfg.get("short"), dict):
+        wav, ref_text, ajuste = _muestra_corta(wav, cfg["short"])
+        velocidad *= ajuste
     fijo = None
     if len(texto) < CORTA:
         # F5 calcula la duración por la longitud del texto: a una frase corta le da tan poco tiempo que se la come
         # («¡Hola, Danny!» → «Dani»). Se le da un mínimo.
         ref = _ref_s.setdefault(f"{wav}:{wav.stat().st_mtime_ns}", sf.info(str(wav)).duration)
-        est = ref / max(1, len(cfg["ref_text"].encode("utf-8"))) * len(texto.encode("utf-8")) / velocidad
+        est = ref / max(1, len(ref_text.encode("utf-8"))) * len(texto.encode("utf-8")) / velocidad
         if est < MIN_S:
             fijo = ref + MIN_S
-    audio, sr, _ = estado["tts"].infer(ref_file=str(wav), ref_text=cfg["ref_text"], gen_text=texto,
+    audio, sr, _ = estado["tts"].infer(ref_file=str(wav), ref_text=ref_text, gen_text=texto,
                                        nfe_step=max(NFE, int(cfg.get("stream_nfe_step", 16))), speed=velocidad,
                                        fix_duration=fijo, show_info=lambda *a, **k: None, progress=_SinBarra,
                                        remove_silence=False)
@@ -114,16 +150,28 @@ def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:
     return audio
 
 
+def _por_conjuncion(t: str) -> list[str]:
+    """Un trozo que sigue siendo largo (sin comas) se corta antes de la conjunción más cercana a la mitad, si deja
+    al menos 25 letras a cada lado; si no hay, se queda entero (cortar en cualquier palabra rompe la entonación)."""
+    if len(t) <= LARGA:
+        return [t]
+    cortes = [m.start() for m in _CONJ.finditer(t) if 25 <= m.start() <= len(t) - 25]
+    if not cortes:
+        return [t]
+    k = min(cortes, key=lambda c: abs(c - len(t) / 2))
+    return _por_conjuncion(t[:k].strip()) + _por_conjuncion(t[k:].strip())
+
+
 def partir(texto: str) -> list[str]:
     """Frases; las largas se parten en las comas y las muy cortas («Hola,») se unen a la siguiente, porque
     F5 dice mal los trozos de una o dos palabras."""
     frases = [f.strip() for f in re.split(r"(?<=[.!?…])\s+|\n+", texto.strip()) if f.strip()]
     trozos: list[str] = []
     for f in frases:
-        if len(f) > 150:
+        if len(f) > LARGA:
             actual = ""
             for parte in re.split(r"(?<=[,;:])\s+", f):
-                if actual and len(actual) + len(parte) > 110:
+                if actual and len(actual) + len(parte) > int(LARGA * 0.73):      # 110 con el umbral de 150
                     trozos.append(actual)
                     actual = parte
                 else:
@@ -132,6 +180,7 @@ def partir(texto: str) -> list[str]:
                 trozos.append(actual)
         else:
             trozos.append(f)
+    trozos = [p for t in trozos for p in _por_conjuncion(t)]
     unidos: list[str] = []
     for t in trozos:
         if unidos and len(unidos[-1]) < 22:
@@ -162,6 +211,10 @@ def cargar():
             estado["tts"] = F5TTS(model="F5TTS_Base", ckpt_file=str(ckpt), vocab_file=str(MODELO / "vocab.txt"),
                                   vocoder_local_path=str(VOCOS) if (VOCOS / "config.yaml").is_file() else None,
                                   device=disp)
+            if disp == "mps" and os.getenv("VOZ_F16", "1") == "1":
+                # F5 solo usa float16 en CUDA; en la GPU del Mac cargaba en float32. Con float16, 1,4–1,7 veces más
+                # rápido y sin perder palabras (M5 Pro, 16 nov 2026). El vocoder sigue en float32 (F5 le pasa la mel así).
+                estado["tts"].ema_model.half()
             estado["dispositivo"] = disp
             t = time.perf_counter()
             _decir("Hola, ¿qué tal estás hoy?", POR_DEFECTO, 1.0)      # calentamiento: la primera frase tarda más

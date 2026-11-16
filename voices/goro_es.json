@@ -3,5 +3,11 @@
  "ref_seconds": 8.2,
  "nfe_step": 32,
  "stream_nfe_step": 16,
- "ref_text": "¿Qué fue lo primero que hiciste? Uy, perdona, me emocioné demasiado. Respiro hondo y te escucho."
+ "ref_text": "¿Qué fue lo primero que hiciste? Uy, perdona, me emocioné demasiado. Respiro hondo y te escucho.",
+ "short": {
+  "start": 3.65,
+  "end": 8.24,
+  "text": "me emocioné demasiado. Respiro hondo y te escucho.",
+  "speed": 1.096
+ }
 }

@@ -4,6 +4,16 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.6.2 — 2026-11-16
+
+- **Mac: respuestas mucho más rápidas.** Con la voz completa, el companion empieza a hablar a los 3–4 s de que
+  termines (antes, unos 33 s de media en una MacBook M5 Pro). El oído usa la GPU del Mac (0,3–0,7 s; si no puede,
+  el procesador con más núcleos); la voz completa va en float16, con 16 pasos y un tramo de 4–5 s de la muestra de
+  cada voz, y suena según se genera, sin esperar a la frase entera. Las frases largas se parten en las comas o antes
+  de una conjunción, para que no queden huecos entre frases. En el Mac se vuelve a recomendar la voz completa.
+- Las voces propias guardan también su tramo corto (las de antes se preparan solas al arrancar en el Mac).
+- En la PC no cambia nada de la voz: allí ya tarda ~1,2 s por frase.
+
 ## 0.6.1 — 2026-11-16
 
 - **Mac: modelos MLX.** En un Mac con Apple Silicon el cerebro local usa los Gemma 4 en versión MLX de Ollama

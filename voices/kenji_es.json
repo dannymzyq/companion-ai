@@ -3,5 +3,11 @@
  "ref_seconds": 11.3,
  "nfe_step": 32,
  "stream_nfe_step": 16,
- "ref_text": "Hola, ¿cómo estás? Hoy quiero contarte algo curioso. Ayer, mientras llovía muchísimo, un pequeño zorro gris cruzó el jardín y se quedó mirando fijamente la ventana. ¡Qué sorpresa tan agradable!"
+ "ref_text": "Hola, ¿cómo estás? Hoy quiero contarte algo curioso. Ayer, mientras llovía muchísimo, un pequeño zorro gris cruzó el jardín y se quedó mirando fijamente la ventana. ¡Qué sorpresa tan agradable!",
+ "short": {
+  "start": 1.19,
+  "end": 5.58,
+  "text": "Hoy quiero contarte algo curioso. Ayer, mientras llovía muchísimo,",
+  "speed": 1.169
+ }
 }

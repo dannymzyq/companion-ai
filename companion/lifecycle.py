@@ -51,7 +51,7 @@ async def loading(transcriber) -> dict:
     else:
         items.append({"id": "oido", "label": f"El oído (Whisper {transcriber.model_name})",
                       "state": "listo" if transcriber.ready else "cargando",
-                      "detail": {"cuda": "en la tarjeta gráfica", "cpu": "en el procesador"}.get(transcriber.device or "", "")})
+                      "detail": {"cuda": "en la tarjeta gráfica", "mps": "en la GPU del Mac", "cpu": "en el procesador"}.get(transcriber.device or "", "")})
     engine = settings.voice_engine
     if engine == "completa":
         h = await asyncio.to_thread(voz_proc._health)

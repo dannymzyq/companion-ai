@@ -11,7 +11,8 @@ from companion.config import settings
 
 # Estas pruebas son del catálogo de PC (tarjeta NVIDIA). En un Mac con Apple Silicon el catálogo es el de MLX
 # (tests/test_mac_mlx.py): aquí se fija el de PC para que pasen igual en las dos máquinas.
-_parches = [mock.patch.object(config, "MAC", False), mock.patch.object(profile, "LOCAL_MODELS", profile.PC_MODELS),
+_parches = [mock.patch.object(config, "MAC", False), mock.patch.object(profile, "MAC", False),
+            mock.patch.object(profile, "LOCAL_MODELS", profile.PC_MODELS),
             mock.patch.object(profile, "TOP_RECOMMENDED", next(m["id"] for m in profile.PC_MODELS if m.get("recommend", True)))]
 
 

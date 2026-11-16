@@ -47,7 +47,9 @@ Gemma 4 en versión **MLX** (el motor de Apple), el doble de rápidos allí que 
 
 Si ya tenías elegido un Gemma 4 de PC, el companion pasa solo a su versión MLX. En el Mac funcionan:
 - la conversación por voz, el avatar y el modo flotante;
-- las dos voces: la completa usa la GPU del Mac y el oído, el procesador;
+- el oído, en la GPU del Mac (0,7 s por cada 4 s de habla);
+- las tres voces. La completa usa la GPU del Mac (en float16 y con un tramo de 4–5 s de la muestra): empieza a
+  hablar a los ~3 s de que termines (en una M5 Pro). La ligera, a los ~1,5 s; la de la nube necesita internet;
 - compartir pantalla y cámara;
 - acciones: abrir apps, webs y carpetas, buscar archivos, temporizadores y volumen.
 
