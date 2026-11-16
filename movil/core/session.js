@@ -287,6 +287,7 @@ export class Session {
   async _maybeSummarize() {
     if (this.turn || this.summarizing || this.clientPlaying) return;
     if (Date.now() - this.lastTalk < SUMMARY_QUIET || Date.now() < this.summaryRetry || !llm.status().ready) return;
+    if (llm.simulated()) return;              // el cerebro de prueba del simulador no sabe resumir
     const rows = store.unsummarized(this.anchor);
     if (rows.length < SUMMARY_MIN) return;
     this.summarizing = true;

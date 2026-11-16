@@ -9,7 +9,7 @@
   window.CAN = { ACTIONS: false, SCREEN: false, FLOAT: false, CLONE: false, CUSTOM_MODELS: false, CAMERA: false };
   const hide = ['#screen', '#preview-screen', '#screen-sound', '#float-btn', '#dock', '#quit', '#camera', '#preview-camera',
     'details[data-group="compartir"]', 'details[data-group="acciones"]', '#model-upload', '#model-file', '#ob-upload',
-    '#ob-voice-add', '#ob-voice-form', '#ob-go-local', '#cam-picker', '#cloud-only-note', '#drop'];
+    '#ob-voice-add', '#ob-voice-form', '#cam-picker', '#cloud-only-note', '#drop'];
   const css = `${hide.join(',')}{display:none!important}
     #cloud-only{pointer-events:none}
     body{-webkit-user-select:none;-webkit-touch-callout:none}
@@ -33,6 +33,10 @@
   addEventListener('unhandledrejection', (e) => nativeLog('error', ['Promesa rechazada:', e.reason]));
 
   const realFetch = window.fetch.bind(window);
+  // La capa de interfaz del teléfono (textos, márgenes, modo teléfono y descargas).
+  const ui = import(new URL('/core/ui_movil.js', location.href).href);
+  const start = () => ui.then((m) => m.init()).catch((err) => console.error('La capa del teléfono no arrancó', err));
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
   const core = import(new URL('/core/index.js', location.href).href).then((m) => m.start(realFetch));
   core.catch((err) => console.error('El núcleo no arrancó', err));
 

@@ -26,6 +26,12 @@ App de iOS (Android después) con dos modos: **todo en la nube** o **todo dentro
   - `bundle_web.sh`: fase de compilación.
   - `piper_sherpa.py`: convierte una voz Piper al formato de sherpa-onnx, solo para pruebas.
 
+## Pruebas
+`node movil/core/pruebas.mjs` comprueba sin teléfono:
+- que el bloque +18 nunca va con la nube ni con menores;
+- que en el modo teléfono un fallo del cerebro no sale a la red;
+- que en el modo nube sin cuota no se usa un cerebro local.
+
 ## Compilar
 ```
 movil/scripts/vendor.sh                  # una vez (o con la carpeta web/vendor de una instalación)
@@ -52,9 +58,11 @@ Probado en el simulador: se canceló a 152 de 646 MB, se reanudó y los 22 archi
 | Cerebro | Gemma 4 E2B (`mlx-community/gemma-4-e2b-it-4bit`) | 3,6 GB | 120–125 tokens/s |
 | Cerebro | Gemma 4 E4B (`mlx-community/gemma-4-e4b-it-4bit`) | 5,2 GB | 72 tokens/s |
 | Voz ligera | Piper `es_MX-claude-high` (sherpa-onnx, `csukuangfj/vits-piper-*`) | 81 MB | 0,14 s por 4,8 s de audio |
-| Detector | Silero VAD de sherpa-onnx | ~2 MB | sin probar: el `silero_vad_v6.onnx` de faster-whisper no lo admite sherpa |
+| Detector | Silero VAD de sherpa-onnx (`asr-models/silero_vad.onnx`) | 0,6 MB | 143 tramas en 0,01 s; en la app, 3 ms por trama con el puente. El `silero_vad_v6.onnx` de faster-whisper no lo admite sherpa |
 
-Por defecto se usan el oído turbo y el cerebro E2B solo texto. Con un Apple ID gratuito no se puede pedir el
+Por defecto se usan el oído turbo y el cerebro E2B solo texto. En Ajustes › Cerebro › Modelos del teléfono se
+puede elegir el E2B completo (3,6 GB; entiende imágenes, pero la app aún no usa la cámara) o el E4B (con aviso de
+memoria). Silero manda en los dos modos si está bajado; si falla, el detector por energía. Con un Apple ID gratuito no se puede pedir el
 permiso de más memoria (`increased-memory-limit` se activa en el portal de desarrolladores, que no está disponible
 para cuentas gratuitas), así que el cerebro tiene que caber en el límite normal de una app en un iPhone de 8 GB.
 E4B (5,2 GB) casi seguro no cabe.
@@ -65,6 +73,36 @@ Medido en el simulador:
 - oído small: 7 s, con 4,3 s de primera carga;
 - voz: 0,03–0,54 s por frase;
 - primer audio a los 8,2 s del fin del habla.
+
+## Instalarla en tu iPhone (Apple ID gratuito, sin TestFlight)
+Hace falta:
+- un Mac con Xcode 27 (y el Metal Toolchain);
+- un iPhone 15 Pro o más nuevo con iOS 17 o superior;
+- su cable;
+- tu Apple ID.
+
+1. En el Mac, dentro del repo, en la rama `ios`:
+   ```
+   movil/scripts/vendor.sh
+   cd movil/ios && xcodegen && open Companion.xcodeproj
+   ```
+2. Xcode › Settings › Accounts › «+» › Apple ID: inicia sesión con tu cuenta. Esto lo haces tú.
+3. En el proyecto: objetivo **Companion** › Signing & Capabilities.
+   - **Team**: «(tu nombre) (Personal Team)».
+   - Si Xcode dice que el identificador ya está en uso, cambia **Bundle Identifier** por uno tuyo, por ejemplo `com.tunombre.companion`.
+4. En el iPhone: conéctalo con el cable y pulsa «Confiar» en este ordenador.
+5. Ajustes › Privacidad y seguridad › **Modo de desarrollador** › activar. El iPhone se reinicia; al volver, confirma.
+6. En Xcode, Product › Scheme › Edit Scheme › Run › Build Configuration: **Release**. En Debug, MLX va muchas veces más lento.
+7. Elige tu iPhone arriba (junto a «Companion») y pulsa ▶. La primera compilación tarda varios minutos.
+8. La primera vez, iOS no la abrirá: Ajustes › General › VPN y gestión de dispositivos › tu Apple ID › **Confiar**. Vuelve a pulsar ▶.
+9. En la app:
+   - la bienvenida;
+   - la clave de Gemini para el modo nube;
+   - o «Prefiero todo dentro del teléfono» y **Descargar**, con wifi: unos 3,4 GB con el oído turbo y el cerebro E2B.
+
+Con un Apple ID gratuito:
+- la app deja de abrirse a los **7 días**: conecta el iPhone y pulsa ▶ otra vez (no se pierden los datos ni los modelos);
+- caben **3 apps** a la vez instaladas así.
 
 ## Probar en el iPhone (lo que el simulador no puede)
 1. Instalar desde Xcode (fase 5) y elegir el modo teléfono.

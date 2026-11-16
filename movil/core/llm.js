@@ -35,6 +35,7 @@ const notices = [];
 let hasKey = false;
 const local = { simulado: false, listo: false };     // modo teléfono: cerebro simulado (simulador) y si está bajado
 export const setLocal = (x) => Object.assign(local, x);
+export const simulated = () => !isCloud() && local.simulado;
 
 export async function init(keyPresent) {
   hasKey = keyPresent;

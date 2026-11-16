@@ -34,7 +34,8 @@ final class Descargas {
         guard let dir = try? carpeta(id) else { return 0 }
         return archivos.reduce(0) { suma, a in
             let attrs = try? FileManager.default.attributesOfItem(atPath: dir.appendingPathComponent(a.ruta).path)
-            return suma + min(a.tamano, (attrs?[.size] as? Int64) ?? 0)
+            let tiene = (attrs?[.size] as? Int64) ?? 0
+            return suma + (a.tamano > 0 ? min(a.tamano, tiene) : tiene)
         }
     }
 

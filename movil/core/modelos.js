@@ -18,10 +18,12 @@ export const CATALOGO = {
   cerebro: [
     { id: 'gemma4-e2b', nombre: 'Gemma 4 E2B (solo texto)', repo: 'mlx-community/Gemma4-E2B-IT-Text-int4',
       nota: 'El que cabe con holgura en un iPhone de 8 GB. Recomendado.' },
+    { id: 'gemma4-e2b-full', nombre: 'Gemma 4 E2B (completo)', repo: 'mlx-community/gemma-4-e2b-it-4bit',
+      nota: 'Igual de rápido y también entiende imágenes (la app todavía no usa la cámara). Pide más memoria.' },
     { id: 'gemma4-e4b', nombre: 'Gemma 4 E4B', repo: 'mlx-community/gemma-4-e4b-it-4bit',
-      nota: 'Más listo, pero pide más memoria de la que una app suele tener en un iPhone de 8 GB.' },
+      nota: 'Más listo, pero puede no caber en la memoria de un iPhone de 8 GB: si la app se cierra al empezar, vuelve al E2B.' },
   ],
-  silero: [{ id: 'silero-vad', nombre: 'Detector de voz (Silero)', archivos: [{ url: SILERO_URL, path: 'silero_vad.onnx', size: 0 }] }],
+  silero: [{ id: 'silero-vad', nombre: 'Detector de voz (Silero)', archivos: [{ url: SILERO_URL, path: 'silero_vad.onnx', size: 643854 }] }],
 };
 // La voz ligera de cada voz de voices.json («light.model») en formato de sherpa-onnx.
 export const vozLigera = (modelo) => ({ id: `piper-${modelo}`, nombre: `Voz ligera ${modelo}`, repo: `csukuangfj/vits-piper-${modelo}`,

@@ -10,7 +10,7 @@ fi
 rm -rf "$DEST"; mkdir -p "$DEST/models" "$DEST/data" "$DEST/voices"
 rsync -a --exclude vendor "$REPO/web/" "$DEST/"
 rsync -a "$REPO/movil/vendor/" "$DEST/vendor/"
-rsync -a --exclude '*.test.js' "$REPO/movil/core/" "$DEST/core/"
+rsync -a --exclude '*.test.js' --exclude 'pruebas.mjs' "$REPO/movil/core/" "$DEST/core/"
 cp "$REPO/models/avatar1.vrm" "$REPO/models/avatar2.vrm" "$DEST/models/"
 rsync -a "$REPO/voices/previews/" "$DEST/voices/previews/"
 cp "$REPO/personas/mika.json" "$DEST/data/persona.json"
