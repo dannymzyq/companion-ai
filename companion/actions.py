@@ -42,8 +42,9 @@ CATALOG = {
     "temporizador": {"title": "Poner un temporizador", "report": False},
     "multimedia": {"title": "Controlar la música o el vídeo", "report": False},
     "volumen": {"title": "Cambiar el volumen", "report": False},
-    # Ratón y teclado sobre una ventana (companion/control.py). Nunca «permitir siempre»: se aprueba cada tarea.
-    "controlar": {"title": "Usar una aplicación por ti", "report": True, "no_always": True},
+    # Ratón y teclado sobre una ventana (companion/control.py). Desde el 16 nov 2026 también admite «permitir
+    # siempre» (petición del usuario); los pasos delicados que la orden no pedía se siguen confirmando.
+    "controlar": {"title": "Usar una aplicación por ti", "report": True},
 }
 
 
@@ -78,7 +79,11 @@ def config() -> dict:
     c = state.load().get("actions") or {}
     # «ask»: pedir permiso en una tarjeta antes de cada acción. Apagado por defecto desde el 13 nov 2026: la orden
     # del usuario ya es la autorización (lo pidió él). Se puede volver a encender en Ajustes.
-    return {"enabled": c.get("enabled", True) is not False, "ask": bool(c.get("ask", False)),
+    # «full» (acceso total, 16 nov 2026, petición del usuario): ninguna acción del catálogo pide tarjeta, tampoco las
+    # que elige el modelo con la pantalla o la cámara compartidas. Siguen: el catálogo cerrado, que solo cuenten las
+    # de turnos con mensaje suyo y la confirmación de pasos delicados que la orden no pedía (control.task_allows).
+    return {"enabled": c.get("enabled", True) is not False, "ask": bool(c.get("ask", False)) and not c.get("full"),
+            "full": bool(c.get("full", False)),
             "always": [a for a in c.get("always") or [] if a in CATALOG and not CATALOG[a].get("no_always")]}
 
 
@@ -87,8 +92,10 @@ def always() -> list[str]:
 
 
 def save(enabled: bool | None = None, add_always: str | None = None, forget_always: str | None = None,
-         ask: bool | None = None) -> dict:
+         ask: bool | None = None, full: bool | None = None) -> dict:
     c = config()
+    if full is not None:
+        c["full"] = bool(full)
     if enabled is not None:
         c["enabled"] = bool(enabled)
     if ask is not None:

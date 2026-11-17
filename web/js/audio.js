@@ -3,6 +3,8 @@
 
 const VOICE_RATE = 24000;
 const JITTER = 0.2;            // el contrato de voz recomienda acumular ~200 ms antes de empezar
+// Bandas de formantes para la boca (lipsync.js, las de wawa-lipsync).
+const LIP_BANDS = [[50, 200], [200, 400], [400, 800], [800, 1500], [1500, 2500], [2500, 4000], [4000, 8000]];
 
 // Salida de audio y volumen elegidos en Ajustes › Voz y sonido (los usa también la muestra ▶ de las voces).
 export const OUTPUT_KEY = 'companion.output', VOLUME_KEY = 'companion.volume';
@@ -316,7 +318,7 @@ export class AudioIO {
 
   // Volumen y reparto por bandas de la voz que suena: mueve la boca del avatar.
   analyse() {
-    if (!this.analyser) return { vol: 0, low: 0, mid: 0, high: 0 };
+    if (!this.analyser) return { vol: 0, low: 0, mid: 0, high: 0, bands: null, centroid: 0 };
     this.analyser.getFloatTimeDomainData(this.wave);
     let sum = 0;
     for (let i = 0; i < this.wave.length; i++) sum += this.wave[i] * this.wave[i];
@@ -329,6 +331,10 @@ export class AudioIO {
       for (let i = i0; i <= i1; i++) s += this.freq[i];
       return s / ((i1 - i0 + 1) * 255);
     };
-    return { vol, low: band(150, 700), mid: band(700, 2000), high: band(2000, 5000) };
+    // Para la boca (lipsync.js, adaptado de wawa-lipsync): 7 bandas de formantes y el centroide del espectro.
+    const bands = LIP_BANDS.map(([a, b]) => band(a, b));
+    let w = 0, c = 0;
+    for (let i = 0; i < this.freq.length; i++) { const v = this.freq[i] / 255; w += v; c += i * hz * v; }
+    return { vol, low: band(150, 700), mid: band(700, 2000), high: band(2000, 5000), bands, centroid: w > 0 ? c / w : 0 };
   }
 }

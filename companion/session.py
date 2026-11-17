@@ -22,10 +22,10 @@ from collections import deque
 
 import numpy as np
 
-from . import actions, llm, profile, screen_audio, store, tts, voicecheck
+from . import actions, llm, mood, personality, play, profile, screen_audio, store, tts, voicecheck
 from .config import settings, shown
-from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
-                     local_time, sampling_for, turn_context)
+from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, POKE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
+                     local_time, poke_text, sampling_for, turn_context)
 from .tags import Sentence, TagStream
 from .vad import FRAME, FRAME_MS, StreamingVAD
 
@@ -46,6 +46,7 @@ WATCH_QUIET = 5.0                         # silencio mínimo tras lo último que
 WATCH_WINDOW = 9.0                        # solo cuentan imágenes de los últimos segundos
 WATCH_MOTION = 0.018                      # cambio mínimo entre imágenes (0..1) para que valga la pena mirar
 SUMMARY_MIN, SUMMARY_QUIET = 8, 12.0      # se resume cuando hay al menos 8 mensajes viejos y 12 s de calma
+POKE_GAP, POKE_GAP_CLOUD = 25.0, 60.0    # entre comentarios de toques o miradas (con la nube, cuota)
 SYSTEM_SUMMARIES = 8                      # resúmenes más recientes que van siempre en el prompt de sistema
 _SILENCE_TAG =re.compile(r"\[\s*silencio", re.I)
 _SILENCE_ONLY = re.compile(r"(\[[^\]]*\]|\W)*silencio(\[[^\]]*\]|\W)*", re.I)
@@ -133,6 +134,7 @@ class Session:
         self.motion: dict[str, float] = {}                 # origen → mayor cambio visto desde la última mirada
         self.comments: deque = deque(maxlen=3)             # lo último que comentó por su cuenta (para no repetirse)
         self.last_talk = time.monotonic()                  # última vez que alguien habló
+        self.last_poke = -1e9                               # último comentario de un toque o una mirada
         self.last_comment = 0.0
         self.summary_retry = 0.0
 
@@ -185,6 +187,8 @@ class Session:
         elif kind == "start":
             if not self.busy:
                 self.turn = asyncio.create_task(self._guard(self._run_turn(None, instruction=GREETING)))
+        elif kind in ("touch", "look"):
+            await self._poke(kind, str(data.get("zone") or data.get("kind") or ""), int(data.get("level") or 0))
         elif kind == "interrupt":
             await self.interrupt()
             await self.set_state("idle")
@@ -422,6 +426,8 @@ class Session:
                   if now - at <= FRAME_MAX_AGE] if text is not None else []
         heard = self._heard() if text is not None else ""
         guessed = await actions.guess_async(text) if text is not None else None
+        # «¿Puedes bailar?», «salta», «duérmete»: si el modelo no pone el gesto, lo pone la sesión (play.py).
+        self.asked_gesture = play.guess(text) if text is not None else None
         if guessed and guessed[0] == "controlar":
             # La tarea va con tus palabras tal cual (con acentos y entera): el reconocedor la simplifica.
             guessed = ("controlar", [guessed[1][0], text.strip()[:200]])
@@ -514,7 +520,9 @@ class Session:
             if req.name == "controlar" and self.controlling:
                 failed.append((name, "ya estoy usando otra ventana; espera a que termine o dile «para»"))
                 continue
-            if not actions.config()["ask"] and req.name in (trusted or set()):
+            if actions.config()["full"]:
+                await self._execute(req, "acceso total")
+            elif not actions.config()["ask"] and req.name in (trusted or set()):
                 await self._execute(req, "por tu orden")
             elif req.name in actions.always():
                 await self._execute(req, "siempre")
@@ -553,7 +561,7 @@ class Session:
             return
         actions.record(req, decision, result)
         self.outcomes.append(f"se hizo «{req.detail}»")
-        await self.send_json({"type": "action_done", "id": req.id, "ok": True, "text": result})
+        await self.send_json({"type": "action_done", "id": req.id, "ok": True, "text": result, "action": req.name})
         if req.name == "temporizador":
             _start_timer(req)
         if actions.CATALOG[req.name]["report"]:
@@ -623,8 +631,9 @@ class Session:
 
     @property
     def persona(self) -> dict:
-        """La ficha con el nombre de la voz elegida: si se cambia de voz en Ajustes, cambia en el siguiente turno."""
-        return profile.character(self.base_persona)
+        """La ficha con el nombre de la voz elegida y la personalidad elegida: si se cambian en Ajustes, cambian en
+        el siguiente turno."""
+        return personality.apply(profile.character(self.base_persona))
 
     def _system(self) -> str:
         adult = adult_active(self.persona, is_cloud=settings.is_cloud, user_adult=profile.is_adult())
@@ -632,6 +641,20 @@ class Session:
         return build_system_prompt(self.persona, user_name=settings.user_name, memories=store.memories(), adult=adult,
                                    about=profile.describe(settings.user_name), summaries=past, actions=self.actions_on(),
                                    control=llm.can_control())
+
+    # ------------------------------------------------------------ toques y miradas
+    async def _poke(self, kind: str, zone: str, level: int):
+        """La tocan o la miran de cerca con la cámara: a veces lo comenta en una frase (con su personalidad). Como
+        mucho una cada POKE_GAP (con la nube, más espaciadas: cada una es una petición), y solo si nadie habla."""
+        what = poke_text(kind, zone, level)
+        now = time.monotonic()
+        gap = POKE_GAP_CLOUD if settings.is_cloud else POKE_GAP
+        if (not what or self.busy or self.in_speech or self.controlling or now - self.last_poke < gap
+                or now - self.last_talk < 3):
+            return
+        self.last_poke = now
+        instruction = POKE.format(user=settings.user_name, what=what)
+        self.turn = asyncio.create_task(self._guard(self._run_turn(None, instruction=instruction)))
 
     # ------------------------------------------------------------ memoria a largo plazo
     async def _summarize(self):
@@ -700,7 +723,11 @@ class Session:
             if heard:                                       # lo que se oye en lo que comparte (vídeo, juego, llamada)
                 done += screen_audio.note(heard, settings.user_name)
                 self.ear.new_text = False
-            last["content"] = f"{turn_context(local_time(settings.timezone))}{done}\n{last['content']}"
+            # Tras unos días sin hablar, que lo note (al saludar, el último guardado; si no, el anterior a este mensaje).
+            gap = (mood.since_last_talk(store.previous_ts(0 if instruction == GREETING else 1))
+                   if not instruction or instruction == GREETING else "")
+            ctx = turn_context(local_time(settings.timezone), mood.describe(self.persona["personality"]), gap)
+            last["content"] = f"{ctx}{done}\n{last['content']}"
         return messages
 
     # ------------------------------------------------------------ mirada en vivo
@@ -843,6 +870,8 @@ class Session:
         voice = settings.tts_voice or self.persona["voice"].get("tts_voice")      # la elegida en la bienvenida
         speed = float(self.persona["voice"].get("speed", 1.0))
         tts_ok, idx, finish = True, 0, False
+        # El gesto que pidió el usuario en este turno (play.py), solo para esta respuesta.
+        asked, self.asked_gesture = getattr(self, "asked_gesture", None), None
         engine = None                     # "ligera" si la completa falló a mitad de respuesta (ver más abajo)
         while not finish:
             sentence = await queue.get()
@@ -861,8 +890,11 @@ class Session:
                     sentence = Sentence(f"{sentence.text} {nxt.text}", sentence.emotion or nxt.emotion,
                                         [*sentence.gestures, *nxt.gestures])
             idx += 1
+            if asked and idx == 1 and asked not in sentence.gestures:
+                sentence.gestures.append(asked)
             if sentence.emotion:
                 self.emotion = sentence.emotion
+                mood.feel(sentence.emotion, self.persona["personality"])
             await self.send_json({"type": "sentence", "id": idx, "text": sentence.text,
                                   "emotion": sentence.emotion, "gestures": sentence.gestures})
             if idx == 1:

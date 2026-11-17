@@ -4,6 +4,7 @@ import { Avatar } from './avatar.js';
 import { Vision } from './vision.js';
 import { initOnboarding } from './onboarding.js';
 import { initLoading } from './loading.js';
+import { initPersonality } from './personality.js';
 import { adaptToMac } from './platform.js';
 
 adaptToMac();                               // en el Mac, «esta PC», «tarjeta gráfica»… se dicen como en un Mac
@@ -14,9 +15,11 @@ const STATUS = { idle: 'Te escucho', listening: 'Escuchando…', thinking: 'Pens
 
 // La app de escritorio (Electron) añade window.desktop y permite el modo flotante: una ventana transparente,
 // sin marco y siempre encima de las demás. En un navegador normal esas opciones no aparecen.
+// Al cambiar de modo la página NO se recarga (desktop/main.js la lleva a la otra ventana): `floating` cambia en
+// caliente con setMode y la conversación, la voz y la cámara siguen.
 const params = new URLSearchParams(location.search);
 const desktop = window.desktop || null;
-const floating = !!desktop && params.has('flotante');
+let floating = !!desktop && params.has('flotante');
 const autoStart = !!desktop && params.has('auto');      // al cambiar de ventana la conversación sigue sola
 const greet = params.get('saludo') !== '0';
 document.body.classList.toggle('floating', floating);
@@ -38,6 +41,18 @@ let avatar = null;
 try {
   avatar = new Avatar($('canvas'));
   if (floating) avatar.setFloating(true);
+  avatar.setFullBody(!fadeOn());
+  avatar.hobbyOn = hobbyOn();                                       // pasatiempos (Ajustes › Tú y tu personaje)
+  // Dormida (cabeceando o en la siesta): la mascota no pasea ni salta; al despertar, vuelve a lo de antes.
+  avatar.onSleep = (on, mode) => {
+    if (on) showKeyboard(false);                                     // se va a dormir: el chat se cierra
+    if (!desktop || !desktop.pet) return;
+    desktop.pet.state(on ? 'sleep' : state);
+    document.body.classList.toggle('sleeping', !!on);                  // sin degradado de pies: está tumbada
+    if (desktop.pet.rest) desktop.pet.rest(on && mode === 'lean');   // recostada: primero va a una esquina
+  };
+  avatar.restWait = !!(desktop && desktop.pet && desktop.pet.rest);   // flotando, espera a llegar a la esquina
+  avatar.onView = (kind) => voiceReact({ type: 'look', kind });     // cómo la miras con la cámara libre
 } catch (err) {
   console.warn('Sin WebGL: se usa el orbe', err);
 }
@@ -176,7 +191,11 @@ function tick() {
   $('mic').firstElementChild.style.setProperty('--level', micLevel);
   $('mic-meter').style.setProperty('--level', micLevel);
   $('mic-meter-2').style.setProperty('--level', micLevel);
-  if (floating) updateHit();
+  if (floating) {
+    updateHit(); sendAnchors();
+    // Mientras la mascota se mueve, la ventana avanza con cada cuadro dibujado (fluido, al ritmo de la pantalla).
+    if (petFrames && desktop && desktop.pet && desktop.pet.frame) desktop.pet.frame();
+  }
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -223,17 +242,27 @@ function handle(ev) {
     case 'notice': toast(ev.message); refreshConfig(); break;
     case 'watch': $('watch').checked = !!ev.on; break;   // el servidor apagó la mirada en vivo (sin cuota)
     case 'action_request': showAsk(ev); break;
-    case 'action_done': closeAsk(ev); break;
+    case 'action_done':
+      closeAsk(ev);
+      if (ev.ok && QUICK_ACTIONS.includes(ev.action)) petWork({ phase: 'quick' });
+      break;
     case 'control_start':
       $('control-title').textContent = `${config ? config.name : 'Mika'} está usando «${ev.title}»`;
       $('control-text').textContent = ev.task;
       $('control').hidden = false;
       if (floating) document.body.classList.add('hover');
+      petWorking = floating && petPrefs().work;
+      petWork({ phase: 'start', window: ev.window || null });
       break;
-    case 'control_step': $('control-text').textContent = `Paso ${ev.n} de ${ev.max}: ${ev.text}`; break;
+    case 'control_step':
+      $('control-text').textContent = `Paso ${ev.n} de ${ev.max}: ${ev.text}`;
+      petWork({ phase: 'step', kind: ev.kind || 'read', point: ev.point || null });
+      break;
     case 'control_end':
       $('control').hidden = true;
       toast(ev.ok ? `Terminó: ${ev.text}` : `Se detuvo: ${ev.text}`, !ev.ok);
+      petWorking = false;
+      petWork({ phase: 'end', ok: !!ev.ok });
       break;
   }
 }
@@ -291,10 +320,12 @@ async function refreshActions() {
   $('actions-on').checked = a.enabled;
   $('actions-on').disabled = !a.available;
   $('actions-ask').checked = a.ask;
+  $('actions-ask').disabled = a.full;
+  $('actions-full').checked = a.full;
   $('sum-acciones').textContent = !a.available ? 'No disponibles con este modelo'
-    : !a.enabled ? 'Apagadas' : a.ask ? 'Activadas · piden permiso' : 'Activadas';
+    : !a.enabled ? 'Apagadas' : a.full ? 'Activadas · acceso total' : a.ask ? 'Activadas · piden permiso' : 'Activadas';
   $('actions-note').textContent = a.available
-    ? 'Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.'
+    ? 'Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Solo lo que le pidas; cuánto pregunta antes se elige abajo.'
     : 'El modelo local que usas ahora es demasiado pequeño para pedir acciones con fiabilidad: elige Gemma 4 E2B o E4B, o el cerebro en la nube.';
   const rows = a.always.map((name) => {
     const row = document.createElement('div');
@@ -326,6 +357,15 @@ $('actions-ask').onchange = async () => {
   await fetch('/api/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ask: $('actions-ask').checked }) });
   refreshActions();
 };
+$('actions-full').onchange = async () => {
+  const on = $('actions-full').checked;
+  if (on && !confirm('¿Dar acceso total? Hará las acciones de su lista sin preguntarte nunca, también las que elija mientras compartes la pantalla. Lo puedes apagar aquí cuando quieras.')) {
+    $('actions-full').checked = false;
+    return;
+  }
+  await fetch('/api/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full: on }) });
+  refreshActions();
+};
 $('actions-on').onchange = async () => {
   await fetch('/api/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: $('actions-on').checked }) });
   refreshActions();
@@ -335,6 +375,7 @@ function setState(value) {
   state = value;
   document.body.dataset.state = value;
   if (avatar) avatar.setState(value);
+  if (desktop && desktop.pet) desktop.pet.state(avatar && avatar.sleeping && value === 'idle' ? 'sleep' : value);   // la mascota no pasea mientras hablas, habla o duerme
   let label = STATUS[value] || value;
   if (!started) label = 'Lista';
   else if (value === 'idle' && (muted || !audio.hasMic)) label = 'Micrófono en silencio';
@@ -349,6 +390,7 @@ function applyConfig(cfg) {
   $('name').textContent = cfg.name;
   $('start-title').textContent = cfg.name;
   $('text-input').placeholder = `Escríbele a ${cfg.name}…`;
+  if (avatar && cfg.personality && cfg.personality.temper) avatar.setTemper(cfg.personality.temper);
   $('brain').textContent = `${cloud ? 'Nube' : 'Local'} · ${cfg.llm.model}`;
 
   // Pantalla de carga: al abrir (si ya pasó la bienvenida) y cada vez que un ajuste cambia el oído, la voz o el cerebro.
@@ -838,15 +880,14 @@ async function begin(withMic) {
   setState(state);
   if (config && config.llm.ready && greet) send({ type: 'start' });
 
-  // Cámara: la elegida en la tarjeta de inicio o, al cambiar entre ventana y flotante, la que ya estaba encendida.
+  // Cámara: la elegida en la tarjeta de inicio (al cambiar entre ventana y flotante la página sigue, y la cámara
+  // también: no hace falta volver a encenderla).
   const choice = $('cam-select').value;
-  let resume = false;
-  try { resume = autoStart && Date.now() - Number(localStorage.getItem(RESUME_KEY) || 0) < 20000; localStorage.removeItem(RESUME_KEY); } catch { /* modo privado */ }
-  const wanted = resume || (!autoStart && choice && choice !== OFF && choice !== ASK);
+  const wanted = !autoStart && choice && choice !== OFF && choice !== ASK;
   const preview = stopCamTest(wanted);                // la vista de prueba pasa a ser la cámara de Mika, sin cerrarla
   if (wanted) {
     camAllowed = true;
-    try { await vision.start('camera', resume ? savedCam() : choice, preview); } catch (err) {
+    try { await vision.start('camera', choice, preview); } catch (err) {
       toast(VISION_ERRORS.camera[err.name] || `No pude encender la cámara (${err.name}).`, true);
     }
     fillCams();
@@ -875,18 +916,26 @@ function showKeyboard(show) {
   $('text-form').hidden = !show;
   $('keyboard').classList.toggle('active', show);
   if (show) $('text-input').focus();
+  if (avatar && show) avatar.wake();                                  // abrir el chat la despierta
 }
 $('keyboard').onclick = () => showKeyboard($('text-form').hidden);
+$('text-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); showKeyboard(false); } });
 
 $('text-form').onsubmit = async (e) => {
   e.preventDefault();
   const text = $('text-input').value.trim();
   if (!text) return;
   $('text-input').value = '';
+  if (floating) {                                                // flotando: un destello verde de «enviado»
+    $('text-form').classList.add('sent');
+    setTimeout(() => $('text-form').classList.remove('sent'), 900);
+  }
   audio.flush();
   for (const kind of ['camera', 'screen']) vision.push(kind);     // que vea lo de este instante
   send({ type: 'text', text });
 };
+
+const personalityUI = initPersonality({ toast, onChange: () => refreshConfig() });
 
 const openSettings = (open) => {
   $('settings').hidden = !open;
@@ -895,6 +944,7 @@ const openSettings = (open) => {
   refreshActions();
   refreshModels();
   refreshMemory();
+  personalityUI.refresh();
   Promise.all([fillMics(), fillCams()]).then(() => {
     const pick = (id) => { const o = $(id).selectedOptions[0]; return o && o.value ? o.textContent : ''; };
     const mic = pick('mic-select-2'), cam = pick('cam-select-2');
@@ -1031,32 +1081,167 @@ function toast(message, isError = false) {
 
 // ---------------------------------------------------------------- modo flotante (app de escritorio)
 $('float-btn').hidden = !desktop || floating;
-// Al cambiar de ventana se abre una página nueva: si la cámara estaba encendida, la siguiente la vuelve a encender.
-const RESUME_KEY = 'companion.resume.cam';
-function switchWindow(toFloat) {
-  try { if (vision.active('camera')) localStorage.setItem(RESUME_KEY, String(Date.now())); else localStorage.removeItem(RESUME_KEY); } catch { /* modo privado */ }
+async function switchWindow(toFloat) {
+  if (toFloat && !started) await begin(true);       // sin la tarjeta de inicio (no se ve flotando): micrófono ya
   desktop.float(toFloat);
 }
 $('float-btn').onclick = () => switchWindow(true);
 $('dock').onclick = () => switchWindow(false);
-$('quit').onclick = () => window.close();
+$('quit').onclick = () => (desktop && desktop.quit ? desktop.quit() : window.close());
+
+// La app avisa del cambio de modo; la página solo cambia de aspecto.
+function setMode(mode) {
+  const on = mode === 'float';
+  if (on === floating) return;
+  floating = on;
+  document.body.classList.toggle('floating', on);
+  document.body.classList.remove('hover');
+  $('float-btn').hidden = !desktop || on;
+  mouse = null; dragging = false; rotating = false; ignoring = null;
+  if (on) {
+    openSettings(false);                             // los ajustes no se ven flotando
+    showKeyboard(false);
+  } else {
+    showOrb(!config || !config.model || !avatar);
+  }
+  if (avatar) { avatar.setFloating(on); avatar.setActivity('none'); }
+  lastAnchors = '';                                  // la app vuelve a recibir dónde están los pies
+  fitBar();
+}
+// Flotando, la barra de botones encoge para caber entera en la ventana (pequeña con la rueda, o en parte fuera de la
+// pantalla): antes se cortaban los botones de los lados (17 nov 2026). `zoom` también encoge la zona que se pulsa.
+function fitBar() {
+  const bar = document.querySelector('footer > .controls');
+  if (!bar) return;
+  if (!floating) { bar.style.zoom = ''; return; }
+  bar.style.zoom = '1';
+  const avail = bar.parentElement.clientWidth - 16, need = bar.offsetWidth;
+  bar.style.zoom = need > avail && need > 0 ? String(Math.max(0.55, avail / need)) : '1';
+}
+new ResizeObserver(fitBar).observe(document.querySelector('footer'));
+if (desktop && desktop.onMode) desktop.onMode(setMode);
+
+// ---------------------------------------------------------------- mascota de escritorio (Ajustes › Escritorio)
+// Solo en la app y solo flotando: desktop/pet.js mueve la ventana (gravedad, paseos, sentarse, ir a la ventana que
+// maneja) y aquí se ponen las animaciones. Los ajustes se recuerdan en esta app (localStorage).
+// Funciones (no const): el avatar las usa antes de llegar aquí.
+// Pasatiempos (17 nov 2026): si no usas la app un rato, se entretiene sola (avatar.js HOBBIES). Encendido por defecto.
+function hobbyOn() { try { return localStorage.getItem('companion.hobby') !== '0'; } catch { return true; } }
+$('hobby').checked = hobbyOn();
+$('hobby').onchange = () => {
+  try { localStorage.setItem('companion.hobby', $('hobby').checked ? '1' : '0'); } catch { /* modo privado */ }
+  if (avatar) avatar.hobbyOn = $('hobby').checked;
+};
+// Usar la app (ratón por la ventana, teclado, clic, rueda) la saca del pasatiempo; hablar y escribir también (el
+// estado deja de ser «idle»). El ratón en otras ventanas no cuenta: estar en otra cosa es justo cuando se entretiene.
+for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel']) {
+  addEventListener(ev, () => { if (avatar && avatar.wake) avatar.wake(); }, { passive: true });
+}
+
+function petPrefs() {
+  const base = { follow: true, react: true, gravity: true, walk: 'aveces', sit: false, work: true, fade: true, alpha: 0 };
+  try {
+    const saved = JSON.parse(localStorage.getItem('companion.pet') || '{}');
+    if (localStorage.getItem('companion.float.fade') === '0' && saved.fade === undefined) saved.fade = false;   // ajuste de antes
+    return { ...base, ...saved };
+  } catch { return base; }
+}
+function fadeOn() { return petPrefs().fade; }
+const PET_SWITCHES = { follow: 'pet-follow', react: 'pet-react', gravity: 'pet-gravity', sit: 'pet-sit', work: 'pet-work', fade: 'float-fade' };
+const WALK_NAMES = { nunca: 'sin paseos', aveces: 'paseos a veces', amenudo: 'paseos a menudo' };
+let petWorking = false;                       // una acción «controlar» en curso: el modelo no recibe clics
+
+function applyPet() {
+  const p = petPrefs();
+  for (const [k, id] of Object.entries(PET_SWITCHES)) $(id).checked = !!p[k];
+  $('pet-walk').value = p.walk;
+  const alpha = Math.max(0, Math.min(90, Number(p.alpha) || 0));          // transparencia en %
+  $('pet-alpha').value = String(alpha);
+  $('pet-alpha-value').textContent = `${alpha} %`;
+  document.body.style.setProperty('--pet-opacity', String(1 - alpha / 100));
+  document.body.classList.toggle('no-fade', !p.fade);
+  if (avatar) { avatar.setFullBody(!p.fade); avatar.setFollow(p.follow); }
+  const on = [p.follow && 'mirada', p.gravity && 'gravedad', WALK_NAMES[p.walk], p.sit && 'se sienta', p.work && 'acompaña las acciones',
+    alpha && `transparente ${alpha} %`].filter(Boolean);
+  $('sum-escritorio').textContent = on.join(' · ');
+  if (desktop && desktop.pet) desktop.pet.prefs(p);
+}
+function savePet(change) {
+  try { localStorage.setItem('companion.pet', JSON.stringify({ ...petPrefs(), ...change })); } catch { /* modo privado */ }
+  applyPet();
+}
+$('pet-group').hidden = !desktop;
+for (const [k, id] of Object.entries(PET_SWITCHES)) $(id).onchange = () => savePet({ [k]: $(id).checked });
+$('pet-walk').onchange = () => savePet({ walk: $('pet-walk').value });
+$('pet-alpha').oninput = () => savePet({ alpha: Number($('pet-alpha').value) });
+applyPet();
+
+if (desktop && desktop.pet) {
+  desktop.pet.on((ev) => {
+    if (!avatar) return;
+    if (ev.type === 'cursor') avatar.setCursor(ev.x, ev.y);
+    else if (ev.type === 'activity') avatar.setActivity(ev.name, ev.opts || {});
+    else if (ev.type === 'workmode') { avatar.setWorkMode(ev.mode); if (ev.stance) avatar.setStance(ev.stance); }
+    else if (ev.type === 'gesture') avatar.playGesture(ev.name);
+    else if (ev.type === 'frames') petFrames = !!ev.on;
+    else if (ev.type === 'rest') avatar.restAt(ev.side);
+    else if (ev.type === 'moving') document.body.classList.toggle('pet-moving', !!ev.on);
+    else if (ev.type === 'insets') {
+      for (const k of ['top', 'bottom', 'left', 'right']) document.body.style.setProperty(`--pet-cut-${k}`, `${Math.round(ev[k] || 0)}px`);
+      fitBar();
+    }
+  });
+}
+// Los puntos del personaje (pies, asiento, cabeza) en px de la ventana, para que la app la coloque bien.
+let lastAnchors = '';
+let petFrames = false;                // desktop/pet.js pide los cuadros mientras mueve la ventana
+let anchorsAt = 0;
+function sendAnchors() {
+  if (!floating || !avatar || !desktop || !desktop.pet || performance.now() - anchorsAt < 250) return;
+  anchorsAt = performance.now();
+  const a = avatar.anchors();
+  if (!a) return;
+  const r = (pt) => ({ x: Math.round(pt.x), y: Math.round(pt.y) });
+  const out = { feet: r(a.feet), seat: r(a.seat), head: r(a.head), hand: r(a.hand), w: a.w, h: a.h };
+  if (a.step) out.step = Math.round(a.step);
+  if (a.hz) out.hz = Math.round(a.hz * 100) / 100;
+  if (a.speed) out.speed = Math.round(a.speed);
+  const key = JSON.stringify(out);
+  if (key !== lastAnchors) { lastAnchors = key; desktop.pet.anchors(out); }
+}
+// Las acciones en ventanas, a la mascota (solo flotando; ella mira si «Acompañar las acciones» está encendido).
+const QUICK_ACTIONS = ['abrir_app', 'abrir_web', 'abrir_carpeta', 'multimedia', 'volumen'];
+function petWork(msg) {
+  if (floating && desktop && desktop.pet) desktop.pet.work(msg);
+}
 
 // La ventana flotante es un rectángulo transparente. Para que no estorbe, los clics solo «tocan» a Mika y a
 // sus botones; en el resto atraviesan hacia lo que haya debajo. Se decide cuadro a cuadro según el píxel
 // que queda bajo el ratón.
 let mouse = null;
 let dragging = false;
+let rotating = false;
 let ignoring = null;
 let hoverTimer = 0;
+let overModel = false;
+let leftModelAt = 0;
+let press = null;                              // clic sin arrastrar = tocarla
 
 function updateHit() {
   if (avatar) avatar.probe = mouse;
-  let hit = dragging;
+  let hit = dragging || rotating;
   if (!hit && mouse) {
     const el = document.elementFromPoint(mouse.x, mouse.y);
-    const onUi = (!!(el && el.closest('.controls, #toast')) && document.body.classList.contains('hover'))
+    const still = !document.body.classList.contains('pet-moving');   // moviéndose, la barra está escondida
+    const onUi = (still && !!(el && el.closest('.controls, #toast')) && document.body.classList.contains('hover'))
+      || !!(el && el.closest('#text-form'))              // la cápsula para escribirle, siempre que esté abierta
       || !!(el && el.closest('#asks, #control'));     // una tarjeta de permiso o «Parar» siempre se pueden pulsar
-    hit = onUi || (avatar ? avatar.probeHit : !$('orb').hidden);
+    const model = !petWorking && (avatar ? avatar.probeHit : !$('orb').hidden);
+    hit = onUi || model;
+    // Pasar el ratón por encima tras un rato sin hacerlo: te mira, sonríe y a veces saluda.
+    if (model && !overModel && avatar && petPrefs().react && performance.now() - leftModelAt > 9000 && state === 'idle') avatar.react('hover');
+    if (!model && overModel) leftModelAt = performance.now();
+    overModel = model;
   }
   if (hit) {
     clearTimeout(hoverTimer);
@@ -1071,24 +1256,81 @@ function updateHit() {
   }
 }
 
-if (floating) {
+// Flotando: arrastrar con el botón izquierdo mueve la ventana; con el derecho gira al modelo y con el central lo
+// desplaza; la rueda cambia el tamaño de la ventana y Ctrl + rueda acerca o aleja la cámara hacia el cursor.
+// Doble clic: vuelve al encuadre de siempre. Los oyentes están siempre puestos y solo actúan flotando.
+{
   const canvas = $('canvas');
-  addEventListener('mousemove', (e) => { mouse = { x: e.clientX, y: e.clientY }; });
-  document.addEventListener('mouseleave', () => { if (!dragging) mouse = null; });
-  // Arrastrar a Mika mueve la ventana; la rueda la hace más grande o más pequeña.
+  addEventListener('mousemove', (e) => { if (floating) mouse = { x: e.clientX, y: e.clientY }; });
+  document.addEventListener('mouseleave', () => { if (floating && !dragging && !rotating) mouse = null; });
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || !avatar || !avatar.probeHit) return;
-    dragging = true;
-    canvas.setPointerCapture(e.pointerId);
-    desktop.drag('start');
+    if (!floating || !avatar || !avatar.probeHit || petWorking) return;
+    if (e.button === 0) {
+      press = { x: e.screenX, y: e.screenY, at: performance.now(), cx: e.clientX, cy: e.clientY };
+      dragging = true;
+      canvas.setPointerCapture(e.pointerId);
+      desktop.drag('start');
+    } else if (e.button === 1 || e.button === 2) {
+      rotating = true;                               // el modelo se mueve y deja de estar bajo el cursor
+    }
   });
-  canvas.addEventListener('pointermove', () => { if (dragging) desktop.drag('move'); });
-  const endDrag = () => { if (dragging) { dragging = false; desktop.drag('end'); } };
-  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointermove', () => { if (floating && dragging) desktop.drag('move'); });
+  const endDrag = (e) => {
+    // Un clic corto sin mover: la has tocado (la cabeza o el cuerpo).
+    if (press && e && e.type === 'pointerup' && performance.now() - press.at < 320
+        && Math.hypot(e.screenX - press.x, e.screenY - press.y) < 5 && avatar && petPrefs().react) {
+      const zone = avatar.zoneAt(press.cx, press.cy) || 'body';
+      touched(avatar.react(zone, avatar.zoneSide || 1));
+    }
+    press = null;
+    if (dragging) { dragging = false; desktop.drag('end'); }
+    rotating = false;
+  };
+  addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
-  addEventListener('wheel', (e) => { e.preventDefault(); desktop.resize(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+  addEventListener('wheel', (e) => {
+    if (!floating) return;
+    e.preventDefault();
+    if (e.ctrlKey && avatar) avatar.zoom(e.deltaY < 0 ? 0.9 : 1 / 0.9);
+    else desktop.resize(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => { if (avatar) avatar.resetView(); });
+}
+
+// Toques y miradas (16 nov 2026). En la ventana normal también: la cámara libre usa el arrastre, así que solo un clic
+// corto y sin mover cuenta como tocarla. A veces lo comenta en voz alta (con su personalidad; el servidor decide
+// cuándo, sin gastar cuota de más): al 3.er y al 6.º toque seguido en la misma parte, y al mirarla de cerca.
+function voiceOn() { try { return localStorage.getItem('companion.react_voice') !== '0'; } catch { return true; } }
+function voiceReact(msg) {
+  if (!voiceOn() || !started || state !== 'idle') return;
+  send(msg);
+}
+function touched(res) {
+  if (res && res.level >= 2 && (res.n === 3 || res.n === 6)) voiceReact({ type: 'touch', zone: res.zone, level: res.level });
+}
+{
+  const canvas = $('canvas');
+  let click = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (floating || e.button !== 0 || !avatar) return;
+    click = { x: e.clientX, y: e.clientY, at: performance.now() };
+  });
+  canvas.addEventListener('pointerup', async (e) => {
+    const c = click;
+    click = null;
+    if (floating || !c || !avatar || !petPrefs().react || performance.now() - c.at > 320 || Math.hypot(e.clientX - c.x, e.clientY - c.y) > 5) return;
+    const r = canvas.getBoundingClientRect();
+    const zone = await avatar.pickAt(e.clientX - r.left, e.clientY - r.top);
+    if (zone) touched(avatar.react(zone, avatar.zoneSide || 1));
+  });
+}
+const reactVoice = $('react-voice');
+if (reactVoice) {
+  reactVoice.checked = voiceOn();
+  reactVoice.onchange = () => { try { localStorage.setItem('companion.react_voice', reactVoice.checked ? '1' : '0'); } catch { /* modo privado */ } };
 }
 
 // Para depurar desde la consola del navegador y para las pruebas automáticas.
-window.companion = { avatar, audio, vision, send, status: () => ({ started, floating, ignoring, state }) };
+window.companion = { avatar, audio, vision, send, handle, petPrefs, savePet,
+  status: () => ({ started, floating, ignoring, state, petWorking }) };
 connect();

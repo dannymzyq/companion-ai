@@ -72,9 +72,95 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   ofrecer. `models.LEGACY` traduce lo guardado antes (default/chica/chico/esfera). `mika.vrm`, `mika_base.vrm`,
   `chica.vrm` y `chico.vrm` siguen en disco sin usarse; no los borres sin que el usuario lo pida.
   No abras la ventana del companion sin avisar: el usuario suele estar jugando.
+- Ventana y flotante (16 nov 2026): `desktop/main.js` tiene UNA página (`WebContentsView`) y al cambiar de modo la
+  pasa de un `BaseWindow` a otro sin recargarla (`open`), y avisa a la página con `companion:mode`
+  (`setMode` en `web/js/main.js`: `floating` cambia en caliente). Así no se corta la voz ni la conversación. No
+  vuelvas a abrir una página nueva por modo. Cámara libre (`OrbitControls` sin límites de ángulo, con
+  desplazamiento y zoom hacia el cursor); flotando: izquierdo mueve la ventana, derecho gira, central desplaza,
+  Ctrl + rueda acerca (`avatar.zoom`), doble clic `avatar.resetView`. «Desvanecer los pies al flotar»
+  (`companion.float.fade` en localStorage; apagado = `body.no-fade` + `avatar.setFullBody`, cuerpo entero).
+  Prueba: `scripts\prueba_flotante.py` (sin cerebro: suena un tono y cambia de modo dos veces).
+- Mascota de escritorio (16 nov 2026, solo flotando; Ajustes › «Escritorio (modo flotante)», `companion.pet` en
+  localStorage): `desktop/pet.js` mueve la ventana (gravedad hasta la barra de tareas, paseos, sentarse sobre la
+  ventana activa y seguirla, ir al lado de la ventana de una acción «controlar» y volver) y manda a la página
+  `pet:event` (cursor, activity, workmode, gesture); la página pone las animaciones (`avatar.setActivity`:
+  walk | carried | fall | sit | work, `ACTIVITIES` en avatar.js y su versión en orb.js; gestos internos `_toque` y
+  `_aterrizar`) y le manda los puntos del personaje (`avatar.anchors`: pies, asiento, cabeza), el estado y las
+  acciones. La ventana activa la da `GET /api/desktop/scene` (`companion/desktop_scene.py`: solo posición y estado,
+  nunca título ni contenido; el sondeo no va al registro). `control_start`/`control_step` llevan `window` (dónde
+  está) y `kind`/`point` del paso. Con algo a pantalla completa no pasea ni salta. Mientras trabaja, el modelo no
+  recibe clics (los reales del control lo atravesarían). Mover la ventana flotante SIEMPRE con `setBounds` y el
+  tamaño guardado: con escalado 150 %, `setPosition` o `getBounds` la hacen crecer en cada llamada (medido).
+  Prueba: `scripts\prueba_mascota.py` (pantalla y ventanas inventadas en x=-4000, nunca las reales; hoja de
+  poses en `data\prueba\mascota_poses.png`). Poses con cada modelo, incluidos los VRM propios del usuario (se copian
+  solo a `data\prueba`): `scripts\hoja_modelos.py`. Sentada va DE COSTADO (`opts.side`) y con los muslos algo caídos:
+  de frente y con muslos horizontales, faldas y vestidos atravesaban las piernas (16 nov 2026). Andar: `WALK_HZ`
+  (avatar.js y pet.js, el mismo) y la ventana avanza según el largo de la pierna, para que no patine.
+  Transparencia al flotar (`alpha` en `companion.pet`, `--pet-opacity`): con `.hover` (ratón encima o agarrándola)
+  vuelve a opaca.
+  Fluidez (17 nov 2026): en el proceso principal de Electron en Windows, `setInterval(16)` da un cuadro cada 31 ms
+  (medido; el mínimo es 15,6 ms). Mientras algo se mueve, pet.js pide cuadros (`frames`) y la página llama a
+  `desktop.pet.frame()` en cada requestAnimationFrame (`pageFrame` → `frame`); el temporizador de 8 ms es solo
+  respaldo. Todo movimiento nuevo de la ventana va por `animate` o por `frame` con dt, nunca con su propio
+  temporizador. Sentada, la escena se mira cada 150 ms y `followSeat` la sigue. `moving` → `body.pet-moving`
+  (barra y subtítulos escondidos; `#asks` y `#control` nunca). `insets` → `--pet-cut-*` (lo que queda fuera del área
+  de trabajo: la barra sube). Con los pies por debajo de la ventana, `A().feet` es el borde de abajo. `fitBar` (main.js)
+  encoge la barra con `zoom` para que quepa en la ventana (mínimo 220 px de ancho).
+  `prueba_mascota.py` mide los fps (`lastMoveFps`) y la barra con zoom (8b).
 - Animación (`web/js/avatar.js`): muelles por hueso (`SPRING`), ruido suave en lo ocioso, dedos por separado
   (`ix` índice, `sp` abanico en `ARMS`). Para probar poses desde la consola: `await import('/js/avatar.js')` da
   `ARMS` editable en vivo; `avatar.sheet([...])` hace la hoja de contactos.
+- Animaciones grabadas (17 nov 2026, petición del usuario: «como ZZZ»): `web/anim/clips.json` (Quaternius UAL 1 y 2,
+  CC0, `web/anim/CREDITOS.md`) hecho con `scripts/convertir_animaciones.py` (giros respecto a la pose en T =
+  espacio normalizado de three-vrm, en Euler XYZ). `web/js/clips.js` las muestrea; `applyLayer` las pone con
+  máscara por zonas ANTES de lo procedural (reposo/hablar en `_buildPose`, andar, agacharse/arrodillarse en
+  `pointerWork`, caer, `_aterrizar`, enfado = brazos cruzados). Solo clips CC0 o equivalentes: Mixamo no deja
+  repartir sus archivos y Bandai Namco es no comercial. En la hoja: `{clip: 'walk', clipT}` muestra un clip y
+  `{clips: false}` lo de antes; `avatar.clipOn = false` las apaga en vivo. Flotando, `_inertia` mueve las puntas
+  de los muelles del VRM lo contrario a la ventana (`_currentTail`/`_prevTail` de three-vrm). `anchors().step`
+  da el largo del paso a pet.js. Probado con los 3 incluidos y los 4 VRM del usuario (copias en `data\prueba`).
+  Estilos (17 nov 2026, «aplica todo lo que se pueda»): `walk_<estilo>`/`idle_<estilo>` de 100STYLE (CC BY 4.0: hay
+  que citar «The 100STYLE Dataset - Ian Mason»; Zenodo 8127870), con `--estilos` y `scripts/anim_bvh.py` (bucle
+  recortado de cada toma, sin recorrido ni giro, cuello −15°). `EMO_STYLE`/`EMO_AMP`, `_styleNow` (emoción o
+  personalidad), `styleW` (fundido), `_styled` (marcha a la par por `cycles`), `gait()` → `anchors().hz/speed` →
+  pet.js. Pies: `_legIK` al final de `_applyPose` (clavados de pie con pasito, solo altura al andar; `ikOn`).
+  Descartados por licencia: Bandai Namco, LAFAN1, ai4anim-webgpu (no comerciales).
+- Dedos y cara (17 nov 2026, «utiliza los repositorios… que se adapten mejor»): `HANDS`/`hs`/`p.hand` (cada dedo,
+  `CASCADE`, `FINGER_RATE`, oposición del pulgar `THUMB`: en Y negativo, medido con primeros planos); gestos
+  `pulgar` y `paz` (también en prompt.py y orb.js). `web/js/face.js`: partes de VRoid como expresiones `p_…`
+  (`addParts`, solo si hay cejas, ojos y boca) + `EMO_PARTS` + `Micro` (ideas de TalkingHead, MIT; ninguno de los
+  VRM del usuario tiene ARKit, así que Audio2Face y las caras de TalkingHead no sirven). `web/js/lipsync.js` adapta
+  wawa-lipsync (MIT: el aviso va en `web/js/CREDITOS.md`). Primeros planos en la consola: proyectar un hueso dentro de
+  `renderer.render` durante `sheet` y recortar. Triste: `idle_triste` con `spine` 0,4 y `head` 0,25.
+- Pasatiempos y rubor (17 nov 2026): `HOBBIES`/`BORED_AFTER`/`wake`/`endHobby` en avatar.js (gestos `_…` largos;
+  clip `spell` añadido a `WANTED`), interruptor «Se entretiene sola» (`companion.hobby`). Las pruebas que miran
+  posiciones ponen `avatar.hobbyOn = false` (prueba_mascota). Rubor: `effects.attachBlush` (planos hijos de la
+  cabeza, con profundidad) y `_onSkin` (rayo a la piel); la esfera sigue con los carteles.
+- Sueño y peticiones (17 nov 2026): `SLEEP_AFTER`, `sleepNow`/`_sleepPose`. Lo normal es `lean` (petición del
+  usuario: «que se recueste en la esquina… con una tablet o un celular hasta que se duerme»): `_leanPose` + `LEAN`
+  (editable en vivo) + `web/js/props.js` (`Device`, `_placeDevice` después de `vrm.update`). Flotando espera a
+  `restAt`: `onSleep(on, mode)` → `desktop.pet.rest` → pet.js `rest`/`walkTo` (va a la esquina aunque esté «dormida»)
+  → evento `rest`. `body.sleeping` quita el degradado de pies. `nod` (seiza) y `nap` (`lay_up` al revés) quedan para
+  la ventana. Postura (imagen de referencia del usuario, apoyada sobre un codo): base `lay_up` en `LEAN.base` 0,28,
+  reflejada con `mirrorPose` para `side < 0` (la animación no es simétrica), `LEAN.roll` hacia el costado de apoyo, y
+  `_leanIK` con `_ikChain` (IK de dos huesos con polo): manos a la pantalla delante del pecho (dormida, al pecho), codo
+  de apoyo hacia el suelo detrás, pie de la pierna alta delante de la rodilla de la tendida (`LEAN.ik`). La tendida es
+  la que da a la cámara (`ik.leanDown`), con la rodilla fijada algo hacia delante (si no, se doblaba al revés).
+  Variantes (`LEAN.variants`: codo, rodillas, tumbada; `sl.variant`, al azar sin repetir; `float: false` = no en la
+  ventana flotante): base y base dormida de `lay_up`, piernas (`extend`/`raise`/`knees`), puntos de pantalla y de
+  descanso (`screen`/`rest`, desde chest, head o knees) y cabeza; `_leanIK` y `_placeDevice` (`_restPoint`) las usan.
+  `hipsY`/`headY` se miden en la pose en T al cargar (medidas con el modelo anterior dormido salían mal).
+  Recostada: `_legIK` con `ik.lean` (pierna izquierda tendida a ras de suelo hacia delante y algo hacia
+  su lado, `LEAN.legSide`, con el pie siguiendo a la pierna; antes seguía a la animación y en algunos modelos quedaba
+  cruzada bajo la otra; la derecha pisando). `LEAN.legReach` 0,75: la rodilla algo levantada (petición del usuario).
+  Al dormirse se cierra el chat (`onSleep` → `showKeyboard(false)`); `pet-moving` no esconde `#text-form`.
+  `LEAN.lift` (cadera a ~10 cm) y, flotando, `LEAN.rise` (todo el cuerpo algo arriba, que la pierna no se corte).
+  Ropa: `_legColliders` (cápsulas en muslos y espinillas + suelo, en los huesos de verdad; `sb._isSortedJointsDirty`).
+  Prueba: `prueba_mascota.py` 8d (captura en `data\prueba\mascota_recostada.png`). `onSleep` →
+  `pet.state('sleep')`. Gestos públicos en `GESTURES` (alias de
+  los `_…`) + `dormir`; en prompt.py `GESTURES` y la frase «Tienes cuerpo en la pantalla…»; `companion/play.py`
+  (`guess`: imperativo, o «puedes/quiero que…» + infinitivo o subjuntivo; negaciones fuera) y `Session._speak` lo
+  añade a la primera frase. Solo mueve al personaje: no es una acción en la PC.
 
 - **El usuario puede tener el companion abierto.** No reinicies ni apagues el servidor real (puerto 8200): pídele
   que lo haga él (`detener.ps1`, o `Companion.bat`, que lo reinicia solo si el código o `.env` son más nuevos).
@@ -143,6 +229,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `name` solo sirve para el archivo del modelo por defecto. Voces y personajes no llevan etiquetas de género en
   la interfaz (decisión del usuario, 12 nov 2026); `speaks` en `voices.json` solo decide cómo habla de sí.
   Nunca llames a `POST /api/setup/reset` contra el servidor real: con `data` borra todo lo del usuario.
+- Personalidades (16 nov 2026, Ajustes › Personalidad): `companion/personality.py` + `personas/personalidades.json`;
+  `personality.apply` pone sobre la ficha rasgos, estilo, gustos y ejemplos (nunca nombre, edad, voz, límites ni
+  +18) y `prompt.personality_block` los lleva al prompt de sistema (fijo mientras no se cambie). Las propias (`c_…`)
+  en `settings.json`; personalizar una incluida la copia. Textos de la interfaz sin género (emociones como
+  sustantivos: `EMOTION_NAMES` en `web/js/personality.js`). Ánimo entre turnos: `companion/mood.py` (va en
+  `turn_context`, nunca en el prompt de sistema). Pruebas: `tests/test_personalidad.py`.
 - Recursos: `profile.resources` reparte la memoria de vídeo (escritorio 2 GB + oído 1,1 GB + voz) y recomienda
   voz y modelo local; `profile.LOCAL_MODELS` es el catálogo (12B, E4B, E2B, Qwen 3 1.7B, Gemma 3 1B; los dos
   últimos no ven imágenes; `TOP_RECOMMENDED` es el mayor que se llega a recomendar). El modelo local que elige el usuario es el que se carga (`llm.choose_local`): no lo cambies
@@ -170,6 +262,18 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Autorización (decisión del usuario, 13 nov 2026): su orden basta, sin tarjeta (`actions.config()["ask"]`
   apagado por defecto). Se mantienen: confirmar pasos delicados que la orden no pedía (`control.task_allows`) y
   tarjeta si la acción la eligió el modelo con pantalla o cámara compartidas. No quites esos dos frenos.
+  Excepciones del usuario (16 nov 2026): «controlar» también admite «permitir siempre», y «Acceso total»
+  (`actions.config()["full"]`, opcional, apagado por defecto) quita todas las tarjetas, también la segunda. Aun con
+  acceso total se mantienen el catálogo cerrado, que solo cuenten turnos con mensaje suyo y la confirmación de pasos
+  delicados (`task_allows`).
+- Toques, miradas y mano de puntero (16 nov 2026): `avatar.react(zone)` por partes del cuerpo (`zoneAt`, con los
+  huesos proyectados; en la ventana normal `pickAt` lee el píxel en el siguiente cuadro) y sube de tono al repetir
+  (nivel 1-3, `setTemper` con la personalidad). `_watchView` detecta cara/pecho/piernas de cerca, desde abajo, por
+  la espalda y giros. Ambos pueden mandar `touch`/`look` (solo un tipo fijo, nunca texto) y `Session._poke` lo
+  comenta con `prompt.POKE` como mucho cada `POKE_GAP` (60 s con la nube). Flotando, cada paso de «controlar» con
+  punto lleva la punta del índice derecho (`anchors().hand`) a él con postura según su altura (`pointerWork`:
+  stand/crouch/kneel/reach). Chat flotante: `#text-form` como cápsula. Pruebas: `tests/test_toques.py` y
+  `scripts/prueba_mascota.py` (7b, 9b).
 - Usar ventanas (`companion/control.py` las piezas, `companion/control_task.py` el bucle de pasos; acción
   `controlar`): EN SEGUNDO PLANO (decisión del usuario, 13 nov:
   puede estar jugando). Cada paso escala por `attempt`: accesibilidad → mensajes a la ventana (PostMessage) →

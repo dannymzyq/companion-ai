@@ -59,7 +59,8 @@
       <p id="mika-line"></p>
     </section>
     <form id="text-form" hidden>
-      <input id="text-input" type="text" autocomplete="off" placeholder="Escríbele a Mika…">
+      <input id="text-input" type="text" autocomplete="off" placeholder="Escríbele a Mika…" maxlength="2000">
+      <button id="text-send" type="submit" aria-label="Enviar" title="Enviar (Intro)"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
     </form>
     <div class="controls">
       <button id="keyboard" class="icon" aria-label="Escribir" title="Escribir">
@@ -247,11 +248,71 @@
         </div>
         <div class="set">
           <div class="set-head"><b>Modelo 3D</b><button class="info" data-tip="tip-model" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-model" hidden>El cuerpo de tu personaje. Elige uno de los incluidos o sube un modelo .vrm (también puedes arrastrarlo a la ventana). Los avatares incluidos siempre quedan disponibles.</p>
+          <p class="tip" id="tip-model" hidden>El cuerpo de tu personaje. Elige uno de los incluidos o sube un modelo .vrm (también puedes arrastrarlo a la ventana). Los avatares incluidos siempre quedan disponibles. Para mirarlo: arrastra para girarlo en cualquier dirección, con el botón derecho lo desplazas y la rueda acerca o aleja hacia donde apunta el ratón. Flotando: arrastra para moverlo por la pantalla, botón derecho para girarlo, rueda para cambiar su tamaño y Ctrl + rueda para acercar la cámara. Doble clic lo vuelve a encuadrar.</p>
           <div id="model-list" class="model-list"></div>
           <button id="model-upload" class="ghost">Subir un modelo .vrm</button>
           <input type="file" id="model-file" accept=".vrm" hidden>
         </div>
+        <label class="row set">
+          <span><b>Se entretiene sola</b><button class="info" data-tip="tip-hobby" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-hobby" hidden>Si pasas un rato sin hablarle, sin escribirle y sin pasar el ratón por su ventana, se pone a hacer cosas por su cuenta: baila, salta, da una vuelta, se estira y bosteza, tararea, hace un pequeño hechizo… A los 3 minutos le entra sueño: se sienta a cabecear o se tumba a echar la siesta. En cuanto vuelves, lo deja (y se despierta). También puedes pedírselo: «¿puedes bailar?», «salta», «duérmete».</small></span>
+          <input type="checkbox" id="hobby" class="switch">
+        </label>
+      </details>
+
+      <!-- 1b. Personalidad -->
+      <details class="group" name="ajustes" data-group="personalidad" id="personality-group">
+        <summary>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"/><path d="M9 9.5h.01M15 9.5h.01"/></svg>
+          <span><b>Personalidad</b><small id="sum-personalidad"></small></span>
+        </summary>
+        <div class="set">
+          <div class="set-head"><b>Cómo es</b><button class="info" data-tip="tip-personality" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-personality" hidden>Su forma de ser y de hablar: cómo reacciona, cuánto bromea, qué le gusta, qué emociones se le notan más. Elige una de las incluidas, «Personalizar» la copia para que la ajustes a tu gusto (la incluida no cambia) o crea una desde cero. El nombre, la voz y las reglas de siempre no cambian con la personalidad.</p>
+          <div id="personality-list" class="model-list"></div>
+          <button id="personality-new" class="ghost">Crear una personalidad nueva</button>
+        </div>
+        <div class="set">
+          <div class="set-head"><b>Su ánimo ahora</b><button class="info" data-tip="tip-mood" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-mood" hidden>Las emociones que muestra no se le olvidan al acabar la frase: le dejan un ánimo que dura un rato y que poco a poco vuelve al de siempre de su personalidad. Cuánto le afecta depende de su expresividad. «Olvidar todo» también lo devuelve al de siempre.</p>
+          <div class="line"><span id="mood-line"></span></div>
+        </div>
+        <label class="row set">
+          <span><b>Comentar toques y miradas</b><button class="info" data-tip="tip-react-voice" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-react-voice" hidden>Si la tocas varias veces seguidas en la misma parte, o la miras de muy cerca, desde abajo o por la espalda con la cámara, a veces te lo dice en voz alta según su personalidad. Apagado: solo reacciona con el cuerpo y la cara. Cada comentario es una petición al cerebro (con la nube, gasta cuota; como mucho uno por minuto).</small></span>
+          <input type="checkbox" id="react-voice" class="switch">
+        </label>
+        <form id="personality-form" class="voice-form picker" hidden>
+          <p class="ob-info" id="pf-title"></p>
+          <label for="pf-name">Nombre de la personalidad</label>
+          <input type="text" id="pf-name" maxlength="40" required>
+          <label for="pf-summary">En una línea</label>
+          <input type="text" id="pf-summary" maxlength="120" placeholder="Por ejemplo: bromista, pero muy protectora">
+          <label for="pf-description">Quién es y cómo es</label>
+          <textarea id="pf-description" maxlength="700" rows="4" placeholder="Su carácter, su historia, cómo te trata…"></textarea>
+          <label>Rasgos</label>
+          <div id="pf-traits" class="traits"></div>
+          <label for="pf-formality">Cómo te habla</label>
+          <select id="pf-formality"></select>
+          <label for="pf-speech">Su forma de hablar</label>
+          <textarea id="pf-speech" maxlength="400" rows="2" placeholder="Frases cortas, mucho humor, se ríe de todo…"></textarea>
+          <label for="pf-catch">Muletillas (separadas por comas)</label>
+          <input type="text" id="pf-catch" maxlength="200">
+          <label for="pf-likes">Le gusta (separado por comas)</label>
+          <input type="text" id="pf-likes" maxlength="500">
+          <label for="pf-dislikes">No le gusta (separado por comas)</label>
+          <input type="text" id="pf-dislikes" maxlength="400">
+          <label for="pf-mood">Ánimo de siempre</label>
+          <select id="pf-mood"></select>
+          <label>Emociones que más se le notan (hasta tres)</label>
+          <div id="pf-emotions" class="chips"></div>
+          <label for="pf-examples">Frases de ejemplo, una por línea</label>
+          <textarea id="pf-examples" maxlength="1100" rows="4" placeholder="Cómo te respondería. Es lo que más ayuda a que suene a su personalidad."></textarea>
+          <div class="buttons">
+            <button type="submit" class="primary">Guardar y usarla</button>
+            <button type="button" id="pf-cancel" class="ghost">Cancelar</button>
+          </div>
+        </form>
       </details>
 
       <!-- 2. Cerebro -->
@@ -362,6 +423,57 @@
         <p class="note">Al compartir la pantalla eliges si también escucha su sonido. El botón de flotar, en la barra de abajo junto a compartir, saca a tu personaje de la ventana para que quede por encima de todo.</p>
       </details>
 
+      <!-- 5b. Escritorio (solo en la app, modo flotante) -->
+      <details class="group" name="ajustes" data-group="escritorio" id="pet-group" hidden>
+        <summary>
+          <svg viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/><circle cx="16" cy="11" r="2.2"/><path d="M13 16.5c.4-1.6 1.6-2.6 3-2.6s2.6 1 3 2.6"/></svg>
+          <span><b>Escritorio (modo flotante)</b><small id="sum-escritorio"></small></span>
+        </summary>
+        <p class="note">Lo que hace tu personaje cuando flota sobre el escritorio. Con un juego o un vídeo a pantalla completa se queda quieto, y nunca te quita el foco de la ventana en la que estás.</p>
+        <label class="row set">
+          <span><b>Seguir el ratón con la mirada</b><button class="info" data-tip="tip-pet-follow" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-pet-follow" hidden>Mira hacia el cursor esté donde esté en la pantalla, no solo cuando pasa por encima.</small></span>
+          <input type="checkbox" id="pet-follow" class="switch">
+        </label>
+        <label class="row set">
+          <span><b>Reaccionar al tocarla</b><button class="info" data-tip="tip-pet-react" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-pet-react" hidden>Al pasar el ratón por encima te mira y a veces saluda; al hacerle clic reacciona según dónde (la cabeza o el cuerpo); al arrastrarla se la ve colgando, como si la llevaras.</small></span>
+          <input type="checkbox" id="pet-react" class="switch">
+        </label>
+        <label class="row set">
+          <span><b>Gravedad</b><button class="info" data-tip="tip-pet-gravity" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-pet-gravity" hidden>Si la sueltas en el aire, cae hasta la barra de tareas (o hasta el borde de la ventana que tenga debajo, si puede sentarse).</small></span>
+          <input type="checkbox" id="pet-gravity" class="switch">
+        </label>
+        <div class="set">
+          <div class="set-head"><b>Pasear por el escritorio</b><button class="info" data-tip="tip-pet-walk" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-pet-walk" hidden>De vez en cuando camina un poco por el borde de abajo. Se para en cuanto le hablas o mientras habla.</p>
+          <div class="picker"><select id="pet-walk" aria-label="Pasear por el escritorio">
+            <option value="nunca">Nunca</option><option value="aveces">A veces</option><option value="amenudo">A menudo</option>
+          </select></div>
+        </div>
+        <label class="row set">
+          <span><b>Sentarse sobre la ventana activa</b><button class="info" data-tip="tip-pet-sit" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-pet-sit" hidden>Cuando cambias a otra ventana, salta a sentarse encima de su borde y la sigue si la mueves. Si la minimizas, la maximizas o la cierras, cae. Solo usa dónde está la ventana, nunca lo que muestra.</small></span>
+          <input type="checkbox" id="pet-sit" class="switch">
+        </label>
+        <label class="row set">
+          <span><b>Acompañar las acciones</b><button class="info" data-tip="tip-pet-work" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-pet-work" hidden>Cuando le pides algo en una aplicación («abre Apple Music y pon…»), va al lado de esa ventana y se la ve trabajando, de espaldas: teclea, señala lo que pulsa y se da la vuelta al terminar. Nunca trae la ventana al frente ni se pone encima de lo que pulsa.</small></span>
+          <input type="checkbox" id="pet-work" class="switch">
+        </label>
+        <div class="set">
+          <div class="set-head"><b>Transparencia al flotar</b><span id="pet-alpha-value" class="value"></span><button class="info" data-tip="tip-pet-alpha" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-pet-alpha" hidden>Lo transparente que se ve tu personaje mientras flota, para que no tape lo que hay detrás. Al pasar el ratón por encima o al agarrarlo se ve entero otra vez.</p>
+          <input type="range" id="pet-alpha" min="0" max="90" step="5" aria-label="Transparencia al flotar">
+        </div>
+        <label class="row set" id="float-fade-row">
+          <span><b>Desvanecer los pies al flotar</b><button class="info" data-tip="tip-fade" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-fade" hidden>Encendido: en el modo flotante se ve de medio cuerpo y la parte de abajo se desvanece. Apagado: se ve el modelo entero, sin degradado.</small></span>
+          <input type="checkbox" id="float-fade" class="switch">
+        </label>
+      </details>
+
       <!-- 6. Acciones -->
       <details class="group" name="ajustes" data-group="acciones">
         <summary>
@@ -370,13 +482,18 @@
         </summary>
         <label class="row set">
           <span><b>Permitir que pida acciones</b><button class="info" data-tip="actions-note" aria-label="Qué es esto">i</button>
-            <small class="tip" id="actions-note" hidden>Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.</small></span>
+            <small class="tip" id="actions-note" hidden>Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Solo lo que le pidas; cuánto pregunta antes se elige abajo.</small></span>
           <input type="checkbox" id="actions-on" class="switch">
         </label>
         <label class="row set">
           <span><b>Pedir permiso antes de cada acción</b><button class="info" data-tip="tip-ask" aria-label="Qué es esto">i</button>
             <small class="tip" id="tip-ask" hidden>Apagado: lo que le ordenas se hace directamente. Encendido: cada acción espera a que la apruebes en una tarjeta. Los pasos delicados (enviar, comprar, borrar algo que no pediste) se confirman siempre.</small></span>
           <input type="checkbox" id="actions-ask" class="switch">
+        </label>
+        <label class="row set">
+          <span><b>Acceso total</b><button class="info" data-tip="tip-full" aria-label="Qué es esto">i</button>
+            <small class="tip" id="tip-full" hidden>Encendido: no aparece ninguna tarjeta de permiso, ni siquiera cuando la acción la eligió por su cuenta mientras compartes la pantalla o la cámara. Solo puede hacer lo de su lista (nunca borrar archivos, comprar ni cambiar ajustes) y solo cuando le hablas tú. Al usar una aplicación, enviar, comprar o borrar algo que no le pediste se sigue confirmando.</small></span>
+          <input type="checkbox" id="actions-full" class="switch">
         </label>
         <div id="actions-always" class="memory-list"></div>
         <div id="actions-log" class="memory-list"></div>
@@ -400,7 +517,7 @@
         </div>
         <div class="set">
           <div class="set-head"><b>Empezar de nuevo</b><button class="info" data-tip="tip-redo" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-redo" hidden>«Repetir la bienvenida» vuelve a pasar por los pasos del principio con lo que ya tienes guardado, para cambiarlo. «Restablecer mis datos» borra tu perfil, la clave de API, la voz y el personaje elegidos, el micrófono y la cámara recordados, la conversación y los recuerdos: queda como recién instalado. Esto último no se puede deshacer.</p>
+          <p class="tip" id="tip-redo" hidden>«Repetir la bienvenida» vuelve a pasar por los pasos del principio con lo que ya tienes guardado, para cambiarlo. «Restablecer mis datos» borra tu perfil, la clave de API, la voz y el personaje elegidos, tus personalidades propias, el micrófono y la cámara recordados, la conversación y los recuerdos: queda como recién instalado. Esto último no se puede deshacer.</p>
           <div class="buttons">
             <button id="redo-onboarding" class="ghost">Repetir la bienvenida</button>
             <button id="reset-all" class="danger">Restablecer mis datos</button>

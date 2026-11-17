@@ -243,7 +243,7 @@ async def main():
             await p.js("document.getElementById('float-btn').click()")     # con la cámara encendida
 
         # ---------------- ventana flotante
-        url, direccion = await pagina("flotante=1")
+        url, direccion = await pagina(API)        # la misma página: al flotar no se recarga (16 nov 2026)
         async with connect(url, max_size=None) as ws:
             p = Pagina(ws)
             await p.cmd("Runtime.enable")
@@ -282,10 +282,7 @@ async def main():
             await p.js("window.desktop.float(false); null")
 
         # ---------------- vuelta a la ventana normal
-        url, direccion = await pagina("auto=1&saludo=0")
-        if "flotante" in direccion:
-            await asyncio.sleep(1)
-            url, direccion = await pagina("/?auto=1&saludo=0")
+        url, direccion = await pagina(API)
         async with connect(url, max_size=None) as ws:
             p = Pagina(ws)
             await p.cmd("Runtime.enable")

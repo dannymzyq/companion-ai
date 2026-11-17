@@ -407,15 +407,43 @@ dd.bad { color: var(--danger); }
 .voice-form p.ob-info { margin: 0 0 4px; }
 .voice-form input[type="file"] { font: inherit; font-size: 0.84rem; color: var(--dim); }
 .voice-form .primary { margin-top: 6px; }
+/* Ajustes › Personalidad: el editor */
+.picker textarea {
+  width: 100%; padding: 10px 12px; border-radius: 12px; color: var(--ink); font: inherit; font-size: 0.88rem; resize: vertical;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); outline: none;
+}
+.picker textarea:focus { border-color: #a78bfa; }
+.traits { display: grid; gap: 10px; }
+.trait-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.84rem; }
+.trait-head small { color: var(--dim); font-size: 0.74rem; }
+.model-row .side { white-space: nowrap; }
 
 /* Modo flotante: solo Mika, sin ventana. Los botones aparecen al pasar el ratón por encima de ella. */
 .only-floating { display: none; }
 body.floating, html:has(body.floating) { background: transparent; }
 .floating .backdrop, .floating header, .floating #banner, .floating #start, .floating #settings,
-.floating #previews, .floating #keyboard, .floating #text-form, .floating #user-line, .floating #drop { display: none !important; }
+.floating #previews, .floating #text-form[hidden], .floating #user-line, .floating #drop,
+.floating #loading { display: none !important; }
 .floating .only-floating { display: grid; }
 .floating #canvas { -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent 99%); mask-image: linear-gradient(180deg, #000 80%, transparent 99%); cursor: grab; }
+.floating.no-fade #canvas { -webkit-mask-image: none; mask-image: none; }   /* Ajustes › Desvanecer los pies al flotar */
+.floating.sleeping #canvas { -webkit-mask-image: none; mask-image: none; }  /* recostada o tumbada: entera */
+/* Ajustes › Transparencia al flotar: con el ratón encima (o al agarrarla) se ve entera. */
+.floating #canvas, .floating #orb { opacity: var(--pet-opacity, 1); transition: opacity 0.25s; }
+.floating.hover #canvas, .floating.hover #orb { opacity: 1; }
 .floating footer { background: none; padding: 0 8px 10px; gap: 8px; }
+/* Con el personaje acercado (Ctrl + rueda) la ventana puede quedar en parte bajo la barra de tareas o fuera de la
+   pantalla: la barra se coloca en lo que sí se ve (desktop/pet.js manda cuánto queda fuera, 17 nov 2026). */
+.floating footer {
+  bottom: var(--pet-cut-bottom, 0px); left: var(--pet-cut-left, 0px); right: var(--pet-cut-right, 0px);
+  transition: opacity 0.15s;
+}
+.floating #asks, .floating #control, .floating #toast { margin-top: var(--pet-cut-top, 0px); }
+/* Mientras se mueve (cae, salta, pasea, la llevas o hace una acción) solo se ve el personaje. Las tarjetas de
+   permiso y el botón «Parar» (#asks, #control) no se esconden nunca. */
+/* El chat abierto (#text-form) se queda: le estás escribiendo (17 nov 2026). */
+.floating.pet-moving footer > .controls, .floating.pet-moving #captions { opacity: 0; pointer-events: none; }
+.floating.pet-moving footer > .controls * { pointer-events: none !important; }
 .floating .controls {
   gap: 8px; padding: 7px 9px; border-radius: 99px; background: rgba(18, 16, 30, 0.86); border: 1px solid var(--line);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); opacity: 0; transform: translateY(6px); pointer-events: none;
@@ -434,4 +462,20 @@ body.floating, html:has(body.floating) { background: transparent; }
   background: rgba(18, 16, 30, 0.88); border: 1px solid var(--line); text-shadow: none;
 }
 .floating #mika-line:empty { display: none; }
+/* Escribirle flotando (16 nov 2026): una cápsula con brillo bajo el personaje; Intro envía, Esc la cierra. */
+#text-send { display: none; }
+.floating #text-form { position: relative; width: calc(100% - 12px); animation: chat-in 0.22s ease-out; }
+.floating #text-input {
+  padding: 9px 42px 9px 15px; font-size: 0.84rem; background: rgba(18, 16, 30, 0.92); backdrop-filter: none;
+  border: 1px solid rgba(167, 139, 250, 0.6); box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.14), 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+.floating #text-form.sent #text-input { border-color: #86efac; }
+.floating #text-send {
+  display: grid; place-items: center; position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 30px; border-radius: 99px; border: none; color: #0c0b14;
+  background: linear-gradient(135deg, #c4b5fd, #a78bfa); cursor: pointer;
+}
+.floating #text-send svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+.floating #keyboard.active { background: rgba(167, 139, 250, 0.25); }
+@keyframes chat-in { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: none; } }
 .floating #toast { top: 8px; font-size: 0.78rem; max-width: 94vw; width: auto; }

@@ -4,6 +4,107 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.0 — 2026-11-17
+
+Todo lo nuevo funciona igual en Windows y en el Mac (la app del Mac se crea con el mismo código).
+
+- **Animaciones grabadas**: el cuerpo se mueve ahora con animaciones de captura de movimiento (reposo, hablar,
+  andar, agacharse, arrodillarse, aterrizar, cruzarse de brazos al enfadarse), adaptadas a cualquier VRM, también a
+  los que cargues tú. Encima sigue lo de siempre: respiración, mirada, gestos al hablar, emociones y toques. Andar
+  flotando avanza lo que mide su paso, sin patinar. Son de la Universal Animation Library de Quaternius (CC0).
+- **Anda y está de pie según cómo se siente**: con alegría da pasos largos y mueve los brazos, triste arrastra
+  los pies con la cabeza baja, tímida camina con pasitos cortos, y también enfadada, pensativa (manos a la espalda),
+  enamorada (pasos ligeros) o nerviosa (de puntillas). Sin una emoción marcada, anda según su personalidad (más
+  tímida u orgullosa). Al cambiar de emoción a media marcha pasa de un estilo a otro sin saltos. Son capturas de
+  personas reales de The 100STYLE Dataset - Ian Mason (CC BY 4.0), algo exageradas, como en el anime.
+- **Los pies se quedan en el suelo**: de pie ya no resbalan ni se hunden al mover la cadera; si el peso cambia
+  mucho, da un pasito para recolocar el pie, como una persona. Andando, el pie de apoyo no atraviesa el suelo.
+- **Movimiento fluido en el escritorio**: la caída, los saltos a una ventana, los paseos y el ir y venir de las
+  acciones se veían a tirones (unos 30 cuadros por segundo); ahora van al ritmo de tu pantalla. Sentada sobre una
+  ventana que mueves, la sigue con suavidad en vez de a saltos, y la mano llega al punto de una acción sin brincos.
+- **Solo el personaje mientras se mueve**: al caer, saltar, pasear, cuando la llevas con el ratón o mientras hace una
+  acción, se esconden la barra de botones y los subtítulos. Si tienes el chat abierto, se queda abierto (salvo cuando
+  se va a dormir: entonces se cierra). Las tarjetas de permiso y el botón «Parar» siguen a la
+  vista.
+- **Faldas y vestidos que no atraviesan las piernas**: en todos los modelos (también los tuyos) la ropa con
+  físicas choca ahora con los muslos y las espinillas y con el suelo: al recostarse, sentarse o levantar la rodilla,
+  la falda cae por encima de la pierna en vez de atravesarla o quedarse tiesa, y la falda y el pelo largo se apoyan en
+  el suelo en vez de hundirse.
+- **Le entra sueño**: a los 3 minutos sin usar la app se recuesta en el suelo de una de tres maneras, hacia el lado
+  izquierdo o el derecho de la pantalla: apoyada sobre un codo (al dormirse se desliza hasta quedar tumbada), sentada
+  con las rodillas dobladas (al dormirse abraza las rodillas y apoya la cabeza) o tumbada boca arriba con el móvil
+  sobre la cara (al dormirse lo baja al pecho; esta, solo en la ventana normal). En la primera, la pierna de
+  abajo va casi estirada y la otra con la rodilla alta y saca una tablet o el móvil para ver algo (la pantalla se ve encendida); al rato le entra sueño, cabecea,
+  deja la pantalla sobre el pecho y se duerme, con «Z» que suben. Flotando, antes va andando a la esquina de abajo
+  más cercana y se recuesta con la espalda hacia el borde de la pantalla. A veces, en la ventana, se sienta sobre los
+  talones a cabecear o se tumba a echar la siesta. En cuanto vuelves se despierta, guarda la pantalla, se levanta y a
+  veces se despereza.
+- **Puedes pedirle que haga cosas**: «¿puedes bailar?», «salta», «date una vuelta», «estírate», «haz un hechizo»,
+  «canta algo», «bebe algo», «haz la V», «saluda», «aplaude», «duérmete»… y lo hace mientras te contesta. Si el
+  modelo se olvida de hacerlo, el companion reconoce la petición y lo hace igual.
+- **Se entretiene sola**: si pasas un rato (unos 50 s) sin hablarle, escribirle ni pasar el ratón por su ventana, de
+  vez en cuando hace algo por su cuenta: baila, salta, da una vuelta, se estira y bosteza, tararea con notas
+  musicales, hace un pequeño hechizo con destellos, bebe algo o curiosea a su alrededor. En cuanto vuelves, lo deja.
+  Se apaga en Ajustes › Tú y tu personaje › «Se entretiene sola».
+- **El rubor sigue la cara**: al girar la cabeza, el rubor de las mejillas se quedaba flotando sobre el pelo. Ahora
+  está pegado a cada mejilla, gira con la cara, el pelo que cae delante lo tapa y la mejilla que no se ve no lo enseña.
+- **Dedos uno a uno**: cada dedo se mueve por su cuenta y llega a su ritmo (el índice primero, el meñique el
+  último); en reposo caen en cascada, como una mano de verdad. Posturas nuevas con cada dedo: mano suave al
+  explicar, palma abierta, pinza u «OK» al precisar algo, señalar, puño. Dos gestos nuevos que puede hacer:
+  pulgar arriba y la V de la paz junto a la cara.
+- **Más gestos en la cara**: con los modelos de VRoid (los incluidos y muchos de los tuyos), cejas, ojos y boca se
+  mueven por separado, así que cada emoción tiene su cara propia (ojos alegres con media sonrisa, cejas de pena con
+  boca pequeña…). Encima hace microgestos: sube las cejas al recalcar algo, entrecierra los ojos, una sonrisita, a
+  veces enseña el colmillo. Los demás modelos siguen con sus expresiones de siempre, también con microgestos.
+- **La boca sigue mejor lo que dice**: distingue vocales y consonantes (en p, t, k cierra un instante; en s, f, ch
+  deja los dientes juntos), con la técnica de wawa-lipsync (MIT).
+- **Triste se le ve la cara**: antes se encorvaba tanto que de frente solo se veía la coronilla.
+- **Con zoom, la barra se sigue viendo**: si alejas al personaje con Ctrl + rueda, la barra ya no se queda debajo de la
+  barra de tareas; y si lo acercas tanto que los pies salen de la ventana, ya no se queda flotando en el aire. Con
+  la ventana pequeña (rueda del ratón), la barra encoge para caber entera, sin cortar los botones de los lados.
+- **El pelo y la ropa notan el movimiento de la ventana**: al arrastrarla, cuando anda o cae, se quedan atrás y
+  vuelven, como si el cuerpo se moviera de verdad.
+- **Cambiar a flotante ya no corta nada**: si está hablando, sigue hablando, y la conversación, el micrófono y
+  la cámara siguen igual al pasar a flotante y al volver (antes se abría una página nueva y la respuesta se
+  cortaba).
+- **El modelo entero al flotar**: nueva opción en Ajustes › Tú y tu personaje, «Desvanecer los pies al flotar».
+  Apagada, se ve el personaje completo, sin el degradado de abajo.
+- **Cámara libre**: el modelo se gira por completo en horizontal y en vertical, se desplaza con el botón derecho
+  y la rueda acerca o aleja hacia donde apunta el ratón. Flotando: botón derecho para girarlo, central para
+  desplazarlo y Ctrl + rueda para acercar la cámara. Doble clic vuelve al encuadre de siempre.
+- **Tu personaje vive en el escritorio** (modo flotante, nuevo apartado Ajustes › «Escritorio»):
+  - te sigue con la mirada y reacciona al pasar el ratón, al tocarla (cabeza o cuerpo) y al arrastrarla;
+  - gravedad: si la sueltas en el aire cae a la barra de tareas;
+  - pasea de vez en cuando por el borde de abajo;
+  - se puede sentar sobre la ventana activa y la sigue si la mueves;
+  - cuando le pides algo en una aplicación, va al lado de esa ventana y se la ve trabajando de espaldas
+    (teclea, señala, desplaza) y al terminar se da la vuelta y vuelve a su sitio.
+  Con un juego o un vídeo a pantalla completa se queda quieta. Las ventanas solo se miran por su posición.
+  - Sentada sobre una ventana se pone de costado, con las manos en el borde y la cara hacia ti, para que la ropa no
+    se vea rara; andar tiene un ciclo de marcha natural y avanza al ritmo de sus pasos.
+  - Transparencia al flotar: elige cuánto se transparenta; con el ratón encima o al agarrarla se ve entera.
+- La opción «Desvanecer los pies al flotar» pasa a ese apartado.
+- La mirada en vivo sin clave de la nube ya no dice que se agotó la cuota.
+- **Personalidades** (nuevo apartado Ajustes › Personalidad): ocho incluidas (De confianza, Pura energía, Ironía
+  fina, Corazón tímido, Modo profesional, Calma total, Orgullo y ternura, Caos simpático). «Personalizar» copia
+  una para ajustarla (nueve rasgos, forma de hablar, muletillas, gustos, ánimo habitual, emociones y frases de
+  ejemplo) y también se puede crear una desde cero. Las respuestas siguen la elegida: reacciona antes de ayudar,
+  tiene opiniones y no suena genérica.
+- **Estado de ánimo**: las emociones que muestra le dejan un ánimo que dura entre turnos y vuelve poco a poco al
+  de siempre de su personalidad. Además nota cuánto hace que no hablabais.
+- **Toques por partes del cuerpo**, también en la ventana normal (un clic corto sobre el personaje): cabeza,
+  pecho, barriga, cadera, piernas, pies, brazos y manos reaccionan distinto, y al repetir sube de tono (corazones
+  grandes en la cabeza; sorpresa, rubor, «no, no» y enfado en el pecho o las piernas; cosquillas en la barriga y
+  los pies), según su personalidad.
+- **Reacciona a cómo la miras** con la cámara libre: de muy cerca a la cara, al pecho o a las piernas, desde abajo,
+  por la espalda o haciéndola girar. A veces te lo dice en voz alta, con su personalidad (Ajustes › Personalidad ›
+  «Comentar toques y miradas»; como mucho uno por minuto con la nube).
+- **Escribirle flotando**: el botón del teclado abre una cápsula bajo el personaje (Intro envía, Esc la cierra).
+- **Hace ella las acciones flotando**: en cada paso al usar una aplicación se coloca para que su mano quede sobre
+  lo que pulsa o escribe: de pie, en cuclillas o de rodillas si está abajo, de puntillas si está arriba.
+- **Permisos**: «Permitir siempre» también para usar una aplicación, y nueva opción **Acceso total** (Ajustes ›
+  Acciones en tu PC) para que no pregunte nunca. Los pasos delicados que no pediste se siguen confirmando.
+
 ## 0.7.0 — 2026-11-16
 
 Correcciones y mejoras de una revisión general del companion en Windows y en el Mac.

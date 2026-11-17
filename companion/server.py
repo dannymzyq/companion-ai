@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import actions, config, llm, models, profile, state, store, tts, voice_import, voz_proc
+from . import actions, config, llm, models, mood, personality, profile, state, store, tts, voice_import, voz_proc
 from .config import settings
 from .prompt import adult_active, load_persona
 from .session import Session
@@ -26,6 +26,15 @@ from .stt import Transcriber
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("companion")
 STARTED = int(time.time())
+
+
+class _QuietPolls(logging.Filter):
+    """La mascota de escritorio pregunta por la ventana activa cada 0,6 s: eso no va al registro."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/api/desktop/scene" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietPolls())
 
 persona = load_persona(settings.persona_path)
 try:
@@ -147,6 +156,8 @@ def public_config() -> dict:
         "model": model_path() is not None or models.kind(persona["name"]) == "orb",
         "model_id": models.active_id(persona["name"]), "model_kind": models.kind(persona["name"]),
         "barge_in": settings.barge_in, "actions": _actions_state(),
+        "personality": {"id": personality.active_id(), "name": personality.active()["name"],
+                        "temper": personality.temper(personality.active())},
         "started": STARTED,               # iniciar.ps1 lo compara con la fecha del código para saber si reiniciar
     }
 
@@ -203,17 +214,19 @@ class ActionsIn(BaseModel):
     enabled: bool | None = None
     forget_always: str | None = None      # deja de permitir siempre esa acción (vuelve a preguntar)
     ask: bool | None = None               # pedir permiso en una tarjeta antes de cada acción
+    full: bool | None = None              # acceso total: ninguna acción pide tarjeta
 
 
 @app.post("/api/actions", dependencies=[Depends(same_origin)])
 async def set_actions(body: ActionsIn):
-    actions.save(enabled=body.enabled, forget_always=body.forget_always, ask=body.ask)
+    actions.save(enabled=body.enabled, forget_always=body.forget_always, ask=body.ask, full=body.full)
     return {**_actions_state(), "history": actions.history(30)}
 
 
 @app.delete("/api/memory", dependencies=[Depends(same_origin)])
 async def forget():
     store.forget_all()
+    mood.reset()                          # su ánimo también sale de lo que hablaron
     return {"ok": True}
 
 
@@ -232,6 +245,46 @@ class FactIn(BaseModel):
 async def forget_fact(body: FactIn):
     store.delete_memory(body.fact)
     return await memory()
+
+
+# ---------------------------------------------------------------- personalidad
+def _personality_state() -> dict:
+    return {**personality.public(), "mood": mood.public(personality.active())}
+
+
+@app.get("/api/personality")
+async def get_personality():
+    """Las personalidades (incluidas y propias), la elegida y su ánimo de ahora."""
+    return _personality_state()
+
+
+class PersonalitySelectIn(BaseModel):
+    id: str
+
+
+@app.post("/api/personality/select", dependencies=[Depends(same_origin)])
+async def select_personality(body: PersonalitySelectIn):
+    try:
+        personality.select(body.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    return _personality_state()
+
+
+@app.post("/api/personality/custom", dependencies=[Depends(same_origin)])
+async def save_personality(body: dict):
+    """Crea una personalidad propia (desde cero o copiando una incluida, con `from`) o cambia una propia (`id`)."""
+    try:
+        personality.save_custom(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    return _personality_state()
+
+
+@app.delete("/api/personality/custom/{pid}", dependencies=[Depends(same_origin)])
+async def delete_personality(pid: str):
+    personality.delete_custom(pid)
+    return _personality_state()
 
 
 # ---------------------------------------------------------------- bienvenida y ajustes guardados
@@ -409,6 +462,15 @@ def _cloud_only_changes(on: bool, changes: dict) -> dict:
     return {"cloud_only": True, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
 
 
+@app.get("/api/desktop/scene")
+async def desktop_scene(sit: int = 0):
+    """Para la mascota de escritorio (modo flotante): dónde está la ventana activa y, con `sit`, la ventana sobre la
+    que está sentada. Solo posición y estado, nunca el título ni el contenido (companion/desktop_scene.py)."""
+    from . import desktop_scene as ds
+    fg = await asyncio.to_thread(ds.foreground)
+    return {"fg": fg, "sit": await asyncio.to_thread(ds.window, sit) if sit else None}
+
+
 @app.get("/api/update")
 async def get_update():
     """¿Hay una versión nueva publicada? (companion/update.py; como mucho una consulta a GitHub cada 12 horas)"""
@@ -454,6 +516,7 @@ async def reset_setup(body: ResetIn):
     if body.data:
         state.clear()
         store.forget_all()
+        mood.reset()
         profile.apply()
         transcriber.hint = _hint()
         llm.reset_cloud()

@@ -86,6 +86,8 @@ const DRAW = {
     }
   },
   exclaim(g) { glyph(g, '!', '#ffd23f', '#fff'); },
+  note(g) { glyph(g, '♪', '#c4b5fd', '#fff', 96); },          // nota musical (tararear, bailar)
+  zzz(g) { glyph(g, 'Z', '#9ec5ff', '#fff', 88); },           // dormida (sube despacio, como las demás)
   question(g) { glyph(g, '?', '#7cc4ff', '#fff'); },
   dots(g) {                                   // puntos suspensivos
     for (const x of [28, 64, 100]) {
@@ -97,6 +99,14 @@ const DRAW = {
   gloom(g) {                                  // rayas de desánimo o de susto
     g.strokeStyle = 'rgba(96,108,180,.9)'; g.lineWidth = 9;
     [[26, 96], [48, 112], [70, 88], [92, 108]].forEach(([x, len]) => { g.beginPath(); g.moveTo(x, 10); g.lineTo(x, len); g.stroke(); });
+  },
+  puff(g) {                                   // nube de vapor (vergüenza o enfado que «echa humo»)
+    for (const [x, y, r] of [[44, 74, 26], [70, 60, 30], [90, 80, 22], [62, 88, 24]]) {
+      g.beginPath(); g.arc(x, y, r, 0, 7);
+      g.fillStyle = 'rgba(255,255,255,.92)'; g.fill();
+    }
+    g.lineWidth = 5; g.strokeStyle = 'rgba(200,196,230,.9)';
+    for (const [x, y, r] of [[44, 74, 26], [70, 60, 30], [90, 80, 22]]) { g.beginPath(); g.arc(x, y, r, 3.6, 5.6); g.stroke(); }
   },
   blush(g) {                                  // rubor: mancha suave y tres trazos diagonales
     const r = g.createRadialGradient(64, 64, 4, 64, 64, 60);
@@ -143,6 +153,7 @@ export class Effects {
     this.parts = [];                        // partículas vivas
     this.blush = [this._sprite('blush'), this._sprite('blush')];
     this.blushW = 0;
+    this.cheeks = null;                     // rubor pegado a la cara (attachBlush): planos hijos del hueso de la cabeza
     this.hold = this._sprite('dots');
     this.holdKind = null;
     this.holdW = 0;
@@ -152,6 +163,8 @@ export class Effects {
     this._r = new THREE.Vector3();
     this._u = new THREE.Vector3();
     this._p = new THREE.Vector3();
+    this._q = new THREE.Vector3();
+    this._w = new THREE.Vector3();
   }
 
   _sprite(kind) {
@@ -163,6 +176,35 @@ export class Effects {
     return s;
   }
 
+  // Rubor pegado a la cara (17 nov 2026). Antes era un cartel que siempre miraba a la cámara y se dibujaba encima de
+  // todo: al girar la cabeza, la mancha de la mejilla lejana quedaba flotando sobre el pelo. Ahora cada mejilla es un
+  // plano hijo del hueso de la cabeza, orientado como la piel de esa mejilla (de frente y algo hacia fuera): gira con
+  // la cara, se ve en escorzo de perfil, el pelo que cae delante lo tapa y la mejilla que no se ve se apaga.
+  // node = hueso de la cabeza; cheeks, eyes, forward en su espacio local; unit = alto de la cara (m).
+  attachBlush(node, { cheeks, eyes, forward, unit }) {
+    this.detachBlush();
+    if (!node) return;
+    this.cheeks = cheeks.map((c) => {
+      const out = new THREE.Vector3(Math.sign(c.x - eyes.x) || 1, 0, 0);
+      const n = forward.clone().normalize().addScaledVector(out, 0.4).normalize();
+      const mat = new THREE.MeshBasicMaterial({ map: this.tex.blush, transparent: true, opacity: 0, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, toneMapped: false });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.5 * unit, 0.5 * unit), mat);
+      m.position.copy(c).addScaledVector(n, 0.14 * unit);       // algo por delante de la piel (la mejilla es curva)
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+      m.renderOrder = 19;
+      m.visible = false;
+      m.userData.normal = n;
+      node.add(m);
+      return m;
+    });
+  }
+  detachBlush() {
+    if (!this.cheeks) return;
+    for (const m of this.cheeks) { m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); }
+    this.cheeks = null;
+  }
+
   setFeeling(name) {
     if (!(name in FEELINGS) || name === this.feeling) return;
     this.feeling = name;
@@ -172,18 +214,25 @@ export class Effects {
     if (f.burst) for (let i = 0; i < f.burst[1]; i++) this._spawn(f.burst[0], i * 0.09, true);
   }
 
+  // Un estallido a propósito (los toques y cómo la miras, 16 nov 2026): `n` de `kind`, de `size` veces su tamaño.
+  burst(kind, n = 1, size = 1) {
+    if (!(kind in DRAW)) return;
+    for (let i = 0; i < n; i++) this._spawn(kind, i * 0.08, true, size);
+  }
+
   // Una partícula: nace junto a la cabeza y sube (o cae, si es una gota o una lágrima) mientras se desvanece.
-  _spawn(kind, delay = 0, burst = false) {
+  _spawn(kind, delay = 0, burst = false, scale = 1) {
     const falls = kind === 'drop' || kind === 'tear';
     const side = Math.random() < 0.5 ? -1 : 1;
     const p = {
       sprite: this._sprite(kind), kind, age: -delay, falls,
-      life: falls ? 1.5 : kind === 'spark' ? 0.9 : kind === 'exclaim' || kind === 'question' ? 1.3 : 1.9,
+      life: (falls ? 1.5 : kind === 'spark' ? 0.9 : kind === 'exclaim' || kind === 'question' ? 1.3 : kind === 'puff' ? 1.2 : 1.9) * (scale > 1.3 ? 1.3 : 1),
       // posición en «cabezas»: x a los lados, y hacia arriba desde la altura de los ojos
       x: kind === 'tear' ? side * 0.36 : falls ? side * rand(0.78, 0.95) : kind === 'exclaim' || kind === 'question' ? side * rand(0.55, 1.0) : rand(-1.15, 1.15),
       y: kind === 'tear' ? -0.25 : falls ? rand(0.75, 1.0) : kind === 'exclaim' || kind === 'question' ? rand(1.2, 1.6) : rand(0.5, 1.5),
       vx: falls ? 0 : rand(-0.12, 0.12), vy: falls ? (kind === 'tear' ? -0.55 : -0.42) : kind === 'spark' ? rand(0.1, 0.4) : rand(0.35, 0.6),
-      size: kind === 'tear' ? 0.26 : falls ? 0.42 : kind === 'spark' ? rand(0.3, 0.5) : kind === 'heart' ? rand(0.36, 0.56) : 0.62,
+      size: scale * (kind === 'tear' ? 0.26 : falls ? 0.42 : kind === 'spark' ? rand(0.3, 0.5) : kind === 'heart' ? rand(0.36, 0.56)
+        : kind === 'puff' ? rand(0.45, 0.65) : 0.62),
       spin: kind === 'spark' ? rand(-2.5, 2.5) : kind === 'heart' ? rand(-0.4, 0.4) : 0,
       wobble: rand(0, 6.28), pop: burst || kind === 'exclaim' || kind === 'question',
     };
@@ -225,14 +274,27 @@ export class Effects {
       return false;
     });
 
-    // Rubor: sobre cada mejilla, solo cuando se le ve la cara.
-    this.blushW += ((f.blush || 0) * head.facing - this.blushW) * Math.min(1, dt * 4);
-    this.blush.forEach((s, i) => {
-      s.visible = this.blushW > 0.01;
-      s.position.copy(head.cheeks[i]);
-      s.scale.set(0.5 * k, 0.5 * k, 1);
-      s.material.opacity = this.blushW;
-    });
+    // Rubor: sobre cada mejilla, solo cuando se le ve la cara. Con un VRM, pegado a la cara (attachBlush): cada
+    // mejilla se apaga según cuánto mira a la cámara; en la esfera, los carteles de siempre.
+    if (this.cheeks) {
+      this.blushW += ((f.blush || 0) - this.blushW) * Math.min(1, dt * 4);
+      this.blush.forEach((s) => (s.visible = false));
+      this.cheeks.forEach((m) => {
+        const n = this._p.copy(m.userData.normal).transformDirection(m.parent.matrixWorld);
+        const toCam = this._q.setFromMatrixPosition(cam.matrixWorld).sub(m.getWorldPosition(this._w)).normalize();
+        const facing = clamp((n.dot(toCam) - 0.05) * 3);
+        m.material.opacity = this.blushW * facing;
+        m.visible = m.material.opacity > 0.01;
+      });
+    } else {
+      this.blushW += ((f.blush || 0) * head.facing - this.blushW) * Math.min(1, dt * 4);
+      this.blush.forEach((s, i) => {
+        s.visible = this.blushW > 0.01;
+        s.position.copy(head.cheeks[i]);
+        s.scale.set(0.5 * k, 0.5 * k, 1);
+        s.material.opacity = this.blushW;
+      });
+    }
 
     // Signo fijo (puntos suspensivos, marca de enfado, rayas): flota junto a la cabeza.
     if (f.hold && f.hold !== this.holdKind && this.holdW < 0.05) {
@@ -260,6 +322,7 @@ export class Effects {
     this.parts = [];
     this.blushW = this.holdW = 0;
     this.blush.forEach((s) => (s.visible = false));
+    if (this.cheeks) this.cheeks.forEach((m) => (m.visible = false));
     this.hold.visible = false;
   }
 }

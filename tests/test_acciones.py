@@ -47,10 +47,18 @@ class Preparar(unittest.TestCase):
             with self.assertRaises(actions.ActionError):
                 actions.prepare(nombre, ["x"])
 
-    def test_controlar_nunca_permitir_siempre(self):
-        self.assertTrue(actions.CATALOG["controlar"].get("no_always"))
+    def test_controlar_se_puede_permitir_siempre(self):
+        """Desde el 16 nov 2026 (petición del usuario); los pasos delicados se siguen confirmando aparte."""
         actions.save(add_always="controlar")
-        self.assertNotIn("controlar", actions.always())
+        self.assertIn("controlar", actions.always())
+        actions.save(forget_always="controlar")
+
+    def test_acceso_total(self):
+        actions.save(full=True, ask=True)
+        self.assertTrue(actions.config()["full"])
+        self.assertFalse(actions.config()["ask"])          # con acceso total no hay tarjetas
+        actions.save(full=False, ask=False)
+        self.assertFalse(actions.config()["full"])
 
 
 class OrdenesClaras(unittest.TestCase):

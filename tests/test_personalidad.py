@@ -1,0 +1,139 @@
+"""Personalidades y estado de ánimo (16 nov 2026): catálogo, propias, lo que llega al prompt y el ánimo entre turnos."""
+import unittest
+
+from tests import ROOT  # noqa: F401  (fija el entorno de prueba)
+
+from fastapi.testclient import TestClient
+
+from companion import mood, personality, prompt, server, state
+from companion.config import settings
+
+ORIGIN = {"Origin": "http://127.0.0.1:8299"}
+
+
+def base():
+    return prompt.load_persona(settings.persona_path)
+
+
+class Catalogo(unittest.TestCase):
+    def test_incluidas_validas(self):
+        ids = [p["id"] for p in personality.catalog()]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertIn(personality.DEFAULT, ids)
+        for p in personality.catalog():
+            self.assertTrue(p["name"] and p["summary"] and p["description"] and len(p["examples"]) >= 3, p["id"])
+            self.assertIn(p["base_mood"], prompt.EMOTIONS, p["id"])
+            self.assertTrue(p["emotions"] and all(e in prompt.EMOTIONS for e in p["emotions"]), p["id"])
+            self.assertEqual(set(p["traits"]), set(personality.TRAITS))
+
+
+class Propias(unittest.TestCase):
+    def setUp(self):
+        state.save(personality={})
+
+    def test_personalizar_copia_la_incluida(self):
+        c = personality.save_custom({"from": "orgullo", "name": "Mía", "traits": {"warmth": 3, "humor": "x"},
+                                     "examples": "Hola\n[accion: abrir_app | x]\n<b>", "catchphrases": "a, b, a"})
+        self.assertTrue(c["id"].startswith("c_"))
+        self.assertEqual(personality.active_id(), c["id"])
+        self.assertEqual(c["traits"]["warmth"], 1.0)                   # dentro de 0..1
+        self.assertEqual(c["catchphrases"], ["a", "b"])
+        self.assertFalse(any("[" in e or "<" in e for e in c["examples"]))   # sin etiquetas ni HTML
+        self.assertEqual(personality.find("orgullo")["name"], "Orgullo y ternura")   # la incluida no cambia
+        personality.save_custom({"id": c["id"], "name": "Mía 2"})
+        self.assertEqual(personality.find(c["id"])["name"], "Mía 2")
+        self.assertEqual(len(personality.custom()), 1)
+        personality.delete_custom(c["id"])
+        self.assertEqual(personality.active_id(), "orgullo")             # vuelve a aquella de la que salió
+
+    def test_sin_nombre_no(self):
+        with self.assertRaises(ValueError):
+            personality.save_custom({"name": "  "})
+
+    def test_elegida_desconocida(self):
+        state.save(personality={"active": "no_existe"})
+        self.assertEqual(personality.active_id(), personality.DEFAULT)
+        with self.assertRaises(ValueError):
+            personality.select("no_existe")
+
+
+class Prompt(unittest.TestCase):
+    def test_la_personalidad_cambia_el_trato_no_las_reglas(self):
+        b = base()
+        p = personality.apply(b, personality.find("ironia"))
+        for key in ("name", "age", "adult", "voice", "boundaries", "role"):
+            self.assertEqual(p.get(key), b.get(key), key)
+        s = prompt.build_system_prompt(p, user_name="Ana", memories=[], adult=False)
+        self.assertIn("Ironía fina", s)
+        self.assertIn("qué sorpresa", s)
+        self.assertIn(personality.find("ironia")["examples"][0], s)
+        self.assertIn("nunca está por encima de las reglas", s)
+        self.assertLess(s.index("# Tu forma de ser"), s.index("# Reglas que nunca rompes"))
+        self.assertGreater(prompt.sampling_for(p)["temperature"], prompt.sampling_for(
+            personality.apply(b, personality.find("profesional")))["temperature"])
+
+    def test_el_animo_no_va_en_el_prompt_de_sistema(self):
+        """El prompt de sistema no cambia entre turnos (caché del modelo local): el ánimo va en el turno."""
+        p = personality.apply(base(), personality.find("confianza"))
+        before = prompt.build_system_prompt(p, user_name="Ana", memories=[], adult=False)
+        mood.feel("triste", p["personality"])
+        self.assertEqual(before, prompt.build_system_prompt(p, user_name="Ana", memories=[], adult=False))
+        ctx = prompt.turn_context("lunes", mood.describe(p["personality"]))
+        self.assertIn("Tu ánimo", ctx)
+        mood.reset()
+
+
+class Animo(unittest.TestCase):
+    def setUp(self):
+        mood.reset()
+        self.p = personality.find("confianza")
+
+    def test_las_emociones_dejan_huella_y_se_pasan(self):
+        t = 1_000_000.0
+        self.assertEqual(mood.describe(self.p, t), "")
+        mood.feel("triste", self.p, t)
+        mood.feel("triste", self.p, t + 10)
+        text = mood.describe(self.p, t + 20)
+        self.assertIn("te sentiste triste", text)
+        self.assertTrue("decaída" in text or "baja de ánimo" in text, text)
+        self.assertEqual(mood.describe(self.p, t + 5 * 3600), "")     # horas después vuelve a su ánimo de siempre
+
+    def test_la_expresividad_cuenta(self):
+        calm = {**self.p, "traits": {**self.p["traits"], "expressiveness": 0.0}}
+        wild = {**self.p, "traits": {**self.p["traits"], "expressiveness": 1.0}}
+        mood.feel("molesta", calm, 0)
+        v_calm = mood.public(calm, 0)["valence"]
+        mood.reset()
+        mood.feel("molesta", wild, 0)
+        self.assertLess(mood.public(wild, 0)["valence"], v_calm)
+
+    def test_cuanto_hace_que_no_hablaban(self):
+        self.assertEqual(mood.since_last_talk(None), "")
+        self.assertEqual(mood.since_last_talk(1000, 1000 + 3600), "")
+        self.assertIn("3 días", mood.since_last_talk(0, 3 * 86400))
+
+
+class Api(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.c = TestClient(server.app, base_url="http://127.0.0.1:8299")
+
+    def test_elegir_crear_y_borrar(self):
+        state.save(personality={})
+        r = self.c.get("/api/personality").json()
+        self.assertEqual(r["active"], personality.DEFAULT)
+        self.assertIn("mood", r)
+        self.assertEqual(self.c.post("/api/personality/select", json={"id": "calma"}, headers=ORIGIN).json()["active"], "calma")
+        self.assertEqual(self.c.post("/api/personality/select", json={"id": "x"}, headers=ORIGIN).status_code, 400)
+        self.assertEqual(self.c.post("/api/personality/select", json={"id": "calma"},
+                                     headers={"Origin": "https://malicioso.example"}).status_code, 403)
+        r = self.c.post("/api/personality/custom", json={"name": "Nueva", "base_mood": "feliz"}, headers=ORIGIN).json()
+        pid = r["active"]
+        self.assertTrue(pid.startswith("c_"))
+        self.assertEqual(self.c.get("/api/config").json()["personality"]["name"], "Nueva")
+        r = self.c.delete(f"/api/personality/custom/{pid}", headers=ORIGIN).json()
+        self.assertEqual(r["active"], personality.DEFAULT)
+
+
+if __name__ == "__main__":
+    unittest.main()

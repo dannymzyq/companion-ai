@@ -136,7 +136,9 @@ async def observe(messages: list[dict], sampling: dict, images: list[Image]) -> 
     En la nube usa solo WATCH_MODEL, para no gastar la cuota de la conversación."""
     if settings.is_cloud:
         model = settings.watch_model if _is_gemini() else settings.cloud_model
-        if not settings.gemini_api_key or not model or not _usable(model):
+        if not settings.gemini_api_key or not model:
+            raise LLMError("La mirada en vivo necesita la clave del cerebro en la nube (Ajustes › Cerebro).")
+        if not _usable(model):
             raise LLMError(f"La mirada en vivo no está disponible ahora: {model} agotó su cuota gratuita de hoy.")
         try:
             return "".join([p async for p in _gemini(model, _images_openai(messages, images), sampling)])

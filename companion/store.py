@@ -42,6 +42,12 @@ def anchor(keep: int) -> int:
     return row[0] if row else 0
 
 
+def previous_ts(skip: int = 1) -> float | None:
+    """Cuándo fue el mensaje anterior a los `skip` últimos (con 1: el anterior al que acaba de llegar)."""
+    row = _db.execute("SELECT ts FROM messages ORDER BY id DESC LIMIT 1 OFFSET ?", (skip,)).fetchone()
+    return row[0] if row else None
+
+
 def since(first_id: int) -> list[tuple[int, str, str]]:
     """Mensajes desde ese id, en orden: (id, rol, texto)."""
     return _db.execute("SELECT id, role, text FROM messages WHERE id >= ? ORDER BY id", (first_id,)).fetchall()

@@ -244,17 +244,66 @@ recuerdos (`POST /api/setup/reset`), y deja el companion como recién instalado.
   descartan. Antes el modelo casi nunca escribía `[recordar: …]` (9 datos en 633 mensajes).
 - Con la nube, cada resumen va primero a `BACKGROUND_MODEL` (`gemma-4-26b-a4b-it`, con mucha más cuota), para no
   gastar las 20 peticiones diarias de la conversación.
-- «Olvidar todo» borra las tres cosas.
+- «Olvidar todo» borra las tres cosas (y devuelve su ánimo al de siempre).
+- **Ánimo** (16 nov 2026, `companion/mood.py`): cada `[emo:…]` mueve un ánimo (agrado y energía) que dura entre
+  turnos y vuelve al habitual de la personalidad (vida media de 25 min). Va en el contexto del turno, con cuánto
+  hace que no hablabais si son más de 6 horas. Solo se guardan dos números y la última emoción fuerte
+  (`data\mood.json`), nada de lo dicho.
+
+## Personalidad
+
+Ajustes › Personalidad (`companion/personality.py`, catálogo en `personas/personalidades.json`). La elegida cambia
+rasgos, forma de hablar, muletillas, gustos, ánimo habitual, emociones que más se le notan y frases de ejemplo
+(lo que más ayuda a que no suene plano). «Personalizar» una incluida hace una copia propia; también se crea desde
+cero. Las propias se guardan en `data\settings.json` (`personality`). El nombre, la edad, la voz, los límites, el
++18 y las reglas no dependen de la personalidad. API: `GET /api/personality`, `POST /api/personality/select`,
+`POST /api/personality/custom`, `DELETE /api/personality/custom/{id}`.
+
+## Mirar el modelo
+
+En la ventana normal la cámara es libre: arrastra para girar al personaje en cualquier dirección (también por
+completo en horizontal y en vertical), con el botón derecho lo desplazas y la rueda acerca o aleja hacia donde
+apunta el ratón. Doble clic: vuelve al encuadre de siempre.
 
 ## Modo flotante
 
 El botón de la flecha (en la barra de abajo, junto a compartir pantalla) saca a Mika de su ventana: queda sola, sin marco ni fondo, por encima
-de todas las demás ventanas, y la conversación sigue sin cortes.
+de todas las demás ventanas. Al cambiar de modo (en los dos sentidos) no se corta nada: si está hablando, sigue
+hablando, y la conversación, el micrófono y la cámara siguen igual.
 
 - Arrástrala para moverla; la rueda del ratón la hace más grande o más pequeña.
+- Con el botón derecho la giras y con el central la desplazas; Ctrl + rueda acerca o aleja la cámara. Doble clic
+  la vuelve a encuadrar.
+- Ajustes › Tú y tu personaje › «Desvanecer los pies al flotar»: encendido, de medio cuerpo con la parte de abajo
+  desvanecida; apagado, el modelo entero, sin degradado.
 - Los clics solo «tocan» a Mika: en la zona transparente atraviesan hacia la ventana de debajo.
 - Al pasar el ratón por encima aparecen sus botones: cámara, micrófono, pantalla, callar, volver a la ventana y cerrar.
 - No se muestra sobre juegos en pantalla completa exclusiva; sí sobre los que usan «ventana sin bordes».
+
+## Tu personaje en el escritorio
+
+Mientras flota, tu personaje vive en el escritorio. Todo se ajusta en Ajustes › «Escritorio (modo flotante)»:
+
+- **Te sigue con la mirada** a donde muevas el ratón.
+- **Reacciona** si pasas el ratón por encima (te mira, a veces saluda) o si le haces clic (también en la ventana
+  normal, con un clic corto): cada parte del cuerpo tiene su reacción y, si repites, sube de tono (corazones grandes
+  en la cabeza; rubor, «no, no» y enfado en el pecho o las piernas; cosquillas en la barriga y los pies), según su
+  personalidad. También reacciona si la miras con la cámara de muy cerca, desde abajo o por la espalda, y a veces
+  lo comenta en voz alta. Al arrastrarla se la ve colgando, como si la llevaras.
+- **Escribirle**: el botón del teclado abre una cápsula bajo el personaje; Intro envía y Esc la cierra.
+- **Gravedad**: si la sueltas en el aire cae hasta la barra de tareas, o hasta el borde de una ventana.
+- **Pasea** de vez en cuando por el borde de abajo (nunca, a veces o a menudo). Se para si le hablas.
+- **Transparencia**: se puede ver más o menos transparente mientras flota; con el ratón encima o al agarrarla se
+  ve entera.
+- **Se sienta sobre la ventana activa** (apagado por defecto): al cambiar de ventana salta a su borde y la sigue
+  si la mueves; si la minimizas o la cierras, cae.
+- **Acompaña las acciones**: cuando le pides algo en una aplicación («abre Apple Music y pon…»), va a esa
+  ventana y, en cada paso, se coloca para que la punta de su dedo quede sobre lo que pulsa o escribe: de pie, en
+  cuclillas o de rodillas si está abajo en la pantalla, de puntillas si está arriba. Mientras, sus clics la
+  atraviesan. Con
+  las acciones sencillas (abrir una app o una web) solo se gira un momento. Nunca trae la ventana al frente.
+- Con un juego o un vídeo a pantalla completa se queda quieta. De las demás ventanas solo usa dónde están, nunca
+  lo que muestran, y nada sale de tu PC.
 
 ## Acciones en tu PC (con permiso)
 
@@ -262,6 +311,9 @@ de todas las demás ventanas, y la conversación sigue sin cortes.
 2026). Si prefieres aprobar cada acción, enciende **Ajustes › Acciones en tu PC › Pedir permiso antes de cada
 acción**: entonces cada una espera en una tarjeta con **Permitir**, **Permitir siempre** y **No** (también vale
 decir «sí» o «no»; caduca a los 2 minutos).
+
+**Permitir siempre** también vale para usar una aplicación. Y **Acceso total** (apagado por defecto) quita todas
+las tarjetas, también la de la pantalla compartida; solo se siguen confirmando los pasos delicados que no pediste.
 
 Aunque esté apagado, sí aparece una tarjeta en dos casos:
 - **Pasos delicados que tu orden no pedía:** Enviar, Comprar, Borrar… «Elimina la lista» autoriza a pulsar
@@ -557,7 +609,58 @@ Si un modelo trae expresiones más o menos marcadas, los pesos están en `EMOTIO
 
 ## Movimiento y emociones
 
-Todo el movimiento es procedural sobre el esqueleto humanoide normalizado, así que vale para cualquier VRM:
+Todo el movimiento va sobre el esqueleto humanoide normalizado, así que vale para cualquier VRM (los incluidos y
+los que cargues):
+
+- **Animaciones grabadas** (17 nov 2026): la base del cuerpo son animaciones de captura de movimiento de la
+  Universal Animation Library de Quaternius (CC0; ver `web/anim/CREDITOS.md`), convertidas a VRM con
+  `scripts/convertir_animaciones.py` en `web/anim/clips.json`: reposo, hablar, andar, agacharse, arrodillarse,
+  aterrizar y cruzarse de brazos (enfado). Se mezclan con lo escrito en código, que va encima: respiración,
+  mirada, gestos al hablar, emociones, toques. El reposo grabado se toma con los pies más juntos y el andar pisa
+  hacia el centro, para que se vea menos de personaje de acción. Si falta el archivo, todo sigue como antes.
+- **Estilos según la emoción** (17 nov 2026): andar y estar de pie salen de The 100STYLE Dataset - Ian Mason
+  (CC BY 4.0, `scripts/anim_bvh.py`): neutro, alegre, triste, enfado, tímido, orgullo, pensar, ligero y nervioso
+  (`EMO_STYLE` en `avatar.js`; sin emoción, manda la personalidad). Se funden al cambiar, van a la par en la fase
+  de la marcha, y su ritmo y velocidad los usa la mascota para avanzar. El movimiento se marca algo más que la
+  captura (`amp` de cada capa), más con alegría y menos con tristeza.
+- **Manos** (17 nov 2026): posturas con cada dedo por separado (`HANDS` en `avatar.js`: relax, grace, open, fist,
+  point, ok, pinch, thumb, peace; en los brazos, `hs`), cascada natural, un temblor mínimo de cada dedo en reposo y
+  cada dedo con su velocidad (`FINGER_RATE`). El pulgar se opone (cruza hacia el índice) al cerrarse (`THUMB`).
+  Gestos `[gesto:pulgar]` y `[gesto:paz]`; al hablar, `precisa` (pinza u OK).
+- **Cara por partes** (`web/js/face.js`): en los modelos de VRoid se registran las formas sueltas de cejas, ojos y
+  boca (`Fcl_BRW_*`, `Fcl_EYE_*`, `Fcl_MTH_*`) como expresiones `p_…` y cada emoción se arma con ellas
+  (`EMO_PARTS`). Microgestos al azar (`Micro`, idea de TalkingHead): cejas al recalcar, entrecerrar, sonrisita,
+  colmillo. Sin esas formas, las expresiones completas de siempre.
+- **Boca** (`web/js/lipsync.js`, adaptado de wawa-lipsync, MIT): 7 bandas de formantes y el centroide (audio.js)
+  → vocal, oclusiva (cierra) o fricativa (dientes juntos); se mezcla 60/40 con el reparto por bandas de antes.
+  Créditos en `web/js/CREDITOS.md`.
+- **Ropa con físicas** (`_legColliders`): al cargar, cápsulas en muslos y espinillas (huesos de verdad) y un plano de
+  suelo para toda cadena de físicas bajo el pecho (por encima, solo el suelo). Las piezas rígidas de algunas faldas
+  (sin física propia) no se pueden empujar.
+- **Sueño** (17 nov 2026): tras `SLEEP_AFTER` (180 s) sin usar la app, `sleepNow` → `lean` casi siempre (recostada:
+  `lay_up` al revés parado en `LEAN.base`, pierna izquierda estirada, mirando una tablet o un móvil de `props.js`
+  colocado en cada cuadro entre las manos o en la palma por `_placeDevice`; tras `LEAN.watch` le entra sueño y tras
+  `LEAN.drowsy` deja la pantalla en el pecho y se duerme). Flotando, `pet.rest(true)` la lleva andando a la esquina
+  de abajo más cercana y responde `rest` con el lado de la pared (`restAt`). En la ventana, a veces `nod` (seiza,
+  cabeceando) o `nap` (tumbada con `lay_up` al revés, `sleepYaw`). Ojos por `sleepEyes`, «zzz» de effects.js, sin IK de pies. `wake()` la despierta (la siesta se levanta
+  con el clip hacia delante). Mientras duerme, la mascota recibe el estado `sleep` y no pasea.
+- **A petición**: los pasatiempos tienen nombre público (`bailar`, `saltar`, `girar`, `estirarse`, `hechizo`,
+  `tararear`, `beber`) y `dormir` (se duerme al terminar de hablar). El prompt le dice que los haga cuando se los
+  pidan; `companion/play.py` reconoce la petición en tus palabras y la sesión añade el gesto a la primera frase si el
+  modelo no lo puso (`tests/test_juego.py`).
+- **Pasatiempos** (17 nov 2026): tras `BORED_AFTER` (50 s) sin usar la app (`avatar.wake()` desde main.js con el
+  ratón en la ventana, teclado, clic o rueda; hablar o escribir cambian el estado y también cuentan), hace uno de
+  `HOBBIES` cada 15–40 s: `_bailar`, `_saltar`, `_girar` (`spinYaw`), `_estirarse` (bostezo), `_hechizo`, `_tararear`,
+  `_beber`, `_curiosear` (en `GESTURES`; usan los clips dance, jump_*, spell, consume si están). La cara de cada uno
+  va por `faceX`. Una actividad de la mascota o volver a usar la app lo corta (`endHobby`). `companion.hobby` en
+  localStorage; la esfera hace los suyos en orb.js.
+- **Rubor pegado a la cara**: `effects.attachBlush` cuelga un plano por mejilla del hueso de la cabeza, orientado
+  hacia fuera, con prueba de profundidad (el pelo lo tapa) y apagado según mire a la cámara. El punto de la mejilla
+  se busca sobre la piel con un rayo contra las mallas con expresiones (`_onSkin`).
+- **Pies en el suelo**: IK de dos huesos (`_legIK`) después de los muelles. De pie cada pie queda clavado y da un
+  pasito si la animación lo aleja; andando solo se corrige la altura. `avatar.ikOn = false` lo apaga.
+- **Físicas**: el pelo, la falda y los adornos son los muelles del propio VRM. Flotando, notan además el movimiento
+  de la ventana (al arrastrarla, andar o caer se quedan atrás y vuelven).
 
 - **Cómo se mueve** (pulido el 13 nov 2026): cada hueso va hacia su postura como un muelle, con inercia y un pequeño
   rebote (la mano llega un instante después que el antebrazo); los movimientos ociosos usan ruido suave en vez de
