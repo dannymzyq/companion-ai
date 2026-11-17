@@ -192,7 +192,7 @@ async def main():
             proc.wait(5)
         except subprocess.TimeoutExpired:
             proc.kill()
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        _prueba.cerrar(proc)
 
 
 def cfg_year() -> int:

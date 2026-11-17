@@ -31,6 +31,10 @@ if (TEST) {
   if (process.env.COMPANION_TEST_REAL_MEDIA !== '1') app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('remote-debugging-port', process.env.COMPANION_TEST_PORT || '9334');
   app.setPath('userData', path.join(app.getPath('temp'), 'companion-pc-prueba'));   // perfil aparte del real
+  if (process.platform === 'darwin') {
+    // macOS da por tapada una ventana fuera de la pantalla y Chromium la dejaba en 2 cuadros por segundo.
+    for (const s of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) app.commandLine.appendSwitch(s);
+  }
 } else if (process.env.COMPANION_BOOTED === '1') {
   app.on('second-instance', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });   // el candado es de mac.js
 } else if (!app.requestSingleInstanceLock()) {
@@ -69,7 +73,19 @@ const webPreferences = () => ({
 });
 
 function place(bounds) {
-  return TEST ? { ...bounds, x: -4000, y: -4000 } : bounds;     // en pruebas, fuera de la pantalla
+  // En pruebas, fuera de la pantalla. macOS devuelve a la pantalla las ventanas que se crean fuera de ella:
+  // enableLargerThanScreen lo evita en las sin marco (la flotante) y reshow() las vuelve a mover tras mostrarlas.
+  return TEST ? { ...bounds, x: -4000, y: -4000, enableLargerThanScreen: true } : bounds;
+}
+
+function reshow(w) {
+  if (!TEST || process.platform !== 'darwin') { w.show(); return; }
+  w.showInactive();                                 // en pruebas en el Mac, sin quitarle el foco al usuario
+  w.setPosition(-4000, -4000);
+  if (w.getBounds().x + w.getBounds().width > -1000) {   // la ventana con marco: macOS deja un borde en la pantalla
+    w.setOpacity(0);                                 // invisible y sin recibir clics (las capturas son de la página)
+    w.setIgnoreMouseEvents(true);
+  }
 }
 
 // ---------------------------------------------------------------- arranque: la ventana se abre ya
@@ -201,7 +217,7 @@ function open(next) {
     app.quit();
   });
   if (picker && !picker.isDestroyed()) picker.destroy();        // estaba pegada a la ventana que se va
-  w.show();
+  reshow(w);
   if (old && !old.isDestroyed()) old.destroy();
   const wc = view.webContents;
   if (first) {

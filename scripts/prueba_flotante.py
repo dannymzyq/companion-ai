@@ -29,7 +29,7 @@ import _prueba  # noqa: E402  (antes que companion.*: aísla datos, modelos y pu
 ROOT = _prueba.ROOT
 API = _prueba.URL
 PORT = 9336
-ELECTRON = ROOT / "desktop" / "electron" / "electron.exe"
+ELECTRON = _prueba.ELECTRON
 TONO = """(() => { const a = window.companion.audio; const n = 24000 * 6, pcm = new Int16Array(n);
   for (let i = 0; i < n; i++) pcm[i] = Math.round(9000 * Math.sin(2 * Math.PI * 220 * i / 24000));
   a.beginSentence({ id: 99, text: 'Tono de prueba', emotion: null, gestures: [] }); a.enqueue(pcm.buffer); a.endSentence();
@@ -153,7 +153,7 @@ async def main():
             await p.js("(() => { const t = document.getElementById('float-fade'); t.checked = true; t.dispatchEvent(new Event('change')); })()")
         print("OK: el cambio de modo no corta la voz ni recarga la página; degradado opcional; cámara libre.")
     finally:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        _prueba.cerrar(proc)
 
 
 if __name__ == "__main__":

@@ -19,10 +19,27 @@ ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "data" / "prueba"
 PORT = 8201
 URL = f"http://127.0.0.1:{PORT}"
+# El Electron de desktop/electron (scripts/instalar_escritorio.ps1 en Windows; en el Mac, Electron.app de
+# electron-vX-darwin-arm64.zip descomprimido ahí). COMPANION_ELECTRON elige otro.
+ELECTRON = Path(os.environ.get("COMPANION_ELECTRON") or (
+    ROOT / "desktop" / "electron" / ("Electron.app/Contents/MacOS/Electron" if sys.platform == "darwin" else "electron.exe")))
 
 os.environ.update(VOICE_INSTALL="0",      # las pruebas no copian voces a la carpeta del nodo de voz
                   PORT=str(PORT), HOST="127.0.0.1", DATA_DIR=str(TEST_DIR), MODELS_DIR=str(TEST_DIR / "models"))
 sys.path.insert(0, str(ROOT))
+
+
+def cerrar(proc):
+    """Cierra un proceso de prueba (Electron, el servidor) con sus hijos, en Windows y en Mac/Linux."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        return
+    subprocess.run(["pkill", "-TERM", "-P", str(proc.pid)], capture_output=True)
+    proc.terminate()
+    try:
+        proc.wait(10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 class Servidor:
@@ -65,13 +82,5 @@ class Servidor:
         raise SystemExit("El servidor de prueba tardó demasiado en estar listo")
 
     def __exit__(self, *_):
-        if sys.platform == "win32":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True)
-        else:                             # Mac/Linux: el servidor y sus hijos (la voz completa, si la arrancó)
-            subprocess.run(["pkill", "-TERM", "-P", str(self.proc.pid)], capture_output=True)
-            self.proc.terminate()
-            try:
-                self.proc.wait(10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
+        cerrar(self.proc)   # el servidor y sus hijos (la voz completa, si la arrancó)
         self.log.close()

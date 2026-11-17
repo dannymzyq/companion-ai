@@ -27,7 +27,7 @@ import _prueba  # noqa: E402
 ROOT = _prueba.ROOT
 API = _prueba.URL
 PORT = 9337
-ELECTRON = ROOT / "desktop" / "electron" / "electron.exe"
+ELECTRON = _prueba.ELECTRON
 SUELO = -4000 + 900                      # borde de arriba de la «barra de tareas» de la pantalla inventada
 
 
@@ -282,7 +282,7 @@ async def main():
             print(f"11. poses          : {salida} · esfera: {_prueba.TEST_DIR / 'mascota_esfera.png'}")
         print("OK: gravedad, paseo, sentarse y seguir la ventana, acompañar una acción y reacciones.")
     finally:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        _prueba.cerrar(proc)
 
 
 if __name__ == "__main__":

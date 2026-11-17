@@ -37,7 +37,7 @@ from websockets.asyncio.client import connect  # noqa: E402
 ROOT = _prueba.ROOT
 API = _prueba.URL
 FRAME = 512
-ELECTRON = ROOT / "desktop" / "electron" / "electron.exe"
+ELECTRON = _prueba.ELECTRON
 VOZ_USUARIO = "es-MX-JorgeNeural"         # quien pregunta suena distinto del personaje
 PREGUNTAS = ["Hola, ¿cómo estás hoy?",
              "¿Me recomiendas una película tranquila para esta noche?",
@@ -294,7 +294,7 @@ def medir_ventana(segundos_carga: float = 25.0) -> dict:
         time.sleep(segundos_carga)        # carga la interfaz y el avatar 3D
         return medir_reposo(proc.pid, 10.0)
     finally:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        _prueba.cerrar(proc)
 
 
 def clave() -> str:

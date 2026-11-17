@@ -25,7 +25,7 @@ import _prueba  # noqa: E402
 ROOT = _prueba.ROOT
 API = _prueba.URL
 PORT = 9338
-ELECTRON = ROOT / "desktop" / "electron" / "electron.exe"
+ELECTRON = _prueba.ELECTRON
 POSES = """[
   {activity: 'sit', opts: {side: 1}, label: 'sentada (derecha)'}, {activity: 'sit', opts: {side: -1}, label: 'sentada (izquierda)'},
   {activity: 'walk', opts: {dir: 1}, phase: 0, label: 'andar 1'}, {activity: 'walk', opts: {dir: 1}, phase: 1.2, label: 'andar 2'},
@@ -83,7 +83,7 @@ async def main():
                 salida.write_bytes(base64.b64decode(png.split(",", 1)[1]))
                 print(f"{i}. {'incluido ' + mid if mid.startswith('avatar') else 'modelo propio'}: {salida}")
     finally:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        _prueba.cerrar(proc)
 
 
 if __name__ == "__main__":

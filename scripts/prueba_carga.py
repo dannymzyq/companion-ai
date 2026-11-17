@@ -32,7 +32,7 @@ from websockets.asyncio.client import connect  # noqa: E402
 
 ROOT = _prueba.ROOT
 API = _prueba.URL
-ELECTRON = ROOT / "desktop" / "electron" / "electron.exe"
+ELECTRON = _prueba.ELECTRON
 CDP = 9336
 fallos: list[str] = []
 
@@ -203,7 +203,7 @@ async def parte_app():
             await p.foto("3_listo")
         await hilo
     finally:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(app.pid)], capture_output=True)
+        _prueba.cerrar(app)
         if srv and getattr(srv, "proc", None):
             srv.__exit__()
 
@@ -225,7 +225,7 @@ async def parte_app():
             ok(texto.startswith("error") and "No se pudo abrir" in texto, f"lo dice al momento: «{texto}»")
             await p.foto("4_error")
     finally:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(app.pid)], capture_output=True)
+        _prueba.cerrar(app)
 
 
 def main():

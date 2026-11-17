@@ -45,6 +45,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   companion aislado con ellos (solo en el Mac).
   Se prueba en `.github\workflows\mac.yml` (macos-15; `release.yml` lo llama y adjunta el .dmg al Release). Nadie
   lo ha probado aún en un Mac con micrófono: el usuario lo probará.
+  Pruebas de Electron en el Mac (17 nov 2026): `_prueba.ELECTRON` usa `desktop/electron/Electron.app` (Electron
+  darwin-arm64 de la misma versión, o `COMPANION_ELECTRON`) y `_prueba.cerrar` cierra los procesos en los dos
+  sistemas. macOS devuelve a la pantalla las ventanas creadas en x=-4000 y deja a 2 cuadros por segundo las que
+  da por tapadas: con `COMPANION_TEST=1` en el Mac, main.js y mac.js usan `enableLargerThanScreen` (la flotante,
+  sin marco), `showInactive` + `setPosition`, opacidad 0 y sin clics para las que tienen marco, y apagan el
+  frenado de ventanas tapadas. `crear_app_mac.sh` copia todos los .js y .html de `desktop/`.
 - Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\ventana_instalar.ps1` (WPF) que ejecuta
   `instalar.ps1` con `COMPANION_UI=1` y lee sus marcas (`::paso::`, `::progreso::`, `::omitido::`, `::error::`,
   `::fin::`, de `scripts\comun_instalacion.ps1` y `preparar_recursos.py`). `Desinstalar.bat` →
