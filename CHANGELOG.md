@@ -4,6 +4,13 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.6 — 2026-11-18
+
+- **Menos silencios entre frases en tarjetas lentas**: en modo rápido, las frases cortas seguidas (menos de 60
+  letras) se juntan en una sola petición a la voz, hasta 90 letras. En la RTX 3050 cada petición cuesta unos 2 s
+  fijos y una frase corta dura menos al sonar, así que la siguiente no llegaba a tiempo y quedaban pausas a mitad
+  de las respuestas largas. En tarjetas rápidas no cambia nada.
+
 ## 0.8.5 — 2026-11-18
 
 - **El primer turno tras arrancar ya no tarda medio minuto en tarjetas lentas**: la voz completa se da por lista

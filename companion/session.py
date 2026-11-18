@@ -22,7 +22,7 @@ from collections import deque
 
 import numpy as np
 
-from . import actions, llm, mood, personality, play, profile, screen_audio, store, tts, voicecheck
+from . import actions, llm, mood, personality, play, profile, screen_audio, store, tts, voicecheck, voz_proc
 from .config import settings, shown
 from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, POKE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
                      local_time, poke_text, sampling_for, turn_context)
@@ -60,6 +60,9 @@ _YES = re.compile(r"^(si|dale|hazlo|adelante|ok|okey|okay|vale|claro|de acuerdo|
 _NO = re.compile(r"^(no|nop|cancela|cancelala|cancelalo|niegala|niego|mejor no|dejalo|deja)\b")
 _STOP = re.compile(r"^(para|parar|paralo|detente|deten|stop|basta|alto|cancela|quieto|quieta|suelta)\b")
 SHORT_SENTENCE, SHORT_WAIT = 22, 1.2      # una frase más corta se junta con la siguiente si llega en ese tiempo
+# En modo rápido: se juntan las de menos de 60 letras, hasta 90 en total (la voz parte en sus comas lo que pase de
+# 90 en ese modo, VOZ_LARGA: juntar más no ahorraría peticiones).
+FAST_MERGE, FAST_MERGE_MAX = 60, 90
 VOICE_RETRIES = 2                         # veces que se repite una frase si la voz se comió una palabra
 CONFIRM_TTL = 60.0                       # un paso delicado sin confirmar en 1 minuto no se hace
 
@@ -886,22 +889,32 @@ class Session:
         # El gesto que pidió el usuario en este turno (play.py), solo para esta respuesta.
         asked, self.asked_gesture = getattr(self, "asked_gesture", None), None
         engine = None                     # "ligera" si la completa falló a mitad de respuesta (ver más abajo)
+        pending = None                    # una frase que ya se sacó de la cola pero no cupo con la anterior
         while not finish:
-            sentence = await queue.get()
+            sentence, pending = (pending, None) if pending else (await queue.get(), None)
             if sentence is None:
                 return
             # Una frase muy corta («¡Hola, Danny!») el modelo de voz la dice mal casi siempre: si la siguiente llega
-            # enseguida, van juntas (un solo subtítulo y un solo audio).
-            if len(sentence.text) < SHORT_SENTENCE and settings.voice_engine == "completa":
+            # enseguida, van juntas (un solo subtítulo y un solo audio). En modo rápido (tarjeta lenta) se juntan
+            # también las cortas: cada petición a la voz cuesta ~2 s fijos en una RTX 3050 y una frase corta dura
+            # menos al sonar, así que entre frases quedaban silencios (18 nov 2026).
+            fast = settings.voice_engine == "completa" and engine is None and voz_proc.fast()
+            limit = FAST_MERGE if fast else SHORT_SENTENCE
+            while len(sentence.text) < limit and settings.voice_engine == "completa":
                 try:
                     nxt = await asyncio.wait_for(queue.get(), SHORT_WAIT)
                 except asyncio.TimeoutError:
-                    nxt = False                             # la siguiente tarda: esta va sola
+                    break                                   # la siguiente tarda: esta va sola
                 if nxt is None:
                     finish = True                           # era la última frase de la respuesta
-                elif nxt:
-                    sentence = Sentence(f"{sentence.text} {nxt.text}", sentence.emotion or nxt.emotion,
-                                        [*sentence.gestures, *nxt.gestures])
+                    break
+                if fast and len(sentence.text) + len(nxt.text) + 1 > FAST_MERGE_MAX:
+                    pending = nxt                           # no cabe: va en la siguiente vuelta
+                    break
+                sentence = Sentence(f"{sentence.text} {nxt.text}", sentence.emotion or nxt.emotion,
+                                    [*sentence.gestures, *nxt.gestures])
+                if not fast:
+                    break
             idx += 1
             if asked and idx == 1 and asked not in sentence.gestures:
                 sentence.gestures.append(asked)

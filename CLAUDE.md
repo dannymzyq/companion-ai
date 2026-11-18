@@ -200,7 +200,10 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `voz_proc.fast()` → `Session._checks_voice` no comprueba con Whisper en modo rápido. Todo junto ahí (turbo + voz
   + avatar + Brave): ~2,1 GB de 4; con la 0.8.4 (small), 1,3 GB. `STT_MODEL=large-v3-turbo` (el de los .env
   antiguos) cuenta como automático. La voz da `/health` tts=f5 solo con `estado["listo"]` (tras medir): con la 0.8.4
-  la primera respuesta se pidió durante la medida y el primer audio llegó a los 30 s.
+  la primera respuesta se pidió durante la medida y el primer audio llegó a los 30 s. Con la 0.8.5 allí: primera
+  frase ~1,3 s y primer audio ~4,1 s (voz ~2,9 s), pero con pausas a mitad de respuesta; `Session._speak` en modo
+  rápido junta frases de menos de `FAST_MERGE` (60) hasta `FAST_MERGE_MAX` (90) letras (`pending` guarda la que no
+  cabe). Pruebas: `tests/test_voz_juntar.py`.
 - Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,3 GB + escritorio ~2,5 GB. El modelo local tiene que
   caber en lo que queda: `gemma4:e4b-it-qat` (4,8 GB, el recomendado) con respaldo `gemma4:e2b-it-qat`.
   `gemma4:12b` (10,6 GB) cabe desde que la voz es la propia (58–93 tokens/s, 13 nov 2026) y está en el catálogo
