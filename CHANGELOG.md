@@ -4,6 +4,17 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.1 — 2026-11-17
+
+- **Cara ARKit**: los modelos que traen las 52 formas de ARKit («Perfect Sync», como Test-Chan) usan su cara
+  completa: cada lado de la boca, mejillas, cejas y ojos por separado, con media sonrisa, una ceja levantada, labios
+  apretados, mejillas hinchadas o la nariz arrugada según la emoción, y los labios redondeándose o apretándose al
+  hablar. El companion lo detecta solo al cargar el modelo; los demás siguen igual (VRoid por partes o expresiones).
+- **Cambiar de personalidad ya no parece colgado**: mientras se ajusta, una pequeña pantalla «Ajustando su
+  personalidad…» encima de la lista (y no se puede pulsar dos veces). Con el cerebro local, el modelo lee ya el prompt
+  nuevo durante ese rato, así que la primera respuesta tras el cambio no tarda más. Si algo no contesta en 30 s, se
+  deja de esperar y se avisa.
+
 ## 0.8.0 — 2026-11-17
 
 Todo lo nuevo funciona igual en Windows y en el Mac (la app del Mac se crea con el mismo código).

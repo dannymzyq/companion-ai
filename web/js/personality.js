@@ -10,14 +10,41 @@ export const EMOTION_NAMES = {
 };
 
 export function initPersonality({ toast, onChange = () => {} }) {
-  let data = null, editing = null, picked = [];
+  let data = null, editing = null, picked = [], busy = false;
 
+  // Cambiar de personalidad puede tardar unos segundos (con el cerebro local, el modelo lee ya el prompt nuevo):
+  // mientras tanto, «Ajustando…» encima de la lista y nada más se puede pulsar. Si el servidor no contesta en 30 s,
+  // se deja de esperar y se avisa (antes se quedaba sin respuesta y parecía colgado).
   const post = async (url, body, method = 'POST') => {
-    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    const out = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(out.detail || 'No se pudo guardar.');
-    return out;
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 30000);
+    try {
+      const r = await fetch(url, { method, signal: stop.signal, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(out.detail || 'No se pudo guardar.');
+      return out;
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('El cambio tarda demasiado. Se aplicará en su próxima respuesta.');
+      throw e;
+    } finally { clearTimeout(timer); }
   };
+
+  async function adjusting(work) {
+    if (busy) return;
+    busy = true;
+    const shade = setTimeout(() => { $('personality-busy').hidden = false; }, 150);   // si es instantáneo, ni se ve
+    $('personality-group').setAttribute('aria-busy', 'true');
+    for (const b of $('personality-group').querySelectorAll('button, input, textarea, select')) b.disabled = true;
+    try { await work(); }
+    catch (e) { toast(e.message, true); refresh(); }
+    finally {
+      clearTimeout(shade);
+      $('personality-busy').hidden = true;
+      $('personality-group').removeAttribute('aria-busy');
+      for (const b of $('personality-group').querySelectorAll('button, input, textarea, select')) b.disabled = false;
+      busy = false;
+    }
+  }
 
   function render() {
     const box = $('personality-list');
@@ -25,6 +52,7 @@ export function initPersonality({ toast, onChange = () => {} }) {
     for (const p of data.personalities) {
       const row = document.createElement('div');
       row.className = 'model-row' + (p.id === data.active ? ' on' : '');
+      row.dataset.id = p.id;
       const pick = document.createElement('button');
       pick.className = 'pick';
       const name = document.createElement('b');
@@ -62,14 +90,20 @@ export function initPersonality({ toast, onChange = () => {} }) {
   }
 
   async function select(id) {
-    try { data = await post('/api/personality/select', { id }); render(); onChange(); toast('Listo: se nota desde su próxima respuesta.'); }
-    catch (e) { toast(e.message, true); }
+    if (busy || (data && id === data.active)) return;
+    // Se marca ya la elegida, para que se vea al instante qué se pulsó.
+    for (const row of $('personality-list').children) row.classList.toggle('on', row.dataset.id === id);
+    await adjusting(async () => {
+      data = await post('/api/personality/select', { id });
+      render(); onChange(); toast('Listo: se nota desde su próxima respuesta.');
+    });
   }
 
   async function remove(p) {
     if (!confirm(`¿Borrar la personalidad «${p.name}»? No se puede deshacer.`)) return;
-    try { data = await post(`/api/personality/custom/${encodeURIComponent(p.id)}`, null, 'DELETE'); render(); onChange(); }
-    catch (e) { toast(e.message, true); }
+    await adjusting(async () => {
+      data = await post(`/api/personality/custom/${encodeURIComponent(p.id)}`, null, 'DELETE'); render(); onChange();
+    });
   }
 
   function traitsForm(values) {
@@ -151,13 +185,15 @@ export function initPersonality({ toast, onChange = () => {} }) {
       likes: $('pf-likes').value, dislikes: $('pf-dislikes').value, base_mood: $('pf-mood').value, emotions: picked,
       examples: $('pf-examples').value,
     };
-    try {
+    // El formulario se queda (con lo escrito) hasta que se guarda: si falla, no se pierde nada.
+    $('personality-group').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    await adjusting(async () => {
       data = await post('/api/personality/custom', body);
-      onChange();
       close();
+      onChange();
       render();
       toast('Personalidad guardada y elegida: se nota desde su próxima respuesta.');
-    } catch (e) { toast(e.message, true); }
+    });
   };
 
   return { refresh };

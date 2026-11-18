@@ -390,6 +390,15 @@ dd.bad { color: var(--danger); }
 
 /* Modelos 3D en Ajustes */
 .model-list { display: flex; flex-direction: column; gap: 8px; }
+/* Al cambiar de personalidad (17 nov 2026): una pequeña pantalla de carga encima de la lista mientras se ajusta. */
+.adjust-wrap { position: relative; }
+.adjusting {
+  position: absolute; inset: -4px; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 16px; text-align: center; border-radius: 14px; background: rgba(14, 12, 24, 0.82); backdrop-filter: blur(3px);
+}
+.adjusting[hidden] { display: none; }
+.adjusting .loading-ring { width: 30px; height: 30px; margin: 0; }
+.adjusting small { color: var(--dim); font-size: 0.76rem; max-width: 260px; }
 .model-row { display: flex; align-items: stretch; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); overflow: hidden; }
 .model-row.on { border-color: #a78bfa; background: rgba(167, 139, 250, 0.14); }
 .model-row .pick { flex: 1; min-width: 0; padding: 10px 12px; text-align: left; display: flex; flex-direction: column; gap: 2px; }

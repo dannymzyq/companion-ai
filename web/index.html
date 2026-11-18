@@ -269,7 +269,12 @@
         <div class="set">
           <div class="set-head"><b>Cómo es</b><button class="info" data-tip="tip-personality" aria-label="Qué es esto">i</button></div>
           <p class="tip" id="tip-personality" hidden>Su forma de ser y de hablar: cómo reacciona, cuánto bromea, qué le gusta, qué emociones se le notan más. Elige una de las incluidas, «Personalizar» la copia para que la ajustes a tu gusto (la incluida no cambia) o crea una desde cero. El nombre, la voz y las reglas de siempre no cambian con la personalidad.</p>
-          <div id="personality-list" class="model-list"></div>
+          <div class="adjust-wrap">
+            <div id="personality-list" class="model-list"></div>
+            <div id="personality-busy" class="adjusting" hidden role="status" aria-live="polite">
+              <div class="loading-ring"></div><b>Ajustando su personalidad…</b><small>Un momento: así la próxima respuesta ya sale con la nueva.</small>
+            </div>
+          </div>
           <button id="personality-new" class="ghost">Crear una personalidad nueva</button>
         </div>
         <div class="set">

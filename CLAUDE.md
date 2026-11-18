@@ -131,6 +131,11 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   personalidad), `styleW` (fundido), `_styled` (marcha a la par por `cycles`), `gait()` → `anchors().hz/speed` →
   pet.js. Pies: `_legIK` al final de `_applyPose` (clavados de pie con pasito, solo altura al andar; `ikOn`).
   Descartados por licencia: Bandai Namco, LAFAN1, ai4anim-webgpu (no comerciales).
+- Cara ARKit (17 nov 2026, «lo añades»): `face.addParts` busca primero las 52 formas de ARKit (`ARKIT_NEED`, sin
+  importar mayúsculas ni prefijos) y arma cada parte (`brw…`, `eye…`, `mth…`) con varias (`ARKIT_PARTS`), más partes
+  propias `ak…` (media sonrisa, una ceja, labios apretados, mejillas, nariz, `LIP_PARTS` de los labios al hablar:
+  `_face` las mueve con `mouth.oh/ou` y `lipClose`). `parts.kind` = 'arkit' | 'vroid'. Probado con Test-Chan (CC0,
+  solo en `data\prueba`). Ningún VRM del usuario ni los incluidos tienen ARKit.
 - Dedos y cara (17 nov 2026, «utiliza los repositorios… que se adapten mejor»): `HANDS`/`hs`/`p.hand` (cada dedo,
   `CASCADE`, `FINGER_RATE`, oposición del pulgar `THUMB`: en Y negativo, medido con primeros planos); gestos
   `pulgar` y `paz` (también en prompt.py y orb.js). `web/js/face.js`: partes de VRoid como expresiones `p_…`
@@ -235,6 +240,10 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `name` solo sirve para el archivo del modelo por defecto. Voces y personajes no llevan etiquetas de género en
   la interfaz (decisión del usuario, 12 nov 2026); `speaks` en `voices.json` solo decide cómo habla de sí.
   Nunca llames a `POST /api/setup/reset` contra el servidor real: con `data` borra todo lo del usuario.
+- Cambio de personalidad (17 nov 2026, «se queda pegada»): la interfaz enseña `#personality-busy` («Ajustando…»)
+  y bloquea la sección mientras dura (`adjusting` en personality.js, 30 s como mucho); el servidor, con el cerebro
+  local y la sesión libre, hace que Ollama lea ya el prompt nuevo (`Session.prime` → `llm.prime_local`, un token,
+  mismo `num_ctx`; `_personality_ready` espera 20 s como mucho). Pruebas: `tests/test_personalidad.py` (Reajuste).
 - Personalidades (16 nov 2026, Ajustes › Personalidad): `companion/personality.py` + `personas/personalidades.json`;
   `personality.apply` pone sobre la ficha rasgos, estilo, gustos y ejemplos (nunca nombre, edad, voz, límites ni
   +18) y `prompt.personality_block` los lleva al prompt de sistema (fijo mientras no se cambie). Las propias (`c_…`)

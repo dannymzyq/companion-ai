@@ -655,6 +655,22 @@ async def warm_local(model: str | None = None):
         raise
 
 
+async def prime_local(messages: list[dict]) -> bool:
+    """Hace que el modelo local lea ya un prompt nuevo (p. ej. tras cambiar de personalidad): Ollama guarda lo leído
+    y el siguiente turno, que empieza igual, solo lee lo nuevo. Sin esto, la primera respuesta tras el cambio tenía que
+    leer otra vez todo el prompt (con el 12B y un juego abierto, varios segundos). Solo con el cerebro local y el modelo
+    ya cargado; genera un único token."""
+    if settings.is_cloud or not _local_choice:
+        return False
+    body = {"model": _local_choice, "messages": messages, "stream": False, "think": False,
+            "keep_alive": settings.ollama_keep_alive, "options": {**_options(), "num_predict": 1}}
+    try:
+        r = await _local.post(f"{settings.ollama_url}/api/chat", json=body, timeout=60)
+        return r.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
 async def unload_local(models: list[str] | None = None):
     """Saca de la GPU los modelos locales del companion (al volver a la nube o al cerrar)."""
     global _local_choice

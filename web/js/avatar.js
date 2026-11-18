@@ -20,7 +20,7 @@ import { VRMLoaderPlugin, VRMUtils, VRMSpringBoneCollider, VRMSpringBoneCollider
 import { Effects } from './effects.js';
 import { Orb, ORB_Y } from './orb.js';
 import { ClipLib, Layer, applyLayer } from './clips.js';
-import { addParts, EMO_PARTS, Micro } from './face.js';
+import { addParts, EMO_PARTS, LIP_PARTS, Micro } from './face.js';
 import { Lipsync } from './lipsync.js';
 import { Device } from './props.js';
 
@@ -1976,7 +1976,8 @@ export class Avatar {
       const cap = { aa: 0.6, oh: 0.32, ee: 0.3, ih: 0.18, ou: 0.22 };
       for (const k of VISEMES) target[k] = 0.4 * target[k] + 0.6 * open * lip[k] * cap[k] * 1.4;
       if (lip.close) for (const k of VISEMES) target[k] *= 1 - 0.75 * lip.close;
-    }
+      this.lipClose = lerp(this.lipClose || 0, lip.close || 0, 0.5);
+    } else this.lipClose = lerp(this.lipClose || 0, 0, 0.3);
     const sum = VISEMES.reduce((s, k) => s + target[k], 0);
     if (sum > 0.7) for (const k of VISEMES) target[k] *= 0.7 / sum;
     // Abre rápido y cierra casi igual de rápido: entre sílabas la boca tiene que llegar a cerrarse.
@@ -2417,10 +2418,18 @@ export class Avatar {
     if (parts.length) {
       // Cara por partes (modelos de VRoid): cejas, ojos y boca por separado. Al hablar, la boca cede a las vocales.
       const want = EMO_PARTS[this.emotion] || {};
+      // ARKit: los labios siguen a la voz (redondos en o/u, apretados en p/b/m), además de las vocales.
+      if (parts.kind === 'arkit') {
+        const m = this.mouth;
+        micro.akFunnel = (micro.akFunnel || 0) + 1.6 * m.oh;
+        micro.akPucker = (micro.akPucker || 0) + 2.2 * m.ou;
+        micro.akLips = (micro.akLips || 0) + 0.55 * (this.lipClose || 0) * talking;
+      }
       for (const k of parts) {
-        const mouth = k.startsWith('mth');
+        const lips = LIP_PARTS.includes(k);
+        const mouth = !lips && (k.startsWith('mth') || /^ak(Smirk|Press|Puff|Dimple|Sneer)/.test(k));
         const goal = ((want[k] || 0) + (micro[k] || 0)) * (mouth ? 1 - 0.6 * talking : 1);
-        this.partW[k] = lerp(this.partW[k] || 0, goal, damp(mouth ? 9 : 7, dt));
+        this.partW[k] = lerp(this.partW[k] || 0, goal, damp(lips ? 18 : mouth ? 9 : 7, dt));
         em.setValue('p_' + k, clamp(this.partW[k]));
       }
     }

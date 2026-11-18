@@ -635,6 +635,13 @@ class Session:
         el siguiente turno."""
         return personality.apply(profile.character(self.base_persona))
 
+    async def prime(self) -> bool:
+        """Tras cambiar de personalidad: el modelo local lee ya el prompt nuevo, si no hay nadie hablando (Ollama tiene
+        una sola cola: no debe retrasar un turno)."""
+        if self.closed or self.busy or self.in_speech or self.controlling:
+            return False
+        return await llm.prime_local(self._messages())
+
     def _system(self) -> str:
         adult = adult_active(self.persona, is_cloud=settings.is_cloud, user_adult=profile.is_adult())
         past = [f"{time.strftime('%d/%m/%Y', time.localtime(ts))}: {text}" for text, ts in store.summaries(SYSTEM_SUMMARIES)]

@@ -268,7 +268,19 @@ async def select_personality(body: PersonalitySelectIn):
         personality.select(body.id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
+    await _personality_ready()
     return _personality_state()
+
+
+async def _personality_ready():
+    """La personalidad va en el prompt de sistema: con el cerebro local, el modelo lo lee ya (la interfaz enseña
+    «Ajustando…» mientras tanto), para que la primera respuesta no tarde. Como mucho 20 s: si no, sigue igual."""
+    from .session import _open
+    for s in list(_open)[-1:]:
+        try:
+            await asyncio.wait_for(s.prime(), 20)
+        except Exception:  # noqa: BLE001 (incluye el tiempo agotado: solo era para adelantar trabajo)
+            pass
 
 
 @app.post("/api/personality/custom", dependencies=[Depends(same_origin)])
@@ -278,12 +290,14 @@ async def save_personality(body: dict):
         personality.save_custom(body)
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
+    await _personality_ready()
     return _personality_state()
 
 
 @app.delete("/api/personality/custom/{pid}", dependencies=[Depends(same_origin)])
 async def delete_personality(pid: str):
     personality.delete_custom(pid)
+    await _personality_ready()
     return _personality_state()
 
 

@@ -137,3 +137,47 @@ class Api(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Reajuste(unittest.TestCase):
+    """Al cambiar de personalidad, con el cerebro local, el modelo lee ya el prompt nuevo (17 nov 2026). Nunca debe
+    colgar el cambio: si la sesión está ocupada no se hace, y el servidor deja de esperar a los 20 s."""
+
+    def test_prime_lee_el_prompt_y_genera_un_token(self):
+        import asyncio
+        from unittest import mock
+        from companion import llm
+        sent = {}
+
+        async def post(url, json=None, timeout=None):
+            sent.update(json)
+            return mock.Mock(status_code=200)
+
+        with mock.patch.object(type(settings), "is_cloud", new_callable=mock.PropertyMock, return_value=False), \
+                mock.patch.object(llm, "_local_choice", "gemma4:e4b-it-qat"), mock.patch.object(llm._local, "post", post):
+            ok = asyncio.run(llm.prime_local([{"role": "system", "content": "x"}]))
+        self.assertTrue(ok)
+        self.assertEqual(sent["options"]["num_predict"], 1)
+        self.assertEqual(sent["options"]["num_ctx"], settings.ollama_num_ctx)      # el mismo: si no, Ollama recarga
+
+    def test_prime_no_hace_nada_con_la_nube_o_sin_modelo(self):
+        import asyncio
+        from unittest import mock
+        from companion import llm
+        with mock.patch.object(llm, "_local_choice", None):
+            self.assertFalse(asyncio.run(llm.prime_local([])))
+
+    def test_el_cambio_no_espera_a_un_reajuste_colgado(self):
+        import asyncio
+        from unittest import mock
+        from companion import session as sess
+
+        class Lenta:
+            async def prime(self):
+                await asyncio.sleep(60)
+
+        real = asyncio.wait_for
+        with mock.patch.object(sess, "_open", [Lenta()]), \
+                mock.patch.object(server.asyncio, "wait_for", lambda aw, t: real(aw, 0.05)):
+            r = TestClient(server.app, base_url="http://127.0.0.1:8299").post("/api/personality/select", json={"id": personality.DEFAULT}, headers=ORIGIN)
+        self.assertEqual(r.status_code, 200, r.text)
