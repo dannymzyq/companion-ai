@@ -95,7 +95,9 @@ def ear_model(total: float | None = None) -> str:
     """El Whisper que se carga en la GPU. STT_MODEL en .env manda; si no, en tarjetas de menos de SMALL_EAR_BELOW
     GB el pequeño (si el instalador lo trajo): con el turbo (1,3 GB) y la voz completa (1,1 GB) una tarjeta de
     4 GB no tenía sitio para las dos."""
-    if os.getenv("STT_MODEL"):
+    # «large-v3-turbo» era el valor de .env.example hasta la 0.8.3 y está en el .env de todas las instalaciones: cuenta
+    # como automático (en la laptop de 4 GB del usuario seguía cargando el turbo, 18 nov 2026). Otro valor manda.
+    if (os.getenv("STT_MODEL") or "auto").strip().lower() not in ("", "auto", "large-v3-turbo"):
         return settings.stt_model
     if MAC:
         return "large-v3-turbo"

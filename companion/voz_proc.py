@@ -112,11 +112,29 @@ def ensure() -> bool:
 
 
 def _health() -> dict:
+    global _fast
     try:
         r = httpx.get(f"{settings.tts_url}/health", timeout=1.5)
-        return r.json() if r.status_code == 200 else {}
+        h = r.json() if r.status_code == 200 else {}
     except (httpx.HTTPError, ValueError):
         return {}
+    if h.get("tts", "none") != "none" and h.get("phrase_s") is not None:
+        _fast = bool(h.get("fast"))
+    return h
+
+
+_fast: bool | None = None                 # la voz completa va en modo rápido (tarjeta lenta, voz/servidor.py)
+_fast_asked = 0.0
+
+
+def fast() -> bool:
+    """¿La voz completa está en modo rápido? Lo dice su /health cuando ya midió la tarjeta; hasta entonces se
+    pregunta como mucho cada 20 s (es una llamada corta, pero bloquea)."""
+    global _fast_asked
+    if _fast is None and time.monotonic() - _fast_asked > 20:
+        _fast_asked = time.monotonic()
+        _health()
+    return bool(_fast)
 
 
 async def recover(timeout: float = LOAD_WAIT) -> bool:

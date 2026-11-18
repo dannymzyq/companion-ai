@@ -4,6 +4,19 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.4 — 2026-11-18
+
+Probado en una laptop con RTX 3050 de 4 GB (con la 0.8.3 instalada).
+
+- **Voz completa en modo rápido en tarjetas lentas**: al arrancar, la voz mide una frase corta y, si tarda más de
+  2,5 s, usa 16 pasos, la muestra de voz corta y frases partidas antes (lo que ya usaba el Mac). En la RTX 3050 el
+  primer audio pasa de 5,4–6,6 s a ~1,9 s por frase, y ya habla más rápido de lo que dura. Ahí la frase no se
+  vuelve a escuchar con Whisper antes de sonar (cada repetición costaba otros 3–5 s). Se pierde algo de precisión
+  (en la 5070 Ti, 9 % de palabras frente a 6 %). En tarjetas rápidas no cambia nada.
+- **El oído pequeño se elige de verdad**: el `.env` de las instalaciones traía `STT_MODEL=large-v3-turbo` (de
+  `.env.example`) y anulaba la elección automática de la 0.8.3; ese valor cuenta ahora como automático y
+  `.env.example` trae `STT_MODEL=auto`.
+
 ## 0.8.3 — 2026-11-18
 
 - **La nube ya no se queda esperando a un modelo saturado**: si Gemini responde «503, mucha demanda» o no empieza a

@@ -193,6 +193,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   final `CLOUD_BUSY_S` 10 min); la mirada en vivo calla si está saturado; `stt_cloud._busy` 5 min. Medido el 18 nov:
   gemini-3.6-flash daba 503 tras 8-49 s y Flash-Lite contestaba en 1 s. El plan Google AI Pro no sube los límites de
   la API (solo AI Studio). Herramientas para medir: no se guardaron en scripts (eran de una sesión).
+  Laptop del usuario (RTX 3050 4 GB, i5-12500H, 16 GB; probada el 18 nov 2026 por Remote Control con la 0.8.3): F5
+  tardaba 5,4–6,6 s por frase (GPU al 100 %); con 16 pasos + muestra corta + VOZ_LARGA 90, ~1,9 s y más rápido que
+  tiempo real. `voz/servidor.py _medir_tarjeta`: tras calentar mide una frase corta; si pasa de `LENTA_S` (2,5 s,
+  `VOZ_LENTA_S`) entra en modo rápido (`/health` → `fast`, `phrase_s`), salvo VOZ_NFE/VOZ_REF_CORTA fijados.
+  `voz_proc.fast()` → `Session._checks_voice` no comprueba con Whisper en modo rápido. Todo junto ahí (turbo + voz
+  + avatar + Brave): ~2,1 GB de 4. `STT_MODEL=large-v3-turbo` (el de los .env antiguos) cuenta como automático.
 - Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,3 GB + escritorio ~2,5 GB. El modelo local tiene que
   caber en lo que queda: `gemma4:e4b-it-qat` (4,8 GB, el recomendado) con respaldo `gemma4:e2b-it-qat`.
   `gemma4:12b` (10,6 GB) cabe desde que la voz es la propia (58–93 tokens/s, 13 nov 2026) y está en el catálogo

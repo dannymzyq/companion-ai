@@ -823,8 +823,11 @@ class Session:
     def _checks_voice(self, engine: str | None) -> bool:
         """¿Se escucha la frase con Whisper antes de que suene? Solo con la voz completa y el oído en CUDA: en el
         procesador o en la GPU del Mac, escucharla otra vez tarda casi lo que la frase."""
+        # En una tarjeta lenta (modo rápido de la voz, 18 nov 2026) cada repetición costaba otros 3-5 s y esperar a la
+        # frase entera retrasaba el primer audio: allí suena según llega, como en el Mac.
+        from . import voz_proc
         return ((engine or settings.voice_engine) == "completa" and self.stt.ready
-                and getattr(self.stt, "device", None) == "cuda")
+                and getattr(self.stt, "device", None) == "cuda" and not voz_proc.fast())
 
     async def _say(self, text: str, voice: str, speed: float, engine: str | None = None):
         """El audio de la frase en trozos. Sin comprobación, cada trozo sale según lo manda la voz: voz/servidor.py

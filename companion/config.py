@@ -95,7 +95,7 @@ class Settings:
 
     # large-v3-turbo: en la RTX 5070 Ti ocupa 1,1 GB (large-v3: 2,2 GB), transcribe 3 veces más rápido y acierta
     # lo mismo en español (medido el 11 nov 2026). float16 no mejora la velocidad y duplica la memoria.
-    stt_model: str = field(default_factory=lambda: os.getenv("STT_MODEL", "large-v3-turbo").strip())
+    stt_model: str = field(default_factory=lambda: (os.getenv("STT_MODEL", "").strip() or "auto").replace("auto", "large-v3-turbo"))   # «auto»: profile.ear_model elige
     stt_device: str = field(default_factory=lambda: os.getenv("STT_DEVICE", "auto").strip().lower())
     stt_compute: str = field(default_factory=lambda: os.getenv("STT_COMPUTE", "int8_float16").strip())
     stt_language: str = field(default_factory=lambda: os.getenv("STT_LANGUAGE", "es").strip())

@@ -201,14 +201,15 @@ class CambioDeVoz(unittest.TestCase):
         self.assertEqual(self.motor(4, "gemini"), ("completa", ""))
 
     def test_laptop_de_4_gb_con_un_juego_pasa_a_la_ligera(self):
-        self.otros = 2.0
+        # Con el oído pequeño (0,55 GB, 18 nov 2026) caben la voz completa y 2 GB de otros: hace falta un juego mayor.
+        self.otros = 2.5
         self.assertEqual(self.motor(4, "gemini")[0], "ligera")
 
     def test_lo_nuestro_no_cuenta_como_de_otros(self):
         from companion import stt, voz_proc
         self.parches[-1].stop()
         try:
-            with mock.patch.object(llm, "gpu_memory", return_value={"used": 2048, "total": 4096}),                     mock.patch.object(stt, "on_gpu", True), mock.patch.object(voz_proc, "running", return_value=False),                     mock.patch.object(profile, "_ollama_on_gpu", return_value=0.0):
+            with mock.patch.object(llm, "gpu_memory", return_value={"used": 2048, "total": 4096}),                     mock.patch.object(stt, "on_gpu", True), mock.patch.object(stt, "loaded_name", "large-v3-turbo"), mock.patch.object(voz_proc, "running", return_value=False),                     mock.patch.object(profile, "_ollama_on_gpu", return_value=0.0):
                 self.assertEqual(profile.measured_others(), round(2.0 - profile.EAR_GB, 1))
         finally:
             self.parches[-1].start()
@@ -291,3 +292,46 @@ class OidoSegunLaTarjeta(unittest.TestCase):
             r = profile.resources(gpu(4), is_cloud=True, local_model=profile.TOP_RECOMMENDED, node_ok=True, others=1.5)
         self.assertEqual(r["ear_model"], "small")
         self.assertEqual(r["recommended_engine"], "completa")
+
+
+class OidoConElEnvDeAntes(unittest.TestCase):
+    def test_el_turbo_del_env_de_siempre_cuenta_como_automatico(self):
+        """Hasta la 0.8.3 .env.example traía STT_MODEL=large-v3-turbo: en la laptop de 4 GB seguía cargando el turbo."""
+        import os
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "models" / "whisper" / "small").mkdir(parents=True)
+            (Path(d) / "models" / "whisper" / "small" / "model.bin").write_bytes(b"x")
+            with mock.patch.object(profile, "ROOT", Path(d)):
+                for value in ("large-v3-turbo", "auto", ""):
+                    with mock.patch.dict(os.environ, {"STT_MODEL": value}):
+                        self.assertEqual(profile.ear_model(4.0), "small", value)
+
+
+class VozRapida(unittest.TestCase):
+    """18 nov 2026: en una tarjeta lenta la voz va en modo rápido y no se comprueba con Whisper (cada repetición
+    costaba otros 3-5 s en una RTX 3050 de laptop)."""
+
+    def setUp(self):
+        from companion import voz_proc
+        self.vp = voz_proc
+        voz_proc._fast, voz_proc._fast_asked = None, 0.0
+
+    def tearDown(self):
+        self.vp._fast, self.vp._fast_asked = None, 0.0
+
+    def _health(self, h):
+        import httpx
+        return mock.patch.object(self.vp.httpx, "get", return_value=httpx.Response(200, json=h, request=httpx.Request("GET", "http://x")))
+
+    def test_lee_el_modo_cuando_ya_midio(self):
+        with self._health({"tts": "f5", "fast": True, "phrase_s": 5.4}):
+            self.assertTrue(self.vp.fast())
+
+    def test_mientras_carga_no_decide_y_no_pregunta_en_cada_frase(self):
+        with self._health({"tts": "none", "loading": True}) as get:
+            self.assertFalse(self.vp.fast())
+            self.assertFalse(self.vp.fast())
+        self.assertEqual(get.call_count, 1)
+        self.assertIsNone(self.vp._fast)
