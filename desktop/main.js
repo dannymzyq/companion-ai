@@ -94,6 +94,23 @@ function reshow(w) {
 let serverReady = false;
 const ROOT_DIR = process.env.COMPANION_HOME || path.join(__dirname, '..');
 
+// Registro de la ventana (17 nov 2026): errores de la página, cuelgues y caídas de la tarjeta gráfica, que antes no
+// quedaban en ningún sitio (p. ej. un cambio de modelo que dejaba la ventana parada). Solo errores de código, nunca
+// lo que se dice; guarda la sesión anterior en ventana.1.log.
+const WIN_LOG = path.join(ROOT_DIR, 'data', ...(TEST ? ['prueba'] : []), 'ventana.log');
+let winLogLines = 0;
+try {
+  fs.mkdirSync(path.dirname(WIN_LOG), { recursive: true });
+  if (fs.existsSync(WIN_LOG)) fs.renameSync(WIN_LOG, WIN_LOG.replace(/\.log$/, '.1.log'));
+} catch { /* sin registro, la app sigue */ }
+function winLog(...parts) {
+  if (winLogLines++ > 2000) return;                  // un error en bucle no llena el disco
+  const line = `${new Date().toISOString()} ${parts.join(' ')}`.slice(0, 2000);
+  try { fs.appendFileSync(WIN_LOG, line + '\n'); } catch { /* nada */ }
+}
+app.on('child-process-gone', (_e, d) => winLog('PROCESO', d.type, d.reason, 'código', d.exitCode));
+app.on('render-process-gone', (_e, _wc, d) => winLog('PÁGINA CAÍDA', d.reason, 'código', d.exitCode));
+
 function serverUp() {
   return new Promise((resolve) => {
     const req = http.get(`${URL_BASE}/api/config`, { timeout: 1500 }, (r) => { r.resume(); resolve(r.statusCode === 200); });
@@ -157,6 +174,14 @@ function makeView() {
     return { action: 'deny' };
   });
   wc.on('will-navigate', (e, url) => { if (new URL(url).origin !== ORIGIN) e.preventDefault(); });
+  wc.on('console-message', (e, lvl, msg, line, src) => {
+    const level = e.level ?? (['debug', 'info', 'warning', 'error'][lvl] || lvl);
+    if (level !== 'error' && level !== 'warning') return;
+    if (String(e.message ?? msg).startsWith('Electron Security Warning')) return;   // aviso fijo de Electron sin empaquetar
+    winLog(level === 'error' ? 'ERROR' : 'AVISO', e.message ?? msg, '@', String(e.sourceId ?? src ?? '').replace(/^.*\/\/[^/]+/, ''), e.lineNumber ?? line ?? '');
+  });
+  wc.on('unresponsive', () => winLog('LA PÁGINA NO RESPONDE'));
+  wc.on('responsive', () => winLog('la página vuelve a responder'));
   wc.on('page-title-updated', (e, title) => {
     if (title.startsWith('companion:')) return;   // señales de cargando.html (ver boot)
     if (win && !win.isDestroyed()) win.setTitle(title);

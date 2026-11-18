@@ -43,6 +43,7 @@ try {
   if (floating) avatar.setFloating(true);
   avatar.setFullBody(!fadeOn());
   avatar.hobbyOn = hobbyOn();                                       // pasatiempos (Ajustes › Tú y tu personaje)
+  avatar.onContextRestored = () => { if (config && config.model) loadModel(); };
   // Dormida (cabeceando o en la siesta): la mascota no pasea ni salta; al despertar, vuelve a lo de antes.
   avatar.onSleep = (on, mode) => {
     if (on) showKeyboard(false);                                     // se va a dormir: el chat se cierra
@@ -183,20 +184,32 @@ $('screen').onclick = () => toggleVision('screen');
 for (const b of document.querySelectorAll('[data-stop]')) b.onclick = () => vision.stop(b.dataset.stop);
 
 // ---------------------------------------------------------------- bucle de dibujo
+// Un error en un cuadro no puede parar el bucle (antes, una sola excepción dejaba el personaje congelado hasta
+// reiniciar la app): se pide el siguiente cuadro ANTES de dibujar y cada error distinto se avisa una vez.
+const tickErrors = new Set();
+function tickPart(name, fn) {
+  try { fn(); } catch (err) {
+    const key = name + ':' + err.message;
+    if (!tickErrors.has(key) && tickErrors.size < 50) { tickErrors.add(key); console.error(`Cuadro (${name}):`, err); }
+  }
+}
 function tick() {
-  const voice = audio.analyse();
-  if (avatar) { avatar.setVoice(voice); avatar.update(); }
-  $('orb').firstElementChild.style.setProperty('--level', clamp(voice.vol * 5).toFixed(3));
-  const micLevel = clamp(audio.micLevel * 9).toFixed(3);
-  $('mic').firstElementChild.style.setProperty('--level', micLevel);
-  $('mic-meter').style.setProperty('--level', micLevel);
-  $('mic-meter-2').style.setProperty('--level', micLevel);
-  if (floating) {
+  requestAnimationFrame(tick);
+  let voice = { vol: 0 };
+  tickPart('voz', () => { voice = audio.analyse(); });
+  if (avatar) tickPart('personaje', () => { avatar.setVoice(voice); avatar.update(); });
+  tickPart('niveles', () => {
+    $('orb').firstElementChild.style.setProperty('--level', clamp(voice.vol * 5).toFixed(3));
+    const micLevel = clamp(audio.micLevel * 9).toFixed(3);
+    $('mic').firstElementChild.style.setProperty('--level', micLevel);
+    $('mic-meter').style.setProperty('--level', micLevel);
+    $('mic-meter-2').style.setProperty('--level', micLevel);
+  });
+  if (floating) tickPart('flotante', () => {
     updateHit(); sendAnchors();
     // Mientras la mascota se mueve, la ventana avanza con cada cuadro dibujado (fluido, al ritmo de la pantalla).
     if (petFrames && desktop && desktop.pet && desktop.pet.frame) desktop.pet.frame();
-  }
-  requestAnimationFrame(tick);
+  });
 }
 requestAnimationFrame(tick);
 
@@ -518,21 +531,32 @@ function showOrb(show) {
   $('model-hint').hidden = !show || !avatar || floating;
 }
 
+// Las cargas van de una en una: con dos clics seguidos (o subir y elegir a la vez) se pisaban. Si llega otra
+// mientras una carga, solo se hace la última. Y si un modelo no termina de cargar en 90 s, se deja de esperar.
+let loadSeq = 0;
 async function loadModel() {
+  const mine = ++loadSeq;
+  while (loadingModel) await new Promise((r) => setTimeout(r, 100));
+  if (mine !== loadSeq) return;                          // ya hay otra más nueva: esa carga lo que quedó activo
   loadingModel = true;
   modelFailed = false;
   try {
     if (config && config.model_kind === 'orb') avatar.loadOrb();              // el personaje neutro no es un archivo
-    else await avatar.load(`/api/model?v=${Date.now()}`);
+    else {
+      let timer;
+      const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error('tarda demasiado (más de 90 s)')), 90000); });
+      try { await Promise.race([avatar.load(`/api/model?v=${Date.now()}`), late]); } finally { clearTimeout(timer); }
+    }
     avatar.setState(state);
     showOrb(false);
   } catch (err) {
-    console.error(err);
-    modelFailed = true;
-    showOrb(true);
+    console.error('Cargar el modelo:', err);
+    modelFailed = !avatar.loaded;
+    if (modelFailed) showOrb(true);
     toast('No pude cargar el modelo 3D: ' + err.message, true);
+  } finally {
+    loadingModel = false;
   }
-  loadingModel = false;
 }
 
 // Tras cambiar de modelo: vuelve a leer el estado y carga el que quedó activo (o el orbe si no hay ninguno).

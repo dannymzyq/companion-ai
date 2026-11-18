@@ -159,6 +159,8 @@ export function initPersonality({ toast, onChange = () => {} }) {
     $('pf-likes').value = (src.likes || []).join(', ');
     $('pf-dislikes').value = (src.dislikes || []).join(', ');
     $('pf-examples').value = (src.examples || []).join('\n');
+    $('pf-opinions').value = (src.opinions || []).join('\n');
+    $('pf-reactions').value = (src.reactions || []).join('\n');
     $('pf-formality').replaceChildren(...Object.entries(data.formality).map(([v, t]) => new Option(t, v, false, v === src.formality)));
     $('pf-mood').replaceChildren(...data.emotions.map((e) => new Option(EMOTION_NAMES[e] || e, e, false, e === src.base_mood)));
     picked = [...(src.emotions || [])];
@@ -183,7 +185,7 @@ export function initPersonality({ toast, onChange = () => {} }) {
       name: $('pf-name').value, summary: $('pf-summary').value, description: $('pf-description').value,
       traits, formality: $('pf-formality').value, speech: $('pf-speech').value, catchphrases: $('pf-catch').value,
       likes: $('pf-likes').value, dislikes: $('pf-dislikes').value, base_mood: $('pf-mood').value, emotions: picked,
-      examples: $('pf-examples').value,
+      examples: $('pf-examples').value, opinions: $('pf-opinions').value, reactions: $('pf-reactions').value,
     };
     // El formulario se queda (con lo escrito) hasta que se guarda: si falla, no se pierde nada.
     $('personality-group').scrollIntoView({ behavior: 'smooth', block: 'start' });

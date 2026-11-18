@@ -777,6 +777,10 @@ export class Avatar {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Si la tarjeta gráfica pierde el contexto (driver reiniciado, memoria de vídeo llena con un juego o el modelo
+    // local), three.js lo recupera; al volver se recarga el modelo para que no se quede la imagen parada.
+    canvas.addEventListener('webglcontextlost', () => console.error('La tarjeta gráfica perdió el contexto de dibujo (WebGL)'));
+    canvas.addEventListener('webglcontextrestored', () => { console.warn('Contexto de dibujo recuperado'); this.onContextRestored?.(); });
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 30);
     this.camera.position.set(0, 1.35, 1.4);

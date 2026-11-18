@@ -70,6 +70,10 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Registros: `iniciar.ps1` guarda las tres sesiones anteriores (`data\companion.1.log`…) y `voz_proc` la anterior
   de la voz (`voz.1.log`). Desde la 0.7.0 no llevan lo que se dice (`config.shown`: solo cuántos caracteres;
   `LOG_TEXT=1` en `.env` lo vuelve a escribir). Aun así, no los muestres ni los subas.
+  La ventana (17 nov 2026) escribe `data\ventana.log` (anterior: `ventana.1.log`; en pruebas `data\prueba`): errores
+  y avisos de la consola de la página, «no responde» y caídas de la página o de la tarjeta gráfica. El bucle de
+  dibujo (`tick` en main.js) nunca se para por un error (`tickPart`), las cargas de modelo van de una en una
+  (`loadSeq`, 90 s como mucho) y tras perder el contexto WebGL se recarga el modelo (`onContextRestored`).
 - El panel de navegador de Claude bloquea el micrófono: ahí la interfaz se prueba escribiendo; el avatar,
   con `scripts\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
   Para el micrófono de verdad, `scripts\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).
@@ -244,6 +248,11 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   y bloquea la sección mientras dura (`adjusting` en personality.js, 30 s como mucho); el servidor, con el cerebro
   local y la sesión libre, hace que Ollama lea ya el prompt nuevo (`Session.prime` → `llm.prime_local`, un token,
   mismo `num_ctx`; `_personality_ready` espera 20 s como mucho). Pruebas: `tests/test_personalidad.py` (Reajuste).
+- Prompt «más persona» (17 nov 2026, petición del usuario): `personality_block` lleva opiniones (`opinions`) y
+  reacciones (`reactions`) de la personalidad, «Antes de responder, lee el mensaje» (tono, intención, confianza) y
+  «Tienes criterio» (permiso para discrepar, nunca condescendiente); «Cómo hablas» prohíbe frases de plantilla, la
+  pregunta forzada al final y abusar de las muletillas; «Memoria viva» con ejemplos. Medido con gemma4 E4B contra el
+  prompt anterior (casos fijos: tierra plana, día fatal, piropo, prisa, hambre, dejar el trabajo).
 - Personalidades (16 nov 2026, Ajustes › Personalidad): `companion/personality.py` + `personas/personalidades.json`;
   `personality.apply` pone sobre la ficha rasgos, estilo, gustos y ejemplos (nunca nombre, edad, voz, límites ni
   +18) y `prompt.personality_block` los lleva al prompt de sistema (fijo mientras no se cambie). Las propias (`c_…`)

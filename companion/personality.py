@@ -31,7 +31,7 @@ TRAITS = {
     "talkativeness":  {"label": "Cuánto habla", "low": "Lo justo", "high": "Se explaya", "default": 0.4},
 }
 FORMALITY = {"casual": "Casual", "neutral": "Neutro", "formal": "Formal"}
-_LIMITS = {"name": 40, "summary": 120, "description": 700, "speech": 400, "item": 60, "example": 200}
+_LIMITS = {"name": 40, "summary": 120, "description": 700, "speech": 400, "item": 60, "example": 200, "opinion": 160}
 _JUNK = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\[\]{}<>]+")
 
 
@@ -85,6 +85,11 @@ def clean(raw: dict, partial: bool = False) -> dict:
         "emotions": [e for e in _items(raw.get("emotions"), 4, 20) if e in EMOTIONS][:3],
         "examples": _items(raw.get("examples") if not isinstance(raw.get("examples"), str)
                            else raw["examples"].split("\n"), 5, _LIMITS["example"]),
+        # Opiniones fuertes y reacciones a cosas concretas (17 nov 2026): una por línea.
+        "opinions": _items(raw.get("opinions") if not isinstance(raw.get("opinions"), str)
+                           else raw["opinions"].split("\n"), 5, _LIMITS["opinion"]),
+        "reactions": _items(raw.get("reactions") if not isinstance(raw.get("reactions"), str)
+                            else raw["reactions"].split("\n"), 4, _LIMITS["opinion"]),
     }
 
 

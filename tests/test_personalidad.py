@@ -72,6 +72,28 @@ class Prompt(unittest.TestCase):
         self.assertGreater(prompt.sampling_for(p)["temperature"], prompt.sampling_for(
             personality.apply(b, personality.find("profesional")))["temperature"])
 
+    def test_identidad_adaptacion_forma_y_memoria(self):
+        """17 nov 2026: opiniones y reacciones propias, leer tono/intención/confianza, frases de plantilla
+        prohibidas, sin pregunta forzada al final, memoria viva y permiso para discrepar."""
+        p = personality.apply(base(), personality.find("ironia"))
+        s = prompt.build_system_prompt(p, user_name="Ana", memories=["A Ana le encanta el ramen"], adult=False)
+        q = personality.find("ironia")
+        self.assertTrue(q["opinions"] and q["reactions"])
+        self.assertIn(q["opinions"][0], s)
+        self.assertIn(q["reactions"][0], s)
+        for frase in ("Antes de responder, lee el mensaje de Ana", "Cuánta confianza", "estoy aquí para ayudarte",
+                      "No termines cada respuesta con una pregunta", "Memoria viva", "permiso para no estar de acuerdo"):
+            self.assertIn(frase, s)
+        self.assertNotIn("Danny", s)
+        self.assertLess(s.index("# Tienes criterio"), s.index("# Reglas que nunca rompes"))
+
+    def test_opiniones_propias_se_guardan_limpias(self):
+        c = personality.clean({"name": "X", "opinions": "Uno\n\nDos [emo:feliz]\n" + "z" * 400, "reactions": ["Si a, b"]})
+        self.assertEqual(c["opinions"][0], "Uno")
+        self.assertNotIn("[", c["opinions"][1])
+        self.assertLessEqual(len(c["opinions"][2]), 160)
+        self.assertEqual(c["reactions"], ["Si a, b"])
+
     def test_el_animo_no_va_en_el_prompt_de_sistema(self):
         """El prompt de sistema no cambia entre turnos (caché del modelo local): el ánimo va en el turno."""
         p = personality.apply(base(), personality.find("confianza"))

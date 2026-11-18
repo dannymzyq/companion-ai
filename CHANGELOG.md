@@ -4,6 +4,19 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.2 — 2026-11-17
+
+- **Más persona, menos servicio**: el personaje lee cada mensaje (si bromeas, vas en serio, estás mal o coqueteas;
+  si buscas ayuda, compañía o desahogarte; cuánta confianza hay) y adapta el largo, el tono y el humor. Reacciona
+  antes de responder, no usa frases de plantilla («estoy aquí para ayudarte», «suena difícil»…), no termina siempre
+  con una pregunta y no abusa de sus muletillas. Tiene permiso para no darte la razón y te lo dice si algo le parece
+  mala idea. Trae de vuelta, cuando encaja, detalles concretos que le contaste.
+- **Opiniones y reacciones propias en cada personalidad**: las incluidas traen las suyas y, al crear o personalizar
+  una, hay dos campos nuevos («Opiniones fuertes» y «Cómo reacciona a cosas concretas»).
+- **Cambiar de modelo no deja la ventana parada**: un error al dibujar ya no congela al personaje, las cargas van de
+  una en una (con un límite de 90 s) y, si la tarjeta gráfica pierde el dibujo, el modelo se recarga solo. La
+  ventana guarda sus errores en `data\ventana.log`.
+
 ## 0.8.1 — 2026-11-17
 
 - **Cara ARKit**: los modelos que traen las 52 formas de ARKit («Perfect Sync», como Test-Chan) usan su cara
