@@ -53,9 +53,16 @@ try {
     $csc = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) "csc.exe"
     if (-not (Test-Path $csc)) { $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" }
     $exe = Join-Path $salida "Companion-Setup-$Version.exe"
+    # Datos de versión y manifiesto (asInvoker, Windows 10/11): un .exe sin ellos parece más un virus para el
+    # antivirus (la 0.8.6 salió como Trojan:Win32/Wacatac.B!ml al descargarla, 18 nov 2026).
+    $versionCs = Join-Path $tmp "Version.cs"
+    [IO.File]::WriteAllText($versionCs, "using System.Reflection;`n[assembly: AssemblyVersion(""$Version.0"")]`n" +
+        "[assembly: AssemblyFileVersion(""$Version.0"")]`n[assembly: AssemblyInformationalVersion(""$Version"")]`n",
+        (New-Object Text.UTF8Encoding $false))
     & $csc /nologo /target:winexe /platform:anycpu /optimize+ "/out:$exe" "/win32icon:$raiz\desktop\icono.ico" `
+        "/win32manifest:$raiz\instalador\app.manifest" `
         "/resource:$zip,paquete.zip" /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll `
-        /r:System.Windows.Forms.dll "$raiz\instalador\Lanzador.cs"
+        /r:System.Windows.Forms.dll "$raiz\instalador\Lanzador.cs" $versionCs
     if ($LASTEXITCODE -ne 0) { throw "csc no pudo compilar el instalador." }
     $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
     Write-Host "Instalador listo: $exe ($mb MB, $($archivos.Count) archivos, versión $Version)"

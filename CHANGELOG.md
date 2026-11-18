@@ -4,6 +4,15 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.7 — 2026-11-18
+
+- **El instalador ya no se parece a un virus**: Windows Defender marcó el `.exe` de la 0.8.6 al descargarlo como
+  «Trojan:Win32/Wacatac.B!ml» (una heurística automática, no un virus real; las versiones anteriores no saltaron).
+  El instalador ya no abre PowerShell escondido ni con `-ExecutionPolicy Bypass` (usa `RemoteSigned`, que basta
+  porque los scripts salen del propio `.exe`), y lleva datos de versión y un manifiesto de Windows (se ejecuta como
+  usuario normal). Sin firma digital esto no garantiza que nunca vuelva a saltar con una versión nueva.
+- Incluye lo de la 0.8.6 (frases cortas juntas en modo rápido).
+
 ## 0.8.6 — 2026-11-18
 
 - **Menos silencios entre frases en tarjetas lentas**: en modo rápido, las frases cortas seguidas (menos de 60

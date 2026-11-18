@@ -17,7 +17,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `InstallLocation` en HKCU), admin una sola vez para crearla y dar Modificar al usuario (la app escribe ahí sus
   datos), luego `instalar_paquete.ps1` → `copiar_programa.ps1` (solo lo cambiado; borra lo que la versión anterior
   instaló y la nueva no trae; nunca toca lo que no está en un manifiesto) → `instalar.ps1` de la carpeta.
-  Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`. Publicar una
+  Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`.
+  Antivirus (18 nov 2026): Defender marcó la 0.8.6 al descargarla como Trojan:Win32/Wacatac.B!ml (heurística !ml,
+  archivo nuevo sin firma). Desde la 0.8.7 el lanzador abre PowerShell con `-ExecutionPolicy RemoteSigned` y SIN
+  `-WindowStyle Hidden` (CreateNoWindow basta), y lleva `instalador\app.manifest` (asInvoker) y Version.cs (versión,
+  empresa) que genera `crear_instalador.ps1`. No vuelvas a poner Bypass ni Hidden en el lanzador. Lo definitivo es
+  firmarlo (sin certificado todavía). Publicar una
   etiqueta es publicar un Release: solo cuando el usuario lo pida. Si el título de la versión en `CHANGELOG.md`
   dice «(solo Windows)», el Release no crea la app para Mac.
 - PyTorch de la voz completa (15 nov 2026): `instalar.ps1` lee en `nvidia-smi` el CUDA que admite el driver; con 13
