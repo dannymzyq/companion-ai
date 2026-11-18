@@ -4,6 +4,21 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.3 — 2026-11-18
+
+- **La nube ya no se queda esperando a un modelo saturado**: si Gemini responde «503, mucha demanda» o no empieza a
+  contestar en 4,5 s, se pasa al siguiente modelo en el acto y el saturado queda al final 10 minutos. Antes se le
+  esperaba y reintentaba: medido el 18 nov, gemini-3.6-flash tardaba de 8 a 49 s en dar su 503 mientras Flash-Lite
+  contestaba en 1 s, y algunos turnos llegaban a los 17 s. El oído en la nube hace lo mismo (5 min de descanso).
+- **Funciona mejor en tarjetas de 4 y 6 GB**:
+  - El oído usa Whisper «small» (0,5 GB) en tarjetas de menos de 6,5 GB en vez del «turbo» (1,3 GB): así caben el
+    oído y la voz completa a la vez. Entiende algo peor (3-5 % de palabras perdidas frente al 1,4 %), pero va igual
+    de rápido. El instalador lo trae ya (unos 480 MB más).
+  - El personaje 3D reduce sus texturas y su resolución según la tarjeta (Ajustes › Tú y tu personaje › «Calidad
+    del personaje»): los avatares incluidos pasan de ~430 MB de memoria de vídeo a ~170 MB en media y ~45 MB en baja.
+  - Las cuentas de memoria usan lo medido (voz completa 1,1 GB en vez de 1,5), así que la voz completa se recomienda
+    en más tarjetas.
+
 ## 0.8.2 — 2026-11-17
 
 - **Más persona, menos servicio**: el personaje lee cada mensaje (si bromeas, vas en serio, estás mal o coqueteas;

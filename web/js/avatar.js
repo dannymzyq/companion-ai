@@ -776,6 +776,7 @@ export class Avatar {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.quality = { maxTex: 4096, ratio: 2 };         // setQuality la baja en tarjetas pequeñas
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Si la tarjeta gráfica pierde el contexto (driver reiniciado, memoria de vídeo llena con un juego o el modelo
     // local), three.js lo recupera; al volver se recarga el modelo para que no se quede la imagen parada.
@@ -909,6 +910,7 @@ export class Avatar {
     const gltf = await loader.loadAsync(url);
     const vrm = gltf.userData.vrm;
     if (!vrm) throw new Error('El archivo no es un VRM');
+    await this._shrinkTextures(vrm);
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     if (VRMUtils.combineSkeletons) VRMUtils.combineSkeletons(gltf.scene);
     VRMUtils.rotateVRM0(vrm);
@@ -1435,6 +1437,42 @@ export class Avatar {
     this.controls.target.set(0, y, 0);
     this.camera.position.set(0, y + 0.03, dist);
     this.controls.update();
+  }
+
+  // Calidad según la tarjeta (18 nov 2026, main.js QUALITY): texturas como mucho de `maxTex` px y resolución como
+  // mucho `ratio` × la de la pantalla. Los avatares incluidos traen 8 texturas de 4096 px: ~430 MB de memoria de
+  // vídeo solo en texturas, que en una tarjeta de 4 GB no dejaban sitio al oído y a la voz.
+  setQuality({ maxTex = 4096, ratio = 2 } = {}) {
+    const changed = maxTex !== this.quality?.maxTex;
+    this.quality = { maxTex, ratio };
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, ratio));
+    this.resize();
+    return changed;                                   // las texturas solo cambian al cargar el modelo otra vez
+  }
+
+  async _shrinkTextures(vrm) {
+    const cap = this.quality?.maxTex || 4096;
+    if (cap >= 4096 || typeof createImageBitmap !== 'function') return;
+    const sources = new Set();
+    vrm.scene.traverse((o) => {
+      for (const m of [].concat(o.material || [])) {
+        const add = (t) => { if (t && t.isTexture && t.source && t.source.data) sources.add(t.source); };
+        for (const k in m) add(m[k]);
+        for (const k in m.uniforms || {}) add(m.uniforms[k] && m.uniforms[k].value);
+      }
+    });
+    await Promise.all([...sources].map(async (src) => {
+      const img = src.data, w = img.width || 0, h = img.height || 0;
+      if (Math.max(w, h) <= cap) return;
+      const s = cap / Math.max(w, h);
+      try {
+        // Mismo tipo de imagen y sin premultiplicar, como las que crea GLTFLoader: la orientación no cambia.
+        src.data = await createImageBitmap(img, { resizeWidth: Math.max(1, Math.round(w * s)), resizeHeight: Math.max(1, Math.round(h * s)),
+          resizeQuality: 'high', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+        src.needsUpdate = true;
+        if (img.close) img.close();
+      } catch (err) { console.warn('No pude reducir una textura:', err); }
+    }));
   }
 
   resize() {

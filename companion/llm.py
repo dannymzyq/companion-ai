@@ -33,6 +33,10 @@ class QuotaExceeded(Exception):
         self.wait, self.daily = wait, daily
 
 
+class Overloaded(Exception):
+    """El modelo de la nube está saturado (503 «high demand», 5xx o sin respuesta a tiempo): se pasa al siguiente."""
+
+
 class Image(NamedTuple):
     """Lo que el usuario comparte en un turno. No se guarda en el historial."""
     kind: str               # camera | screen (pantalla entera) | window (una sola ventana)
@@ -142,6 +146,8 @@ async def observe(messages: list[dict], sampling: dict, images: list[Image]) -> 
             raise LLMError(f"La mirada en vivo no está disponible ahora: {model} agotó su cuota gratuita de hoy.")
         try:
             return "".join([p async for p in _gemini(model, _images_openai(messages, images), sampling)])
+        except Overloaded:
+            return "[silencio]"                # saturado: esta vez no mira; la mirada sigue encendida
         except QuotaExceeded as q:
             _block(model, q.wait)
             raise LLMError(f"La mirada en vivo se detiene: {model} agotó su cuota gratuita. La conversación sigue igual.")
@@ -167,22 +173,43 @@ async def _cloud(messages: list[dict], sampling: dict, images, background: bool 
     if not settings.gemini_api_key or not chain:
         raise LLMError("Falta la clave del cerebro en la nube. Ponla en Ajustes › Cerebro, o usa el cerebro local.")
     payload = _images_openai(messages, images)
-    for model in _by_speed(chain):
+    order = _by_speed(chain)
+    for n, model in enumerate(order):
         if not _usable(model):
             continue
         sent = False
         t0 = time.monotonic()
+        # Si quedan otros modelos, no se espera más de CLOUD_FIRST_S al primer texto: un modelo saturado tardaba
+        # 8-49 s en devolver su 503 (medido el 18 nov 2026) mientras Flash-Lite contestaba en 1 s.
+        rest = any(_usable(m) for m in order[n + 1:])
+        deadline = (CLOUD_FIRST_BG_S if background else CLOUD_FIRST_S) if rest else None
+        stream = _gemini(model, payload, sampling).__aiter__()
         try:
-            async for piece in _gemini(model, payload, sampling):
-                if not sent and not background:
+            try:
+                first = await asyncio.wait_for(stream.__anext__(), deadline)
+            except asyncio.TimeoutError:
+                raise Overloaded(f"sin respuesta en {deadline:g} s") from None
+            except StopAsyncIteration:
+                first = None
+            if first is not None:
+                if not background:
                     _note_wait(model, time.monotonic() - t0, chain)
                 sent = True
-                yield piece
+                yield first
+                async for piece in stream:
+                    yield piece
             if not background:
                 _local_announced = False
                 if _fallback_loaded:          # la nube volvió: el respaldo local deja libre la tarjeta
                     _keep(asyncio.create_task(_drop_fallback()))
             return
+        except Overloaded as e:
+            await stream.aclose()
+            if sent:                           # ya habló: cortar a media frase sería peor que esperar
+                raise LLMError("El cerebro en la nube se cortó a media respuesta. Vuelve a intentarlo.") from None
+            _busy(model)
+            log.warning("Nube: %s saturado (%s); paso al siguiente y lo dejo al final %d min", model, e, CLOUD_BUSY_S // 60)
+            continue
         except LLMError as e:
             # El modelo de fondo puede no estar disponible para esa clave (o no admitir imágenes): sigue el relevo.
             if background and model == settings.background_model and model != settings.gemini_model and not sent:
@@ -204,14 +231,15 @@ async def _cloud(messages: list[dict], sampling: dict, images, background: bool 
         # Con la nube elegida, el trabajo de fondo (resúmenes, pasos al usar una ventana) nunca carga el modelo
         # local: en una tarjeta pequeña le quitaba la memoria de vídeo a la voz completa sin que el usuario lo
         # pidiera (15 nov 2026). Se reintenta cuando vuelva la cuota.
-        raise LLMError("Se agotó la cuota del cerebro en la nube por ahora; el trabajo de fondo espera a que vuelva.")
+        raise LLMError("El cerebro en la nube no está disponible ahora (cuota o saturación); el trabajo de fondo "
+                       "espera a que vuelva.")
     if not settings.local_fallback:
-        raise LLMError("Se agotó la cuota del cerebro en la nube por ahora. Usa el cerebro local desde Ajustes o "
-                       "revisa el plan de tu proveedor.")
+        raise LLMError("El cerebro en la nube no está disponible ahora (cuota agotada o servidores saturados). "
+                       "Prueba en un momento, usa el cerebro local desde Ajustes o revisa el plan de tu proveedor.")
     model, cpu = await _fallback_place()
     if not _local_announced:
         _local_announced = True
-        _notices.append(f"El cerebro en la nube no está disponible ahora (cuota). Sigo con el modelo local {model}"
+        _notices.append(f"El cerebro en la nube no está disponible ahora (cuota o saturación). Sigo con el modelo local {model}"
                         + (" en el procesador, para no quitarle memoria de vídeo a la voz ni al oído: irá más lento."
                            if cpu else ": todo queda en esta PC."))
     async for piece in _ollama(_images_ollama(messages, images), sampling, model=model, cpu=cpu):
@@ -222,8 +250,16 @@ async def _cloud(messages: list[dict], sampling: dict, images, background: bool 
 # mientras Flash-Lite contesta en 3. Si tarda más de CLOUD_SLOW_S en dar el primer texto dos turnos seguidos, se
 # empieza por el siguiente de la lista durante CLOUD_REST_S (lo mismo que hace la app de iOS).
 CLOUD_SLOW_S, CLOUD_SLOW_TURNS, CLOUD_REST_S = 8.0, 2, 1800
+# Saturado (503 o sin primer texto en CLOUD_FIRST_S con otros modelos disponibles): se pasa al siguiente en el acto
+# y ese modelo va al final de la lista CLOUD_BUSY_S. El trabajo de fondo espera algo más (no hay nadie esperando).
+CLOUD_FIRST_S, CLOUD_FIRST_BG_S, CLOUD_BUSY_S = 4.5, 15.0, 600
 _slow_cloud: dict[str, int] = {}          # modelo → turnos lentos seguidos
 _slow_until: dict[str, float] = {}        # modelo → hasta cuándo se empieza por otro
+
+
+def _busy(model: str):
+    _slow_cloud[model] = 0
+    _slow_until[model] = max(_slow_until.get(model, 0), time.time() + CLOUD_BUSY_S)
 
 
 def _by_speed(chain: list[str]) -> list[str]:
@@ -344,6 +380,9 @@ async def _gemini(model: str, messages: list[dict], sampling: dict) -> AsyncIter
                         wait = re.search(r'"retryDelay":\s*"(\d+)', detail)
                         daily = "perday" in detail.lower()
                         raise QuotaExceeded(float(wait.group(1)) if wait else (12 * 3600 if daily else 60), daily)
+                    if r.status_code in (500, 502, 503, 504) or "overloaded" in detail.lower() or "high demand" in detail.lower():
+                        log.info("Nube %s (%s): saturado", r.status_code, model)
+                        raise Overloaded(f"HTTP {r.status_code}")
                     raise LLMError(_gemini_error(r.status_code, detail, model))
                 async for line in r.aiter_lines():
                     if not line.startswith("data:"):
@@ -359,6 +398,8 @@ async def _gemini(model: str, messages: list[dict], sampling: dict) -> AsyncIter
                     if piece:
                         yield piece
                 return
+        except httpx.TimeoutException as e:
+            raise Overloaded(type(e).__name__) from e        # ese modelo no contesta: el siguiente quizá sí
         except httpx.HTTPError as e:
             raise LLMError(f"No pude conectar con el cerebro en la nube ({type(e).__name__}). Revisa tu conexión a internet.") from e
 

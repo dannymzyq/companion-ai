@@ -30,6 +30,7 @@ def _add_cuda_dlls():
 
 
 on_gpu = False                            # ¿el oído ya está cargado en la tarjeta? (profile.measured_others)
+loaded_name = ""                          # el Whisper cargado en la tarjeta (profile.ear_gb)
 
 
 class Transcriber:
@@ -93,7 +94,7 @@ class Transcriber:
             local = ROOT / "models" / "whisper" / name
             return _Whisper(str(local) if (local / "model.bin").is_file() else name, **kw)
 
-        global on_gpu
+        global on_gpu, loaded_name
         silence = np.zeros(8000, dtype=np.float32)
         if self.want_device in ("auto", "cuda") and sys.platform != "darwin":   # en el Mac no hay CUDA
             try:
@@ -102,6 +103,7 @@ class Transcriber:
                 list(model.transcribe(silence, language=self.language, beam_size=1)[0])   # fuerza la carga de las DLL
                 self.model, self.device, self.used_cuda = model, "cuda", True
                 on_gpu = True
+                loaded_name = self.model_name
                 log.info("Whisper %s en GPU (%s)", self.model_name, self.compute)
                 return
             except Exception as e:  # noqa: BLE001

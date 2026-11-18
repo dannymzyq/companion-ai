@@ -53,7 +53,8 @@ def _hint() -> str:
     return f"Conversación entre {settings.user_name} y {character_name()}, su asistente personal."
 
 
-transcriber = Transcriber(settings.stt_model, settings.stt_device, settings.stt_compute, settings.stt_language, hint=_hint())
+# El modelo del oído según la tarjeta (profile.ear_model: el pequeño en las de menos de 6,5 GB, si está instalado).
+transcriber = Transcriber(profile.ear_model(), settings.stt_device, settings.stt_compute, settings.stt_language, hint=_hint())
 transcriber.engine = profile.ear_engine()  # con el oído en la nube no se carga Whisper al arrancar
 
 

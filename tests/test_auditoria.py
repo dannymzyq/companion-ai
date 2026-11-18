@@ -88,6 +88,80 @@ class NubeLenta(unittest.TestCase):
         self.assertEqual(llm._slow_until, {})
 
 
+class NubeSaturada(unittest.IsolatedAsyncioTestCase):
+    """18 nov 2026: gemini-3.6-flash tardaba 8-49 s en devolver su 503 mientras Flash-Lite contestaba en 1 s."""
+
+    def setUp(self):
+        llm.reset_cloud()
+        llm._notices.clear()
+        self.p = [mock.patch.object(llm.settings, "llm_provider", "gemini"),
+                  mock.patch.object(llm.settings, "cloud_preset", "gemini"),
+                  mock.patch.object(llm.settings, "gemini_api_key", "x"),
+                  mock.patch.object(llm.settings, "gemini_model", "a"),
+                  mock.patch.object(llm.settings, "gemini_fallback", ["b"]),
+                  mock.patch.object(llm.settings, "local_fallback", False),
+                  mock.patch.object(llm, "CLOUD_FIRST_S", 0.2)]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+        llm.reset_cloud()
+
+    async def _talk(self, behaviour):
+        calls = []
+
+        async def fake(model, payload, sampling):
+            calls.append(model)
+            async for piece in behaviour(model):
+                yield piece
+        with mock.patch.object(llm, "_gemini", fake):
+            out = "".join([p async for p in llm._cloud([{"role": "user", "content": "hola"}], {}, None)])
+        return out, calls
+
+    async def test_503_pasa_al_siguiente_y_lo_deja_al_final(self):
+        async def b(model):
+            if model == "a":
+                raise llm.Overloaded("HTTP 503")
+            yield "hola desde b"
+        out, calls = await self._talk(b)
+        self.assertEqual((out, calls), ("hola desde b", ["a", "b"]))
+        self.assertEqual(llm._by_speed(["a", "b"]), ["b", "a"])      # el saturado, al final unos minutos
+
+    async def test_sin_primer_texto_a_tiempo_salta(self):
+        async def b(model):
+            if model == "a":
+                await asyncio.sleep(5)
+            yield f"de {model}"
+        out, calls = await self._talk(b)
+        self.assertEqual((out, calls), ("de b", ["a", "b"]))
+
+    async def test_el_ultimo_no_tiene_limite(self):
+        async def b(model):
+            if model == "a":
+                raise llm.Overloaded("HTTP 503")
+            await asyncio.sleep(0.4)                                  # más que CLOUD_FIRST_S, pero es el último
+            yield "tarde pero llega"
+        out, _ = await self._talk(b)
+        self.assertEqual(out, "tarde pero llega")
+
+    async def test_todos_saturados_da_un_error_claro(self):
+        async def b(model):
+            raise llm.Overloaded("HTTP 503")
+            yield ""
+        with self.assertRaises(llm.LLMError) as e:
+            await self._talk(b)
+        self.assertIn("saturados", str(e.exception))
+
+    async def test_la_mirada_calla_si_esta_saturado(self):
+        async def fake(model, payload, sampling):
+            raise llm.Overloaded("HTTP 503")
+            yield ""
+        with mock.patch.object(llm, "_gemini", fake), mock.patch.object(llm.settings, "watch_model", "a"):
+            self.assertEqual(await llm.observe([{"role": "user", "content": "x"}], {}, []), "[silencio]")
+
+
 class LentoEnElMac(unittest.TestCase):
     def test_pc_umbral_fijo(self):
         with mock.patch.object(llm.sys, "platform", "win32"):

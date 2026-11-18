@@ -258,6 +258,16 @@
             <small class="tip" id="tip-hobby" hidden>Si pasas un rato sin hablarle, sin escribirle y sin pasar el ratón por su ventana, se pone a hacer cosas por su cuenta: baila, salta, da una vuelta, se estira y bosteza, tararea, hace un pequeño hechizo… A los 3 minutos le entra sueño: se sienta a cabecear o se tumba a echar la siesta. En cuanto vuelves, lo deja (y se despierta). También puedes pedírselo: «¿puedes bailar?», «salta», «duérmete».</small></span>
           <input type="checkbox" id="hobby" class="switch">
         </label>
+        <div class="set">
+          <div class="set-head"><b>Calidad del personaje</b><button class="info" data-tip="tip-quality" aria-label="Qué es esto">i</button></div>
+          <p class="tip" id="tip-quality" hidden>Cuánta memoria de vídeo usa el personaje 3D. «Automática» la elige según tu tarjeta: en las de menos de 8 GB reduce las texturas y la resolución para dejar sitio al oído y a la voz (en pantalla apenas se nota). Los avatares incluidos ocupan unos 430 MB en alta, unos 170 MB en media y unos 45 MB en baja.</p>
+          <div class="picker"><select id="quality-select" aria-label="Calidad del personaje">
+            <option value="auto">Automática</option>
+            <option value="alta">Alta</option>
+            <option value="media">Media</option>
+            <option value="baja">Baja (tarjetas de 4 GB)</option>
+          </select></div>
+        </div>
       </details>
 
       <!-- 1b. Personalidad -->

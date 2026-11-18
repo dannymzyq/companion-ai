@@ -253,3 +253,41 @@ class Personajes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OidoSegunLaTarjeta(unittest.TestCase):
+    """18 nov 2026: en tarjetas de 4-6 GB el turbo (1,3 GB) y la voz completa (1,1 GB) no cabían juntos."""
+
+    def _model(self, total, small=True, env=None):
+        import os
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            if small:
+                (Path(d) / "models" / "whisper" / "small").mkdir(parents=True)
+                (Path(d) / "models" / "whisper" / "small" / "model.bin").write_bytes(b"x")
+            with mock.patch.object(profile, "ROOT", Path(d)), mock.patch.dict(os.environ, {"STT_MODEL": env} if env else {}, clear=False):
+                if not env:
+                    os.environ.pop("STT_MODEL", None)
+                return profile.ear_model(total)
+
+    def test_tarjeta_pequena_usa_el_pequeno(self):
+        self.assertEqual(self._model(4.0), "small")
+        self.assertEqual(self._model(6.0), "small")
+
+    def test_tarjeta_grande_o_sin_tarjeta_usa_el_turbo(self):
+        self.assertEqual(self._model(8.0), "large-v3-turbo")
+        self.assertEqual(self._model(0.0), "large-v3-turbo")      # sin NVIDIA: el procesador elige por su cuenta
+
+    def test_sin_el_pequeno_instalado_sigue_el_turbo(self):
+        self.assertEqual(self._model(4.0, small=False), "large-v3-turbo")
+
+    def test_stt_model_manda(self):
+        with mock.patch.object(settings, "stt_model", "base"):
+            self.assertEqual(self._model(4.0, env="base"), "base")
+
+    def test_en_4_gb_caben_oido_y_voz_completa(self):
+        with mock.patch.object(profile, "ear_model", lambda total=None: "small"):
+            r = profile.resources(gpu(4), is_cloud=True, local_model=profile.TOP_RECOMMENDED, node_ok=True, others=1.5)
+        self.assertEqual(r["ear_model"], "small")
+        self.assertEqual(r["recommended_engine"], "completa")

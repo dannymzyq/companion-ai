@@ -68,10 +68,10 @@ TOP_RECOMMENDED = next(m["id"] for m in LOCAL_MODELS if m.get("recommend", True)
 
 # Memoria de vídeo (GB) de lo que convive con el modelo local, medida en esta PC (RTX 5070 Ti, nov 2026).
 VOICE_ENGINES = {
-    # 1,0 GB en reposo medido con voz/servidor.py (solo F5-TTS); 1,5 con margen para la síntesis. El nodo de
-    # waifuv3 que se usaba antes ocupaba de 5 a 9 GB porque cargaba también Chatterbox.
-    "completa": {"name": "Voz completa", "vram_gb": 1.5,
-                 "note": "Voces clonadas, la de más calidad. Necesita tarjeta NVIDIA: usa alrededor de 1,5 GB de memoria de vídeo."},
+    # Medido el 18 nov 2026 con voz/servidor.py (F5-TTS en float16): 1,03 GB en reposo y 1,12 GB de pico al hablar;
+    # 1,2 con algo de margen. El nodo de waifuv3 que se usaba antes ocupaba de 5 a 9 GB porque cargaba Chatterbox.
+    "completa": {"name": "Voz completa", "vram_gb": 1.2,
+                 "note": "Voces clonadas, la de más calidad. Necesita tarjeta NVIDIA: usa alrededor de 1,1 GB de memoria de vídeo."},
     "ligera": {"name": "Voz ligera", "vram_gb": 0.0,
                "note": "Voces sintéticas (Piper). Corre en el procesador: no usa memoria de vídeo. Suena más artificial y no es la voz clonada."},
     # Voces neuronales de Edge (tts_cloud): sin clave ni cupo, casi sin procesador; necesita internet.
@@ -82,8 +82,33 @@ if MAC:
     VOICE_ENGINES["completa"] = {**VOICE_ENGINES["completa"], "note": (
         "Voces clonadas, la de más calidad. Usa la GPU del Mac: empieza a hablar unos 3 segundos después que la ligera.")}
 EAR_ENGINES = ("local", "nube")
-EAR_GB = 1.1                              # Whisper large-v3-turbo
+# Oído en la GPU (int8_float16), medido el 18 nov 2026 con frases en español de voz clara: memoria de vídeo y
+# palabras perdidas. large-v3-turbo: 1,29 GB, 1,4 %, 0,13 s por frase · small: 0,53 GB, 3-5 %, 0,19 s ·
+# base: 0,14 GB, 6-9 %. En el procesador, small tarda 1,8 s por frase (en esta PC; más en una laptop).
+EAR_MODELS = {"large-v3-turbo": 1.3, "small": 0.55, "base": 0.15}
+EAR_GB = EAR_MODELS["large-v3-turbo"]
+SMALL_EAR_BELOW = 6.5                     # tarjetas de menos GB: el oído pequeño (deja sitio a la voz completa)
 DESKTOP_GB = 2.0                          # Windows, el navegador y la propia ventana (si no se puede medir)
+
+
+def ear_model(total: float | None = None) -> str:
+    """El Whisper que se carga en la GPU. STT_MODEL en .env manda; si no, en tarjetas de menos de SMALL_EAR_BELOW
+    GB el pequeño (si el instalador lo trajo): con el turbo (1,3 GB) y la voz completa (1,1 GB) una tarjeta de
+    4 GB no tenía sitio para las dos."""
+    if os.getenv("STT_MODEL"):
+        return settings.stt_model
+    if MAC:
+        return "large-v3-turbo"
+    total = gpu_total_gb() if total is None else total
+    small = (ROOT / "models" / "whisper" / "small" / "model.bin").is_file()
+    return "small" if 0 < total < SMALL_EAR_BELOW and small else "large-v3-turbo"
+
+
+def ear_gb() -> float:
+    """GB del oído que se usa ahora (o del que se cargaría)."""
+    from . import stt
+    name = stt.loaded_name or ear_model()
+    return EAR_MODELS.get(name, EAR_GB)
 
 
 def voice_engine() -> str:
@@ -153,7 +178,7 @@ def measured_others() -> float | None:
     g = llm.gpu_memory()
     if not g:
         return None
-    ours = (EAR_GB if stt.on_gpu else 0.0) + _ollama_on_gpu() + (VOICE_ENGINES["completa"]["vram_gb"] if running else 0.0)
+    ours = (ear_gb() if stt.on_gpu else 0.0) + _ollama_on_gpu() + (VOICE_ENGINES["completa"]["vram_gb"] if running else 0.0)
     _others = round(max(0.3, g["used"] / 1024 - ours), 1)
     return _others
 
@@ -161,7 +186,7 @@ def measured_others() -> float | None:
 def _need_full(others: float | None, model: float) -> float:
     """GB que hacen falta para la voz completa junto al oído, los demás programas y el modelo local. Con lo
     medido se deja 0,2 GB de holgura; con la estimación fija se toleraba 0,3 GB de más."""
-    base = EAR_GB + VOICE_ENGINES["completa"]["vram_gb"] + model
+    base = ear_gb() + VOICE_ENGINES["completa"]["vram_gb"] + model
     return base + (DESKTOP_GB - 0.3 if others is None else others + 0.2)
 
 
@@ -212,7 +237,8 @@ def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bo
     lo que queda es para el modelo local."""
     total = round((gpu or {}).get("total", 0) / 1024, 1)
     desktop = DESKTOP_GB if others is None else others
-    base = EAR_GB + desktop
+    ear = EAR_MODELS.get(ear_model(total), EAR_GB)
+    base = ear + desktop
     room = {k: round(max(0.0, total - base - v["vram_gb"]), 1) for k, v in VOICE_ENGINES.items()}
     tier = "alto" if total >= 8 else "medio" if total >= 6 else "bajo"     # desde 8 GB cabe la voz completa con un modelo local
     # Voz recomendada: la completa solo si, además de ella, cabe el cerebro que se va a usar.
@@ -230,7 +256,7 @@ def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bo
     # imágenes; si no, mejor la ligera con un modelo más capaz.
     sees = {m["id"]: m["vision"] for m in LOCAL_MODELS}
     pair = "completa" if node_ok and total and sees[best("completa")] else "ligera"
-    return {"total_gb": total, "tier": tier, "ear_gb": EAR_GB, "desktop_gb": desktop, "room": room,
+    return {"total_gb": total, "tier": tier, "ear_gb": ear, "ear_model": ear_model(total), "desktop_gb": desktop, "room": room,
             "engines": {k: {**v, "id": k} for k, v in VOICE_ENGINES.items()},
             "recommended_engine": engine, "recommended_model": best(pair), "recommended_pair": pair,
             "best": {k: best(k) for k in VOICE_ENGINES}}

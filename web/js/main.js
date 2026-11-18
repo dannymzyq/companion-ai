@@ -497,6 +497,7 @@ function applyConfig(cfg) {
     $('health').append(dt, dd);
   }
 
+  applyQuality();
   if (cfg.model && avatar && !avatar.loaded && !loadingModel) loadModel();
   if (!cfg.model || !avatar) showOrb(true);
 
@@ -1148,6 +1149,27 @@ if (desktop && desktop.onMode) desktop.onMode(setMode);
 // ---------------------------------------------------------------- mascota de escritorio (Ajustes › Escritorio)
 // Solo en la app y solo flotando: desktop/pet.js mueve la ventana (gravedad, paseos, sentarse, ir a la ventana que
 // maneja) y aquí se ponen las animaciones. Los ajustes se recuerdan en esta app (localStorage).
+// Calidad del personaje (18 nov 2026): texturas y resolución según la memoria de vídeo de la tarjeta (config.gpu,
+// en MB; en el Mac, la parte de la memoria unificada que puede usar la GPU). Sin dato (gráfica integrada, AMD): media.
+function QUALITY() { return { alta: { maxTex: 4096, ratio: 2 }, media: { maxTex: 2048, ratio: 1.5 }, baja: { maxTex: 1024, ratio: 1 } }; }   // función: applyConfig puede llegar antes
+function qualityPref() { try { return localStorage.getItem('companion.quality') || 'auto'; } catch { return 'auto'; } }
+function qualityNow() {
+  const pref = qualityPref();
+  if (pref in QUALITY()) return pref;
+  const total = config && config.gpu ? config.gpu.total : 0;
+  return !total ? 'media' : total >= 7800 ? 'alta' : total >= 5500 ? 'media' : 'baja';
+}
+function applyQuality() {
+  if (!avatar || !avatar.setQuality) return;
+  const changed = avatar.setQuality(QUALITY()[qualityNow()]);
+  if (changed && avatar.vrm && config && config.model && !loadingModel) loadModel();   // texturas nuevas: se recarga
+}
+$('quality-select').value = qualityPref();
+$('quality-select').onchange = () => {
+  try { localStorage.setItem('companion.quality', $('quality-select').value); } catch { /* modo privado */ }
+  applyQuality();
+};
+
 // Funciones (no const): el avatar las usa antes de llegar aquí.
 // Pasatiempos (17 nov 2026): si no usas la app un rato, se entretiene sola (avatar.js HOBBIES). Encendido por defecto.
 function hobbyOn() { try { return localStorage.getItem('companion.hobby') !== '0'; } catch { return true; } }

@@ -181,7 +181,19 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   que lo haga él (`detener.ps1`, o `Companion.bat`, que lo reinicia solo si el código o `.env` son más nuevos).
   Nunca llames a `DELETE /api/memory` contra él: borra su conversación y sus recuerdos. Las pruebas van
   contra el servidor aislado de `scripts\_prueba.py` (puerto 8201, `data\prueba`); con `--local` usan Ollama.
-- Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,1 GB + escritorio ~2,5 GB. El modelo local tiene que
+- Tarjetas pequeñas (18 nov 2026, «optimizar para 4-6 GB»), medido en esta PC: voz completa 1,03 GB en reposo y
+  1,12 de pico (F5 ya va en float16 en CUDA); Whisper en GPU int8_float16: turbo 1,29 GB / 1,4 % de palabras
+  perdidas, small 0,53 / 3-5 %, base 0,14 / 6-9 % (small en el procesador: 1,8 s por frase). `profile.ear_model`:
+  small por debajo de `SMALL_EAR_BELOW` (6,5 GB) si está en `models\whisper\small` (lo trae `preparar_recursos.py
+  --oido`, no en el Mac); `STT_MODEL` en `.env` manda. `EAR_MODELS`/`ear_gb()` en las cuentas. Avatar: los
+  incluidos traen 8 texturas de 4096 px (~430 MB de vídeo); `avatar.setQuality` + `_shrinkTextures` (createImageBitmap
+  al cargar) y `QUALITY`/`qualityNow` en main.js (≥7,8 GB alta, ≥5,5 media 2048 px, si no baja 1024 px; sin dato de
+  tarjeta, media; `companion.quality` en localStorage, Ajustes › «Calidad del personaje»). Nube saturada: `Overloaded`
+  (5xx, «high demand», sin respuesta) y `CLOUD_FIRST_S` 4,5 s al primer texto si quedan otros modelos → `_busy` (al
+  final `CLOUD_BUSY_S` 10 min); la mirada en vivo calla si está saturado; `stt_cloud._busy` 5 min. Medido el 18 nov:
+  gemini-3.6-flash daba 503 tras 8-49 s y Flash-Lite contestaba en 1 s. El plan Google AI Pro no sube los límites de
+  la API (solo AI Studio). Herramientas para medir: no se guardaron en scripts (eran de una sesión).
+- Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,3 GB + escritorio ~2,5 GB. El modelo local tiene que
   caber en lo que queda: `gemma4:e4b-it-qat` (4,8 GB, el recomendado) con respaldo `gemma4:e2b-it-qat`.
   `gemma4:12b` (10,6 GB) cabe desde que la voz es la propia (58–93 tokens/s, 13 nov 2026) y está en el catálogo
   con `recommend: False` (con un juego abierto no cabe); el usuario lo tiene elegido. `llm.py` mide la velocidad
@@ -367,7 +379,8 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   navegador contra el servidor de prueba. Los brazos se escriben para el izquierdo y se reflejan.
 - El prompt de sistema no debe llevar nada que cambie por turno (hora, lo que ve): eso va en `turn_context` y en
   las notas de imagen del último mensaje, para que el modelo local reutilice su caché.
-- No arranques el servidor con `STT_MODEL` distinto del instalado: faster-whisper lo descarga solo de Hugging Face.
+- No arranques el servidor con `STT_MODEL` distinto de los instalados (`models\whisper`: large-v3-turbo y small):
+  faster-whisper descarga cualquier otro solo de Hugging Face.
 - La interfaz se sirve con `Cache-Control: no-cache` y Electron vacía su caché al arrancar. Si una prueba se
   comporta como el código anterior, sospecha primero de JavaScript en caché (pasó el 11 nov 2026).
 - Micrófono y cámara reales: `scripts\prueba_dispositivos.py` (Electron oculto con `COMPANION_TEST_REAL_MEDIA=1`,
