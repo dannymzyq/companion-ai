@@ -4,6 +4,13 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.5 — 2026-11-18
+
+- **El primer turno tras arrancar ya no tarda medio minuto en tarjetas lentas**: la voz completa se da por lista
+  solo después de medir la tarjeta (antes, la primera respuesta se pedía mientras medía, las dos se frenaban y en la
+  RTX 3050 el primer audio llegó a los 30 s), y en modo rápido esa primera frase tampoco se comprueba con Whisper.
+  La medida es una sola frase (antes, dos).
+
 ## 0.8.4 — 2026-11-18
 
 Probado en una laptop con RTX 3050 de 4 GB (con la 0.8.3 instalada).

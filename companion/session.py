@@ -858,6 +858,9 @@ class Session:
             return pcm
         if getattr(self.stt, "device", None) != "cuda":
             return pcm                    # en el procesador, escucharla otra vez tarda casi lo que la frase
+        from . import voz_proc
+        if voz_proc.fast():               # la primera frase se pidió antes de que la voz midiera la tarjeta
+            return pcm
         loop = asyncio.get_running_loop()
         best, best_lost = pcm, None
         # Si no está sonando nada (la primera frase), cada repetición se nota como espera: como mucho una.

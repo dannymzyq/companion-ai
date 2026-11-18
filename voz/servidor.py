@@ -53,7 +53,7 @@ LENTA_S = float(os.getenv("VOZ_LENTA_S", "2.5"))   # una frase corta más lenta 
 _CONJ = re.compile(r"\s(?=(?:y|e|o|u|pero|porque|que|cuando|aunque|mientras|para|si)\s)", re.IGNORECASE)
 CORTA, MIN_S = 25, 1.7                     # una frase de menos letras recibe al menos MIN_S segundos para decirse
 _ref_s: dict[str, float] = {}
-estado = {"tts": None, "error": "", "voz": None, "dispositivo": ""}
+estado = {"tts": None, "error": "", "voz": None, "dispositivo": "", "listo": False}
 
 
 def _parche_torchaudio():
@@ -209,10 +209,7 @@ def _medir_tarjeta():
         return
     NFE, CORTA_REF, LARGA = 16, True, min(LARGA, 90)
     estado["rapida"] = True
-    t = time.perf_counter()
-    _decir("Vale, ahora mismo te lo cuento.", POR_DEFECTO, 1.0)
-    log.info("Tarjeta lenta: una frase corta tardaba %.2f s; modo rápido (16 pasos, muestra corta): %.2f s",
-             s, time.perf_counter() - t)
+    log.info("Tarjeta lenta: una frase corta tardó %.2f s; modo rápido (16 pasos, muestra corta)", s)
 
 
 def cargar():
@@ -245,6 +242,9 @@ def cargar():
                      time.perf_counter() - t, VOCES)
             if disp == "cuda":
                 _medir_tarjeta()
+            # Lista solo ahora: antes, el companion le pedía la primera respuesta mientras medía la tarjeta, las dos
+            # se frenaban y la medida salía el doble (laptop RTX 3050, 18 nov 2026: primer audio a los 30 s).
+            estado["listo"] = True
         try:
             preparar(dispositivo)
         except Exception:  # noqa: BLE001
@@ -254,7 +254,7 @@ def cargar():
             estado["tts"] = None
             preparar("cpu")
     except Exception as e:  # noqa: BLE001
-        estado["tts"] = None
+        estado["tts"], estado["listo"] = None, False
         estado["error"] = f"{type(e).__name__}: {e}"
         log.exception("No se pudo cargar F5-TTS")
 
@@ -271,7 +271,8 @@ candado = asyncio.Lock()                                           # una síntes
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "tts": "f5" if estado["tts"] else "none", "loading": not estado["tts"] and not estado["error"],
+    listo = bool(estado["tts"]) and estado["listo"]
+    return {"ok": True, "tts": "f5" if listo else "none", "loading": not listo and not estado["error"],
             "error": estado["error"], "device": estado["dispositivo"],
             "fast": bool(estado.get("rapida")), "phrase_s": estado.get("frase_s")}
 
@@ -287,7 +288,7 @@ class Peticion(BaseModel):
 
 @app.post("/v1/audio/speech")
 async def speech(p: Peticion):
-    if not estado["tts"]:
+    if not estado["tts"] or not estado["listo"]:
         raise HTTPException(503, estado["error"] or "La voz todavía está cargando")
     nombre = p.voice or POR_DEFECTO
     _voz(nombre)                                                   # 404 antes de empezar a responder
