@@ -208,7 +208,9 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   la primera respuesta se pidió durante la medida y el primer audio llegó a los 30 s. Con la 0.8.5 allí: primera
   frase ~1,3 s y primer audio ~4,1 s (voz ~2,9 s), pero con pausas a mitad de respuesta; `Session._speak` en modo
   rápido junta frases de menos de `FAST_MERGE` (60) hasta `FAST_MERGE_MAX` (90) letras (`pending` guarda la que no
-  cabe). Pruebas: `tests/test_voz_juntar.py`.
+  cabe). Pruebas: `tests/test_voz_juntar.py`. Con la 0.8.7 allí (6 turnos): primera frase 1,1-2,5 s, primer audio
+  2,6-3,9 s (voz ~1,4 s), sin pausas a mitad de respuesta, 1,3 GB de vídeo; Defender no marcó el instalador. El
+  primer turno sin «Primer audio» es el saludo cortado porque el usuario habla enseguida (esperado).
 - Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,3 GB + escritorio ~2,5 GB. El modelo local tiene que
   caber en lo que queda: `gemma4:e4b-it-qat` (4,8 GB, el recomendado) con respaldo `gemma4:e2b-it-qat`.
   `gemma4:12b` (10,6 GB) cabe desde que la voz es la propia (58–93 tokens/s, 13 nov 2026) y está en el catálogo
