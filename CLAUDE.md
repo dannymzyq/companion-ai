@@ -79,6 +79,10 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   y avisos de la consola de la página, «no responde» y caídas de la página o de la tarjeta gráfica. El bucle de
   dibujo (`tick` en main.js) nunca se para por un error (`tickPart`), las cargas de modelo van de una en una
   (`loadSeq`, 90 s como mucho) y tras perder el contexto WebGL se recarga el modelo (`onContextRestored`).
+  Fluidez (19 nov 2026, «tirones a pantalla completa»): `_readProbe` (readPixels) solo si el ratón se movió o cada
+  150 ms; `resize` limita los píxeles a `MAX_PIXELS` (3,7 M) y `_frameWatch` baja la resolución un 20 % si 3 s
+  van a menos de 40 fps; `setLevel` (main.js) solo escribe `--level` si cambia; `updateHit` con el ratón quieto
+  mira cada 120 ms. No vuelvas a leer píxeles ni a escribir estilos en cada cuadro.
 - El panel de navegador de Claude bloquea el micrófono: ahí la interfaz se prueba escribiendo; el avatar,
   con `scripts\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
   Para el micrófono de verdad, `scripts\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).

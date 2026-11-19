@@ -187,6 +187,12 @@ for (const b of document.querySelectorAll('[data-stop]')) b.onclick = () => visi
 // Un error en un cuadro no puede parar el bucle (antes, una sola excepción dejaba el personaje congelado hasta
 // reiniciar la app): se pide el siguiente cuadro ANTES de dibujar y cada error distinto se avisa una vez.
 const tickErrors = new Set();
+const levels = new WeakMap();
+function setLevel(el, v) {
+  if (!el || levels.get(el) === v) return;
+  levels.set(el, v);
+  el.style.setProperty('--level', v);
+}
 function tickPart(name, fn) {
   try { fn(); } catch (err) {
     const key = name + ':' + err.message;
@@ -198,12 +204,13 @@ function tick() {
   let voice = { vol: 0 };
   tickPart('voz', () => { voice = audio.analyse(); });
   if (avatar) tickPart('personaje', () => { avatar.setVoice(voice); avatar.update(); });
+  // Niveles de voz y micrófono: solo cuando cambian (con dos decimales). Escribirlos en cada cuadro obligaba al
+  // navegador a recalcular estilos 60 veces por segundo aunque no se movieran (19 nov 2026).
   tickPart('niveles', () => {
-    $('orb').firstElementChild.style.setProperty('--level', clamp(voice.vol * 5).toFixed(3));
-    const micLevel = clamp(audio.micLevel * 9).toFixed(3);
-    $('mic').firstElementChild.style.setProperty('--level', micLevel);
-    $('mic-meter').style.setProperty('--level', micLevel);
-    $('mic-meter-2').style.setProperty('--level', micLevel);
+    setLevel($('orb').firstElementChild, clamp(voice.vol * 5).toFixed(2));
+    const micLevel = clamp(audio.micLevel * 9).toFixed(2);
+    setLevel($('mic').firstElementChild, micLevel);
+    if (!$('settings').hidden || !$('mic-meter').closest('[hidden]')) { setLevel($('mic-meter'), micLevel); setLevel($('mic-meter-2'), micLevel); }
   });
   if (floating) tickPart('flotante', () => {
     updateHit(); sendAnchors();
@@ -1273,9 +1280,14 @@ let overModel = false;
 let leftModelAt = 0;
 let press = null;                              // clic sin arrastrar = tocarla
 
+let lastHitMouse = null, lastHitAt = 0;
 function updateHit() {
   if (avatar) avatar.probe = mouse;
   let hit = dragging || rotating;
+  // elementFromPoint obliga a recalcular la página: con el ratón quieto basta mirarlo cada 120 ms (19 nov 2026).
+  const now = performance.now();
+  if (!hit && mouse && lastHitMouse && mouse.x === lastHitMouse.x && mouse.y === lastHitMouse.y && now - lastHitAt < 120) return;
+  lastHitMouse = mouse ? { x: mouse.x, y: mouse.y } : null; lastHitAt = now;
   if (!hit && mouse) {
     const el = document.elementFromPoint(mouse.x, mouse.y);
     const still = !document.body.classList.contains('pet-moving');   // moviéndose, la barra está escondida

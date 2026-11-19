@@ -301,6 +301,9 @@ const EMOTIONS = {
 // ---------------------------------------------------------------- gestos con nombre
 // Los que pide el LLM con [gesto:...] y, con «_», los que hace sola cuando no pasa nada.
 // set = lleva el hueso a ese giro; add = lo suma.
+// Píxeles que se dibujan como mucho por cuadro (resize): unos 2560×1440.
+const MAX_PIXELS = 3.7e6;
+
 // La vuelta (_girar): impulso, giro y pose final, en segundos.
 const SPIN_PREP = 0.45, SPIN_TURN = 1.0, SPIN_END = 2.5;
 
@@ -1572,7 +1575,14 @@ export class Avatar {
   }
 
   // ¿Hay avatar bajo ese punto de la ventana, o es fondo transparente? Se lee del último cuadro dibujado.
-  _readProbe() {
+  _readProbe(force = false) {
+    // readPixels hace esperar a la tarjeta gráfica a que acabe el cuadro: en cada cuadro, al flotar, daba tirones
+    // (19 nov 2026). Se lee solo si el ratón se movió o cada 150 ms (el resultado vale hasta entonces).
+    const now = performance.now(), pr = this.probe;
+    if (!force && pr && this._probeLast && pr.x === this._probeLast.x && pr.y === this._probeLast.y && now - this._probeAt < 150) return;
+    if (!force && now - (this._probeAt || 0) < 50) return;
+    this._probeAt = now;
+    this._probeLast = pr ? { x: pr.x, y: pr.y } : null;
     this.probeHit = false;
     if (!this.probe) return;
     const dpr = this.renderer.getPixelRatio();
@@ -1645,6 +1655,10 @@ export class Avatar {
   resize() {
     const el = this.canvas.parentElement;
     const w = el.clientWidth || 1, h = el.clientHeight || 1;
+    // A pantalla completa con escalado (150-200 %) se dibujaban 6-8 millones de píxeles con suavizado de bordes en cada
+    // cuadro: tirones (19 nov 2026). Como mucho MAX_PIXELS (~ 1440p), y menos si el cuadro va lento (_frameWatch).
+    const cap = Math.min(window.devicePixelRatio, this.quality?.ratio ?? 2, Math.sqrt(MAX_PIXELS / (w * h)), this._slowCap ?? 9);
+    if (Math.abs(this.renderer.getPixelRatio() - cap) > 0.01) this.renderer.setPixelRatio(Math.max(0.5, cap));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -2198,8 +2212,27 @@ export class Avatar {
   }
 
   // ---------------------------------------------------------------- cuadro a cuadro
+  // Si los cuadros van lentos de forma seguida (menos de ~40 por segundo durante 3 s), se dibuja a menos resolución,
+  // un 20 % cada vez y como mucho hasta 1× (19 nov 2026). Los cuadros muy largos (ventana escondida) no cuentan.
+  _frameWatch(raw) {
+    if (raw <= 0 || raw > 0.25) return;
+    const fw = this._fw || (this._fw = { sum: 0, n: 0 });
+    fw.sum += raw; fw.n++;
+    if (fw.sum < 3) return;
+    const avg = fw.sum / fw.n;
+    fw.sum = fw.n = 0;
+    const pr = this.renderer.getPixelRatio();
+    if (avg > 0.025 && pr > 1.01) {
+      this._slowCap = Math.max(1, pr * 0.8);
+      console.warn(`Cuadros lentos (${Math.round(1 / avg)} por segundo): dibujo a ${this._slowCap.toFixed(2)}×`);
+      this.resize();
+    }
+  }
+
   update() {
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const raw = this.clock.getDelta();
+    this._frameWatch(raw);
+    const dt = Math.min(raw, 0.05);
     const t = this.clock.elapsedTime;
     this.controls.update();
     if (this.vrm) {
@@ -2220,7 +2253,7 @@ export class Avatar {
       const { x, y, resolve } = this._pick, keep = this.probe;
       this._pick = null;
       this.probe = { x, y };
-      this._readProbe();
+      this._readProbe(true);
       const zone = this.zoneAt(x, y);
       this.probe = keep;
       if (!this.floating) this.probeHit = false;

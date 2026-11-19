@@ -4,6 +4,15 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.9 — 2026-11-19
+
+- **Más fluido, en ventana y flotando**: se quitaron tres causas de tirones. Flotando, para saber si el ratón está
+  sobre el personaje se leía un píxel de la tarjeta gráfica en cada cuadro, lo que la obligaba a esperar; ahora solo
+  cuando el ratón se mueve (y como mucho cada 50-150 ms). A pantalla completa con escalado de Windows se dibujaban
+  hasta 8 millones de píxeles por cuadro; ahora como mucho unos 3,7 millones (~1440p), y si los cuadros van lentos
+  durante unos segundos baja sola la resolución. Y la página ya no rehace sus estilos 60 veces por segundo cuando
+  los niveles de voz y micrófono no cambian.
+
 ## 0.8.8 — 2026-11-18
 
 - **Más bailes**: cada vez que baila elige uno distinto, sin repetir el anterior: el baile grabado, twist, «la ola»
