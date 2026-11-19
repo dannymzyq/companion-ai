@@ -15,12 +15,27 @@ _ASK = re.compile(r"\b(puedes|podrias|quieres|querrias|sabes|vas a|me (gustaria|
 
 # gesto → (imperativos, con petición). Texto sin acentos y en minúsculas.
 _MOVES = {
+    # Antes que «bailar», para que «baila algo sensual» no se quede en un baile normal.
+    "sensual": (r"\b(baila(me)? (algo )?(sensual|sexy|lento)|haz(me)? un baile (sensual|sexy))\b",
+                r"\b(bailar(me)? (algo )?(sensual|sexy|lento)|bailes (algo )?(sensual|sexy)|hacer(me)? un baile (sensual|sexy))\b"),
     "bailar": (r"\bbail(a|ame|anos|alo|emos)\b|\bmueve el esqueleto\b",
                r"\b(bailar(me|nos|lo)?|bailes|bailas)\b"),
     "saltar": (r"\b(salta|saltame|brinca|da un salto|pega un salto)\b",
                r"\b(saltar|brincar|dar un salto|saltes|brinques)\b"),
     "girar": (r"\b(gira|girate|da(te)? (una|la) vuelta)\b",
               r"\b(girar(te)?|dar(te)? (una|la) vuelta|gires|(te )?des (una|la) vuelta)\b"),
+    "ninja": (r"\b(haz(me)? (un )?salto ninja|salta como (un )?ninja)\b",
+              r"\b(hacer(me)?|hagas) (un )?salto ninja\b"),
+    "zombi": (r"\b(haz(te)? (de |la |el )?zombie?|camina como (un )?zombie?)\b",
+              r"\b(hacer(te)? (de |la |el )?zombie?|hagas (de |la |el )?zombie?)\b"),
+    "posar": (r"\b(posa|haz(me)? una pose( sexy)?|ponte sexy)\b",
+              r"\b(posar|poses|hacer(me)? una pose|ponerte sexy)\b"),
+    "beso": (r"\b(lanza(me)? un beso|manda(me)? un beso|dame un beso)\b",
+             r"\b(lanzar(me)? un beso|mandar(me)? un beso|me lances un beso|me mandes un beso)\b"),
+    "melena": (r"\b(mueve el pelo|echate el pelo( atras)?)\b",
+               r"\b(mover el pelo|echarte el pelo( atras)?)\b"),
+    "boxear": (r"\b(boxea|haz(me)? boxeo|da(me)? (unos )?punetazos al aire)\b",
+               r"\b(boxear|boxees|hacer boxeo)\b"),
     "estirarse": (r"\b(estirate|desperezate)\b",
                   r"\b(estirarte|desperezarte|te estires)\b"),
     "hechizo": (r"\bhaz(me)? (un |una )?(hechizo|magia|truco de magia)\b|\blanza un hechizo\b",

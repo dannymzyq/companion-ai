@@ -118,6 +118,16 @@ export class Orb {
         case '_bailar': case 'bailar': hop += 0.04 * Math.abs(Math.sin(g.t * 6.9)) * w; this.v.tilt += 0.05 * Math.sin(g.t * 3.4) * w; hand[0].y += 0.15 * w; hand[1].y += 0.15 * w; break;
         case '_saltar': case 'saltar': hop += 0.35 * Math.max(0, Math.sin(Math.PI * Math.min(1, Math.max(0, (g.t - 0.35) / 0.8)))) * w; break;
         case '_girar': case 'girar': hop += 0.03 * w; break;
+        // Más pasatiempos (18 nov 2026)
+        case '_sensual': case 'sensual': this.v.tilt += 0.07 * Math.sin(g.t * 3.5) * w; hop += 0.015 * Math.abs(Math.sin(g.t * 3.5)) * w; break;
+        case '_posar': case 'posar': this.v.tilt += 0.06 * g.side * w; hand[0].y += 0.2 * w; break;
+        case '_beso': case 'beso': hand[1].z += 0.2 * w; hand[1].y += 0.1 * w; break;
+        case '_melena': case 'melena': this.v.tilt -= 0.05 * g.side * w; hand[1].y += 0.3 * w; break;
+        case '_ninja': case 'ninja': hop += 0.42 * Math.max(0, Math.sin(Math.PI * Math.min(1, Math.max(0, (g.t - 0.55) / 1.1)))) * w; break;
+        case '_zombi': case 'zombi': hand[0].z += 0.3 * w; hand[1].z += 0.3 * w; hand[0].y += 0.12 * w; hand[1].y += 0.12 * w; this.v.tilt += 0.06 * Math.sin(g.t * 1.7) * w; break;
+        case '_llamar': case 'llamar': hand[1].y += 0.32 * w; hand[1].x += 0.06 * Math.sin(g.t * 7) * w; break;
+        case '_boxear': case 'boxear': { const jab = Math.max(0, Math.sin(g.t * 9)); hop += 0.015 * Math.abs(Math.sin(g.t * 7.5)) * w; hand[0].z += 0.25 * jab * w; hand[1].z += 0.25 * (1 - jab) * w; break; }
+        case '_concentrar': case 'concentrarse': hand[0].x += 0.15 * w; hand[1].x -= 0.15 * w; hand[0].z += 0.15 * w; hand[1].z += 0.15 * w; nod += 0.05 * w; break;
         case '_tararear': case 'tararear': this.v.tilt += 0.04 * Math.sin(g.t * 3.4) * w; break;
         case 'aplaudir': { const clap = 0.5 + 0.5 * Math.sin(g.t * 26); hand[0].x += (0.2 + 0.07 * clap) * w; hand[1].x -= (0.2 + 0.07 * clap) * w; hand[0].y += 0.1 * w; hand[1].y += 0.1 * w; hand[0].z += 0.16 * w; hand[1].z += 0.16 * w; break; }
         case '_mirar': shakeHead += 0.45 * g.side * w; break;

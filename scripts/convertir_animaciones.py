@@ -96,6 +96,16 @@ WANTED = {
     "consume": ("Consume", False),
     "spell": ("Spell_Simple_Shoot", False),          # pasatiempos (17 nov 2026): un hechizo de juguete
     "lay_up": ("LayToIdle", False),                 # siesta: al revés se tumba, hacia delante se levanta
+    # Más pasatiempos (18 nov 2026, «más animaciones y bailes»)
+    "roll": ("Roll", False),                        # voltereta
+    "ninja_start": ("NinjaJump_Start", False),      # salto ninja
+    "ninja_loop": ("NinjaJump_Idle_Loop", True),
+    "ninja_land": ("NinjaJump_Land", False),
+    "zombie": ("Zombie_Walk_Fwd_Loop", True),       # hacerse la zombi (de broma)
+    "call": ("Idle_Rail_Call", False),              # llamar con la mano
+    "jog": ("Jog_Fwd_Loop", True),                  # trotar en el sitio
+    "spell_loop": ("Spell_Simple_Idle_Loop", True), # concentrarse con las manos
+    "punch": ("Punch_Jab", False),                  # boxeo de sombra
 }
 
 
@@ -315,6 +325,11 @@ def main(args):
     clips = {}
     paths = []
     folder = None
+    keep = "--anadir" in args                      # añade lo que falta a clips.json y deja lo que ya hay (estilos)
+    args = [a for a in args if a != "--anadir"]
+    if keep and OUT.exists():
+        old = json.loads(OUT.read_text(encoding="utf-8"))
+        clips, old_lic = old["clips"], old.get("license", "")
     while args:
         a = args.pop(0)
         if a == "--estilos":
@@ -344,7 +359,7 @@ def main(args):
         print("No encontradas:", ", ".join(sorted(missing)))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     lic = "CC0 1.0 (Quaternius, Universal Animation Library 1 y 2)"
-    if folder:
+    if folder or (keep and "100STYLE" in old_lic):
         lic += "; walk_*/idle_*: CC BY 4.0, The 100STYLE Dataset - Ian Mason"
     OUT.write_text(json.dumps({"version": 1, "license": lic,
                                "clips": clips}, separators=(",", ":")), encoding="utf-8")

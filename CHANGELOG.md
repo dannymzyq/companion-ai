@@ -4,6 +4,20 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.8.8 — 2026-11-18
+
+- **Más bailes**: cada vez que baila elige uno distinto, sin repetir el anterior: el baile grabado, twist, «la ola»
+  (brazos arriba de lado a lado), robot y pasitos saltando. Cuando se entretiene sola, baila el doble de veces.
+- **Una vuelta de verdad**: coge impulso, gira deprisa de puntillas con una pierna doblada y los brazos recogidos,
+  la cabeza se queda mirando al frente y luego da el latigazo, como las bailarinas, y acaba con los brazos arriba.
+- **Animaciones nuevas** (Quaternius, CC0): salto ninja, hacerse la zombi, llamar con la mano, boxear de broma y
+  concentrarse con chispas. Las hace sola cuando se aburre y también se le pueden pedir («haz un salto ninja»,
+  «hazte la zombi», «boxea»); también la esfera.
+- **Gestos coquetos** (sugerentes, nada explícito): baile sensual (caderas en ocho, ola de cuerpo, mano al pelo),
+  posar con la mano en la cadera y un guiño, lanzar un beso con corazones y echarse el pelo atrás. Solo cuando se le
+  piden («baila algo sensual», «hazme una pose», «lánzame un beso») o cuando el personaje coquetea; no los hace sola.
+- **La esfera, bien encuadrada al flotar**: queda arriba de la ventana y la barra de botones debajo, sin taparla.
+
 ## 0.8.7 — 2026-11-18
 
 - **El instalador ya no se parece a un virus**: Windows Defender marcó el `.exe` de la 0.8.6 al descargarlo como

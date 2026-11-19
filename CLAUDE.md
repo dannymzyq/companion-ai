@@ -152,6 +152,14 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   VRM del usuario tiene ARKit, así que Audio2Face y las caras de TalkingHead no sirven). `web/js/lipsync.js` adapta
   wawa-lipsync (MIT: el aviso va en `web/js/CREDITOS.md`). Primeros planos en la consola: proyectar un hueso dentro de
   `renderer.render` durante `sheet` y recortar. Triste: `idle_triste` con `spine` 0,4 y `head` 0,25.
+- Bailes y vuelta (18 nov 2026, «más animaciones y bailes»): `DANCES` en avatar.js (clip, twist, ola, robot,
+  saltitos; `_bailar` elige uno sin repetir con `a._dance`), `_girar` con `SPIN_PREP/TURN/END` (impulso al revés,
+  giro quíntico en `_petTick`, passé y cabeza que «mira al frente»), pasatiempos nuevos `_ninja`, `_zombi`,
+  `_llamar`, `_boxear`, `_concentrar` (públicos sin «_», `concentrarse`; en prompt.py, play.py y orb.js) con clips
+  nuevos de UAL (`convertir_animaciones.py --anadir` añade a clips.json sin rehacer los de 100STYLE). Esfera
+  flotando: `frame` la sube y `anchors().feet` es el borde de abajo de la ventana.
+  Coquetos (petición del usuario): `_sensual`, `_posar`, `_beso`, `_melena` (públicos sin «_»), sugerentes y nunca
+  explícitos; NO van en HOBBIES. En play.py «sensual» va antes que «bailar».
 - Pasatiempos y rubor (17 nov 2026): `HOBBIES`/`BORED_AFTER`/`wake`/`endHobby` en avatar.js (gestos `_…` largos;
   clip `spell` añadido a `WANTED`), interruptor «Se entretiene sola» (`companion.hobby`). Las pruebas que miran
   posiciones ponen `avatar.hobbyOn = false` (prueba_mascota). Rubor: `effects.attachBlush` (planos hijos de la

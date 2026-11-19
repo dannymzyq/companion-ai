@@ -301,6 +301,59 @@ const EMOTIONS = {
 // ---------------------------------------------------------------- gestos con nombre
 // Los que pide el LLM con [gesto:...] y, con «_», los que hace sola cuando no pasa nada.
 // set = lleva el hueso a ese giro; add = lo suma.
+// La vuelta (_girar): impulso, giro y pose final, en segundos.
+const SPIN_PREP = 0.45, SPIN_TURN = 1.0, SPIN_END = 2.5;
+
+// Bailes (18 nov 2026). Todos a ~2 golpes por segundo; t en segundos desde que empieza.
+const DANCES = {
+  clip(p, t, w, side, a) {                                   // el baile grabado (Quaternius), algo más alegre
+    const L = a._hob('dance', { fingers: 0.6 });
+    L.t = t * 0.95; L.amp = 1.15;
+    applyLayer(p, a.lib, L, w, a.hipsY);
+  },
+  twist(p, t, w, side, a) {                                  // twist: caderas a un lado y hombros al otro, rodillas dobladas
+    const s = Math.sin(t * Math.PI * 2 * 1.6), b = Math.abs(Math.sin(t * Math.PI * 2 * 1.6));
+    p.add('hips', [0, 0.42 * s, 0], w); p.add('spine', [0, -0.3 * s, 0], w); p.add('chest', [0, -0.15 * s, 0], w);
+    for (const sd of SIDES) { p.add(sd + 'UpperLeg', [-0.3, 0, 0], w); p.add(sd + 'LowerLeg', [0.6, 0, 0], w); }
+    p.lift -= 0.05 * a.hipsY * w; p.lift += 0.012 * a.hipsY * b * w;
+    p.both({ u: [-0.35, 0, -0.95], l: [0, -1.55, 0], c: 0.75 }, w);
+    p.add('leftUpperArm', [0.35 * s, 0, 0], w); p.add('rightUpperArm', [-0.35 * s, 0, 0], w);
+    p.add('head', [0, 0.15 * s, 0.05 * s], w);
+  },
+  ola(p, t, w, side, a) {                                    // brazos arriba, de lado a lado, como en un concierto
+    const s = Math.sin(t * Math.PI * 2 * 0.8), b = Math.abs(Math.sin(t * Math.PI * 2 * 1.6));
+    p.both({ u: [-0.15, 0, 1.05], l: [0, -0.25, 0], hs: 'open' }, w);
+    p.add('leftUpperArm', [0, 0, 0.25 * s], w); p.add('rightUpperArm', [0, 0, 0.25 * s], w);
+    p.add('spine', [0, 0, 0.16 * s], w); p.add('chest', [0, 0, 0.1 * s], w); p.add('head', [0, 0, 0.12 * s], w);
+    p.shift += 0.05 * a.hipsY * s * w;
+    for (const sd of SIDES) { p.add(sd + 'UpperLeg', [-0.12 * b, 0, 0], w); p.add(sd + 'LowerLeg', [0.24 * b, 0, 0], w); }
+    p.lift -= 0.015 * a.hipsY * b * w;
+  },
+  robot(p, t, w, side, a) {                                  // robot: posturas secas, una por golpe
+    const beat = Math.floor(t * 2), k = clamp((t * 2 - beat) / 0.15);   // el cambio dura 0,07 s
+    // Brazo doblado en ángulo recto con el antebrazo hacia delante (F), o recto hacia abajo (D), con el puño cerrado.
+    const F = { u: [-0.3, 0, -1.2], l: [0, -1.57, 0], c: 1 }, D = { u: [0.05, 0, -1.3], l: [0, -0.05, 0], c: 1 };
+    const UP = { u: [-0.35, 0.2, -0.35], l: [0, -1.9, 0], c: 1 };       // codo a un lado y antebrazo hacia arriba
+    const POSES = [[F, D], [D, F], [UP, UP], [F, F]];
+    const now = POSES[beat % 4], prev = POSES[(beat + 3) % 4];
+    p.arm('left', prev[0], w * (1 - k)); p.arm('left', now[0], w * k);
+    p.arm('right', prev[1], w * (1 - k)); p.arm('right', now[1], w * k);
+    const turn = [0.35, -0.35, 0, 0][beat % 4], turnPrev = [0.35, -0.35, 0, 0][(beat + 3) % 4];
+    p.add('head', [0, lerp(turnPrev, turn, k), 0], w);
+    p.add('chest', [0, 0.4 * lerp(turnPrev, turn, k), 0], w);
+    p.shift += 0.025 * a.hipsY * (beat % 2 ? 1 : -1) * w;
+  },
+  saltitos(p, t, w, side, a) {                               // pasitos saltando, una rodilla y luego la otra
+    const ph = t * Math.PI * 2.2, s = Math.sin(ph), up = Math.abs(s);
+    const leg = s > 0 ? 'left' : 'right';
+    p.add(leg + 'UpperLeg', [-0.6 * up, 0, 0], w); p.add(leg + 'LowerLeg', [0.95 * up, 0, 0], w);
+    p.lift += 0.035 * a.hipsY * up * w;
+    p.both({ u: [-0.45, 0, -1.0], l: [0, -1.5, 0], c: 0.8 }, w);
+    p.add('leftUpperArm', [0.4 * s, 0, 0], w); p.add('rightUpperArm', [-0.4 * s, 0, 0], w);
+    p.add('spine', [0, 0.1 * s, 0], w); p.add('head', [0, 0, 0.08 * s], w);
+  },
+};
+
 const GESTURES = {
   saludar: { dur: 2.3, run(p, t, w) {
     p.set('rightUpperArm', [-0.2, 0, 0.45], w);
@@ -361,15 +414,12 @@ const GESTURES = {
   } },
   // ---- Pasatiempos (17 nov 2026): lo que hace sola cuando llevas un rato sin usar la app (HOBBIES, más abajo).
   // Usan las animaciones grabadas si están (baile, salto, hechizo, beber) y, si no, una versión escrita aquí.
-  _bailar: { dur: 8, run(p, t, w, side, a) {
-    const L = a._hob('dance', { fingers: 0.6 });
-    if (L) { L.t = t * 0.95; applyLayer(p, a.lib, L, w, a.hipsY); }
-    else {
-      const b = Math.sin(t * Math.PI * 2 * 1.1);
-      p.add('hips', [0, 0.12 * b, 0.05 * b], w); p.add('spine', [0, -0.1 * b, 0.04 * b], w);
-      p.both({ u: [-0.3, 0, -0.9], l: [0, -1.6, 0], c: 0.6 }, w);
-      p.lift += 0.015 * Math.abs(b) * w;
-    }
+  // Bailar (18 nov 2026, «más bailes»): cada vez uno distinto de DANCES (el grabado de Quaternius y cuatro escritos
+  // aquí, al mismo ritmo de unos 120 golpes por minuto), sin repetir el anterior.
+  _bailar: { dur: 9, run(p, t, w, side, a) {
+    if (!a._dance || t < a._danceT) a._dance = pick(Object.keys(DANCES).filter((k) => k !== 'clip' || a.lib?.has('dance')), a._dance);
+    a._danceT = t;
+    DANCES[a._dance](p, t, w, side, a);
     a.faceX = { parts: { eyeJoy: 0.45, mthFun: 0.5, brwJoy: 0.4 }, preset: { happy: 0.45 }, w };
     a._notes(t, 0.9);
   } },
@@ -383,11 +433,124 @@ const GESTURES = {
     p.both({ u: [-0.25, 0, 0.55], l: [0, -0.35, 0], hs: 'open' }, w * Math.sin(Math.PI * up));   // brazos arriba, en V
     a.faceX = { parts: { eyeJoy: 0.3, mthJoy: 0.45, brwJoy: 0.5 }, preset: { happy: 0.5 }, w };
   } },
-  _girar: { dur: 1.8, run(p, t, w, side, a) {
-    const u = clamp((t - 0.15) / 1.4);                          // la vuelta entera la da _petTick (spinYaw)
-    p.both({ u: [-0.05, -0.1, -0.75], l: [0, -0.5, 0], hs: 'grace' }, w * Math.sin(Math.PI * u));
-    p.lift += 0.02 * a.hipsY * Math.sin(Math.PI * u) * w;
-    a.faceX = { parts: { eyeJoy: 0.35, mthFun: 0.55 }, preset: { happy: 0.4 }, w };
+  // La vuelta (18 nov 2026, «se ve muy simple»): coge impulso (se agacha un poco, abre los brazos y gira un poco al
+  // revés), gira sobre la punta de un pie con la otra pierna doblada y los brazos recogidos delante del pecho, la
+  // cabeza se queda mirando al frente y luego da el latigazo (como las bailarinas), y acaba con los brazos arriba.
+  // El giro del cuerpo lo da _petTick (spinYaw, con SPIN_*); aquí va la postura.
+  _girar: { dur: SPIN_END, run(p, t, w, side, a) {
+    const prep = clamp(t / SPIN_PREP), turn = clamp((t - SPIN_PREP) / SPIN_TURN), fin = clamp((t - SPIN_PREP - SPIN_TURN) / (SPIN_END - SPIN_PREP - SPIN_TURN));
+    const wind = Math.sin(Math.PI / 2 * prep) * (1 - turn);     // impulso
+    const spin = Math.sin(Math.PI * turn);                      // en pleno giro
+    const pose = Math.sin(Math.PI * fin);                       // final con los brazos arriba
+    for (const s of SIDES) { p.add(s + 'UpperLeg', [-0.18 * wind, 0, 0], w); p.add(s + 'LowerLeg', [0.36 * wind, 0, 0], w); }
+    p.lift -= 0.035 * a.hipsY * wind * w;
+    p.both({ u: [-0.1, 0, -0.25], l: [0, -0.4, 0], hs: 'grace' }, w * wind);           // brazos abiertos al coger impulso
+    // De puntillas sobre el pie de apoyo y la otra pierna doblada con la rodilla hacia fuera (passé).
+    const free = side > 0 ? 'right' : 'left', sgn = free === 'right' ? 1 : -1;
+    p.add(free + 'UpperLeg', [-0.95 * spin, 0, 0.3 * sgn * spin], w);
+    p.add(free + 'LowerLeg', [1.7 * spin, 0, 0], w);
+    p.lift += 0.03 * a.hipsY * spin * w;
+    p.both({ u: [-0.75, 0.15, -0.95], l: [0, -1.85, 0], c: 0.35, hs: 'grace' }, w * spin);   // brazos en redondo delante
+    p.add('spine', [-0.06, 0, 0], w * spin);
+    // La cabeza mira al frente mientras puede y luego se adelanta al cuerpo (spotting).
+    const ang = ((a.spinYaw * side % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const wrap = ang > Math.PI ? ang - Math.PI * 2 : ang;
+    p.add('head', [0, -side * clamp(wrap, -1.0, 1.0) * 0.9, 0], w * spin);
+    p.add('neck', [0, -side * clamp(wrap, -1.0, 1.0) * 0.35, 0], w * spin);
+    // Final: brazos arriba en V, un poco de lado, y una sonrisa.
+    p.both({ u: [-0.2, 0, 0.75], l: [0, -0.25, 0], hs: 'open' }, w * pose);
+    p.add('spine', [-0.05, 0, 0.06 * side], w * pose);
+    p.add('head', [-0.06, 0, 0.1 * side], w * pose);
+    a.faceX = { parts: { eyeJoy: 0.35 + 0.3 * pose, mthFun: 0.55 }, preset: { happy: 0.4 + 0.2 * pose }, w };
+  } },
+  // ---- Coquetos (18 nov 2026, petición del usuario): sugerentes, nunca explícitos. Solo a petición o cuando el
+  // personaje coquetea ([gesto:…]); no están en HOBBIES.
+  _sensual: { dur: 9, run(p, t, w, side, a) {             // baile lento: caderas en ocho, ola de cuerpo, mano al pelo
+    const s = Math.sin(t * Math.PI * 2 * 0.55), c = Math.cos(t * Math.PI * 2 * 0.55), roll = Math.sin(t * Math.PI * 2 * 0.55 - 1.2);
+    p.add('hips', [0.08 * c, 0.3 * s, 0.14 * s], w);         // ocho con la cadera
+    p.shift += 0.04 * a.hipsY * s * w;
+    p.add('spine', [0.1 * roll, -0.15 * s, -0.1 * s], w);    // ola de cuerpo
+    p.add('chest', [-0.12 * roll, -0.1 * s, -0.06 * s], w);
+    p.add('head', [0.06 * roll, 0.12 * s, 0.14 * s], w);
+    const knee = 0.5 + 0.5 * s;                              // apoyo en una pierna y luego en la otra
+    p.add('leftUpperLeg', [-0.2 * knee, 0, 0.04], w); p.add('leftLowerLeg', [0.4 * knee, 0, 0], w);
+    p.add('rightUpperLeg', [-0.2 * (1 - knee), 0, -0.04], w); p.add('rightLowerLeg', [0.4 * (1 - knee), 0, 0], w);
+    p.lift -= 0.02 * a.hipsY * w;
+    const hair = Math.floor(t / 3) % 2 ? 'left' : 'right';   // una mano al pelo, la otra por la cadera
+    p.arm(hair, { u: [-0.35, 0.25, 0.95], l: [0, -2.0, 0], h: [0.2, 0, 0], hs: 'grace' }, w);
+    p.arm(hair === 'left' ? 'right' : 'left', { u: [0.15, 0, -1.15], l: [0, -0.9, 0], h: [0, 0, 0.4], hs: 'grace' }, w);
+    a.faceX = { parts: { eyeJoy: 0.25, mthFun: 0.35, brwFun: 0.2 }, preset: { relaxed: 0.5, happy: 0.2 }, w };
+  } },
+  _posar: { dur: 3.2, run(p, t, w, side, a) {              // mano en la cadera, cadera a un lado, cabeza ladeada
+    const k = Math.sin(Math.PI * clamp(t / 3.2)) ** 0.5;
+    p.add('hips', [0, 0.15 * side, 0.12 * side], w * k);
+    p.shift += 0.05 * a.hipsY * side * w * k;
+    p.add('spine', [0, -0.1 * side, -0.12 * side], w * k);
+    p.add('head', [0.05, 0.1 * side, 0.18 * side], w * k);
+    const hip = side > 0 ? 'left' : 'right';
+    p.arm(hip, { u: [0.25, -0.2, -0.9], l: [0, -1.6, 0], h: [0, 0, 0.5], hs: 'grace' }, w * k);
+    p.arm(hip === 'left' ? 'right' : 'left', { u: [-0.4, 0.2, 1.0], l: [0, -1.9, 0], hs: 'grace' }, w * k);   // mano detrás de la cabeza
+    p.add((hip === 'left' ? 'right' : 'left') + 'UpperLeg', [-0.2, 0, 0], w * k);
+    p.add((hip === 'left' ? 'right' : 'left') + 'LowerLeg', [0.4, 0, 0], w * k);
+    a.faceX = { parts: { eyeJoyL: 0.9 * clamp((t - 1.2) / 0.3) * (t < 1.9 ? 1 : 0), mthFun: 0.4 }, preset: { happy: 0.3 }, w };   // guiño
+  } },
+  _beso: { dur: 2.4, run(p, t, w, side, a) {               // lanza un beso
+    const toLips = clamp(t / 0.7), out = clamp((t - 0.9) / 0.5);
+    const arm = side > 0 ? 'right' : 'left';
+    p.arm(arm, { u: [-0.5, -0.5, -0.6], l: [0, -2.3, 0], hs: 'grace' }, w * toLips * (1 - out));   // mano a los labios
+    p.arm(arm, { u: [-0.9, -0.2, -0.3], l: [0, -0.35, 0], hs: 'open' }, w * out);                 // y la abre hacia ti
+    p.add('head', [0.05, 0, 0.12 * side], w);
+    if (t > 1.0 && !a._kissDone) { a._kissDone = true; a.effects.burst('heart', 2, 1.0); }
+    if (t < 0.5) a._kissDone = false;
+    a.faceX = { parts: { mthSmall: 0.6 * (1 - out), eyeJoy: 0.5 }, preset: { happy: 0.4 }, w };
+  } },
+  _melena: { dur: 2.2, run(p, t, w, side, a) {             // se echa el pelo hacia atrás
+    const u = clamp(t / 1.6), k = Math.sin(Math.PI * u);
+    const arm = side > 0 ? 'right' : 'left';
+    p.arm(arm, { u: [-0.3, 0.3, 1.0 - 0.3 * u], l: [0, -1.9 + 0.6 * u, 0], h: [0.3, 0, 0], hs: 'grace' }, w * k);
+    p.add('head', [-0.25 * k, 0.3 * side * Math.sin(Math.PI * 2 * u) * 0.5, 0.2 * side * k], w);
+    p.add('spine', [-0.06 * k, 0, 0.05 * side * k], w);
+    a.faceX = { parts: { eyeJoy: 0.3, mthFun: 0.3 }, preset: { relaxed: 0.4 }, w };
+  } },
+  // ---- Más pasatiempos (18 nov 2026), con las animaciones grabadas de Quaternius (CC0) si están.
+  _ninja: { dur: 2.8, run(p, t, w, side, a) {
+    const up = clamp((t - 0.55) / 1.1);
+    const name = t < 0.55 ? 'ninja_start' : t < 1.65 ? 'ninja_loop' : 'ninja_land';
+    const L = a._hob(name, { arms: 0.9 });
+    if (L) { L.t = name === 'ninja_start' ? t * 1.3 : name === 'ninja_loop' ? t - 0.55 : (t - 1.65) * 1.1; applyLayer(p, a.lib, L, w, a.hipsY); }
+    else p.both({ u: [-0.2, 0, -0.9], l: [0, -1.3, 0], c: 0.8 }, w);
+    p.lift += Math.sin(Math.PI * up) * 0.26 * a.hipsY * (up > 0 && up < 1 ? 1 : 0) * w;
+    a.faceX = { parts: { eyeFun: 0.4, mthFun: 0.35, brwAngry: 0.25 }, preset: { happy: 0.3 }, w };
+  } },
+  _zombi: { dur: 5, run(p, t, w, side, a) {
+    const L = a._hob('zombie', { hips: 0.4 });
+    if (L) { L.t = t * 0.9; applyLayer(p, a.lib, L, w, a.hipsY); }
+    else {
+      p.both({ u: [-1.4, 0, -0.15], l: [0, -0.15, 0], h: [0.3, 0, 0], c: 0.2 }, w);
+      p.add('head', [0.15, 0, 0.25 * Math.sin(t * 1.7)], w);
+    }
+    a.faceX = { parts: { eyeSorrow: 0.5, mthAngry: 0.2 }, preset: { relaxed: 0.5 }, w };
+  } },
+  _llamar: { dur: 2.6, run(p, t, w, side, a) {
+    const L = a._hob('call', { legs: 0.3 });
+    if (L) { L.t = t * 0.95; applyLayer(p, a.lib, L, w, a.hipsY); }
+    else p.arm('right', { u: [-0.4, 0, 0.9], l: [0, -0.6 - 0.5 * Math.abs(Math.sin(t * 7)), 0], hs: 'open' }, w);
+    a.faceX = { parts: { eyeJoy: 0.4, mthFun: 0.5, brwJoy: 0.4 }, preset: { happy: 0.5 }, w };
+  } },
+  _boxear: { dur: 3.2, run(p, t, w, side, a) {
+    const L = a._hob('punch', { legs: 0.4 });
+    if (L) { L.t = (t * 1.1) % 0.87; applyLayer(p, a.lib, L, w, a.hipsY); }
+    else p.both(ARMS.fists, w);
+    p.lift += 0.012 * a.hipsY * Math.abs(Math.sin(t * Math.PI * 2.4)) * w;     // saltitos de boxeo
+    a.faceX = { parts: { eyeFun: 0.3, brwAngry: 0.45, mthFun: 0.3 }, preset: { angry: 0.15, happy: 0.25 }, w };
+  } },
+  _concentrar: { dur: 3.6, run(p, t, w, side, a) {
+    const L = a._hob('spell_loop', { legs: 0.4 });
+    if (L) { L.t = t; applyLayer(p, a.lib, L, w, a.hipsY); }
+    else p.both({ u: [-0.9, 0.3, -0.6], l: [0, -1.4, 0], c: 0.2, sp: 0.8 }, w);
+    if (t > 1.6 && !a._focusDone) { a._focusDone = true; a.effects.burst('spark', 5, 1.1); }
+    if (t < 0.5) a._focusDone = false;
+    a.faceX = { parts: { eyeFun: 0.5, brwFun: 0.3 }, preset: { relaxed: 0.4 }, w };
   } },
   _estirarse: { dur: 4.2, run(p, t, w, side, a) {
     const k = Math.sin(Math.PI * clamp(t / 4.2)) ** 0.6;
@@ -550,12 +713,15 @@ const GESTURES = {
 };
 // Lo mismo, a petición (17 nov 2026): «¿puedes bailar?» → [gesto:bailar] (prompt.py y companion/play.py).
 for (const [pub, own] of [['bailar', '_bailar'], ['saltar', '_saltar'], ['girar', '_girar'], ['estirarse', '_estirarse'],
-  ['hechizo', '_hechizo'], ['tararear', '_tararear'], ['beber', '_beber']]) GESTURES[pub] = GESTURES[own];
+  ['hechizo', '_hechizo'], ['tararear', '_tararear'], ['beber', '_beber'], ['ninja', '_ninja'], ['zombi', '_zombi'],
+  ['llamar', '_llamar'], ['boxear', '_boxear'], ['concentrarse', '_concentrar'], ['sensual', '_sensual'], ['posar', '_posar'],
+  ['beso', '_beso'], ['melena', '_melena']]) GESTURES[pub] = GESTURES[own];
 // «Duérmete» / «échate una siesta»: se duerme cuando termina de hablar (Avatar.sleepNow).
 GESTURES.dormir = { dur: 0.1, run(p, t, w, side, a) { a.sleepAsked = true; } };
 const IDLE_GESTURES = ['_mirar', '_ladear', '_hombros'];
 // Pasatiempos: tras BORED_AFTER s sin que uses la app, de vez en cuando hace uno (los define GESTURES).
-const HOBBIES = ['_bailar', '_saltar', '_girar', '_estirarse', '_hechizo', '_tararear', '_beber', '_curiosear'];
+const HOBBIES = ['_bailar', '_bailar', '_saltar', '_girar', '_estirarse', '_hechizo', '_tararear', '_beber', '_curiosear',
+  '_ninja', '_zombi', '_llamar', '_boxear', '_concentrar'];          // bailar sale el doble de veces
 const BORED_AFTER = 50;
 // Sueño: tras SLEEP_AFTER s sin usar la app se sienta sobre los talones y cabecea, o se tumba a echar la siesta (con
 // «zzz»). Flotando, solo cabecea (tumbada no cabe en la ventana). Al volver a usar la app se despierta.
@@ -1433,7 +1599,8 @@ export class Avatar {
       this.controls.update();
       return;
     }
-    const y = this.orb ? ORB_Y - 0.03 : this.headY + 0.24 - 0.4 * visible;
+    // Flotando, la esfera sube a la parte de arriba de la ventana para dejar sitio a la barra de botones.
+    const y = this.orb ? ORB_Y - 0.03 - (this.floating ? 0.2 * visible : 0) : this.headY + 0.24 - 0.4 * visible;
     this.controls.target.set(0, y, 0);
     this.camera.position.set(0, y + 0.03, dist);
     this.controls.update();
@@ -1878,7 +2045,10 @@ export class Avatar {
       this._handS = this._handS ? { x: lerp(this._handS.x, now.x, 0.35), y: lerp(this._handS.y, now.y, 0.35) } : now;
       hand = this._handS;
     } else hand = this._project(0.3, this.orb ? ORB_Y - 0.1 : this.hipsY, 0);
-    const out = { feet: this._project(0, feet, 0), seat: this._project(0, this.orb ? feet : this.hipsY - 0.07, 0),
+    // Esfera flotando: «sus pies» son el borde de abajo de la ventana (la barra va ahí, debajo de la esfera); antes
+    // se apoyaba la esfera en la barra de tareas y la barra de botones quedaba encima de ella (18 nov 2026).
+    const orbFloat = this.orb && this.floating;
+    const out = { feet: orbFloat ? { x: Math.round(r.width / 2), y: Math.round(r.height) } : this._project(0, feet, 0), seat: this._project(0, this.orb ? feet : this.hipsY - 0.07, 0),
       head: this._project(0, top, 0), hand, w: Math.round(r.width), h: Math.round(r.height) };
     // Largo de un paso al andar con la animación grabada (px; pet.js lo corrige por verla casi de perfil).
     // Con 100STYLE, también su ritmo (hz) y la velocidad a la que avanza (speed, px/s), según el estilo de ahora.
@@ -2332,8 +2502,13 @@ export class Avatar {
     this.yaw = lerp(this.yaw, goal, damp(a.name === 'work' ? 3.2 : 5, dt));
     // _girar: una vuelta entera, con arranque y frenada suaves (también la esfera).
     const spin = this.gestures.find((g) => g.name === '_girar' || g.name === 'girar');
-    const su = spin ? clamp((spin.t - 0.15) / 1.4) : 0;
-    this.spinYaw = spin ? spin.side * Math.PI * 2 * su * su * (3 - 2 * su) : 0;
+    // Coge impulso girando un poco al revés, da la vuelta deprisa (rápida en el centro, suave al empezar y al
+    // frenar) y se queda de frente para la pose final (SPIN_*, 18 nov 2026).
+    if (spin) {
+      const pe = Math.sin(Math.PI / 2 * clamp(spin.t / SPIN_PREP));
+      const u = clamp((spin.t - SPIN_PREP) / SPIN_TURN), e = u * u * u * (u * (6 * u - 15) + 10);
+      this.spinYaw = spin.side * ((1 - e) * -0.35 * pe + e * Math.PI * 2);
+    } else this.spinYaw = 0;
     if (this.vrm) {
       this.vrm.scene.rotation.y = this.baseYaw + this.yaw + this.spinYaw + this.sleepYaw;
       this.vrm.scene.position.x = this.sleepShift;
