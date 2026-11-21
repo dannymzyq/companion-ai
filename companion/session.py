@@ -23,7 +23,7 @@ from collections import deque
 
 import numpy as np
 
-from . import actions, gemini_live, llm, mood, personality, play, profile, screen_audio, store, tts, voicecheck, voz_proc
+from . import actions, gemini_live, llm, realtime, mood, personality, play, profile, screen_audio, store, tts, voicecheck, voz_proc
 from .config import settings, shown
 from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, POKE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
                      local_time, poke_text, sampling_for, turn_context)
@@ -168,6 +168,11 @@ class Session:
         self._live_pcm_buf = bytearray()
         self._live_in_buf: list[str] = []
         self._live_out_buf: list[str] = []
+        self._live_user = False                            # el turno lo empezó el usuario (texto o micrófono)
+        self._live_screen_at = 0.0                         # último sonido de la pantalla enviado a Gemini
+        self._live_mixed = False                           # en este turno pudo hablar la pantalla, no el usuario
+        self._live_emo = ""                                # «tool»: la dio `expresar` · «guess»: deducida del texto
+        self._live_ctx_at = 0.0                            # última vez que se le pasó la hora y el ánimo
 
     # ------------------------------------------------------------ envío
     async def send_json(self, data: dict):
@@ -272,6 +277,7 @@ class Session:
                     return
                 client = await self._ensure_live()
                 if client:
+                    self._live_screen_at = time.monotonic()
                     try:
                         # Trozos de 100 ms (3200 bytes a 16 kHz mono 16-bit) para no saturar el socket
                         for i in range(0, len(raw_pcm), 3200):
@@ -574,7 +580,9 @@ class Session:
     def actions_on(self) -> bool:
         return actions.config()["enabled"] and llm.can_act()
 
-    async def _ask(self, wanted: list[tuple[str, list[str]]], quiet: bool = False, trusted: set[str] | None = None):
+    async def _ask(self, wanted: list[tuple[str, list[str]]], quiet: bool = False, trusted: set[str] | None = None,
+                   card: bool = False):
+        """`card`: siempre con tarjeta (la orden pudo venir del sonido de la pantalla, no del usuario)."""
         failed = []
         for name, args in wanted:
             try:
@@ -594,7 +602,11 @@ class Session:
             if req.name == "controlar" and self.controlling:
                 failed.append((name, "ya estoy usando otra ventana; espera a que termine o dile «para»"))
                 continue
-            if actions.config()["full"]:
+            if card:
+                self.pending[req.id] = req
+                await self.send_json({"type": "action_request", **req.public(is_cloud=settings.is_cloud,
+                                                                              provider=profile.public_cloud()["name"])})
+            elif actions.config()["full"]:
                 await self._execute(req, "acceso total")
             elif not actions.config()["ask"] and req.name in (trusted or set()):
                 await self._execute(req, "por tu orden")
@@ -1042,29 +1054,32 @@ class Session:
 
     # ------------------------------------------------------------ Gemini Live API
     def _is_live(self) -> bool:
-        return profile.gemini_live() and settings.cloud_preset == "gemini" and bool(settings.gemini_api_key)
+        return profile.live_ready()
 
-    async def _ensure_live(self) -> gemini_live.GeminiLiveClient | None:
+    async def _ensure_live(self):
         async with self._live_lock:
             if self.live and self.live.connected:
                 return self.live
+            lv = profile.live()
             v = profile.voice()
-            voice_name = gemini_live.voice_for(v["id"] if v else None, self.persona.get("speaks", "f"))
+            speaks = self.persona.get("speaks", "f")
+            voice_name = lv["voice"] or (gemini_live.voice_for(v["id"] if v else None, speaks) if lv["provider"] == "gemini"
+                                         else realtime.voice_for(lv["provider"], speaks))
             samp = sampling_for(self.persona)
-            tools = gemini_live.ACTION_TOOLS if self.actions_on() else None
-            factory = self._live_factory or gemini_live.GeminiLiveClient
-            client = factory(
-                settings.gemini_api_key,
-                self._system(live=True),
-                model=settings.gemini_live_model,
-                voice_name=voice_name,
-                temperature=samp.get("temperature"),
-                tools=tools,
-            )
+            tools = [gemini_live.EXPRESS_TOOL, *(gemini_live.ACTION_TOOLS if self.actions_on() else [])]
+            system = (self._system(live=True) + "\n\n" + gemini_live.live_recap(self.persona, settings.user_name)
+                      + "\n\n" + self._live_context())
+            kw = {"model": lv["model"], "voice_name": voice_name, "temperature": samp.get("temperature"), "tools": tools}
+            if self._live_factory:
+                client = self._live_factory(lv["key"], system, **kw)
+            elif lv["provider"] == "gemini":
+                client = gemini_live.GeminiLiveClient(lv["key"], system, **kw)
+            else:
+                client = realtime.RealtimeClient(lv["key"], system, provider=lv["provider"], url=lv["url"], **kw)
             try:
                 await client.connect()
             except gemini_live.GeminiLiveError as e:
-                log.warning("Gemini Live no disponible: %s", e)
+                log.warning("En vivo no disponible: %s", e)
                 await self.send_json({"type": "error", "message": str(e)})
                 await self.set_state("idle")
                 return None
@@ -1072,7 +1087,36 @@ class Session:
             self.live_task = asyncio.create_task(self._live_loop(client))
             return client
 
+    def _live_context(self) -> str:
+        """La hora, su ánimo y cuánto hace que no hablaban (lo que en los otros modos va en turn_context). En vivo va
+        al final del prompt al conectar: mandarlo como mensaje aparte (turnComplete false) hacía que Gemini
+        respondiera una vez de más y las respuestas se desfasaban un turno (medido el 21 nov 2026). Una sesión en
+        vivo dura poco (se reconecta al cambiar ajustes o tras cortarse), así que se renueva sola."""
+        self._live_ctx_at = time.monotonic()
+        gap = mood.since_last_talk(store.previous_ts(0))
+        return turn_context(local_time(settings.timezone), mood.describe(self.persona["personality"]), gap)
+
+    def _live_screen_heard(self) -> bool:
+        """Gemini recibe el micrófono y el sonido de la pantalla por el mismo canal y no los distingue: si la
+        pantalla sonó hace poco, lo «oído» puede ser de un vídeo o un juego y no cuenta como orden del usuario."""
+        return time.monotonic() - self._live_screen_at < 4.0
+
+    async def _live_express(self, emotion: str | None, gesture: str | None = None, how: str = "tool"):
+        """Cara y cuerpo en vivo: la emoción de `expresar` (o la deducida del texto) llega a la interfaz al momento."""
+        from .prompt import EMOTIONS, GESTURES
+        emotion = emotion if emotion in EMOTIONS else None
+        gesture = gesture if gesture in GESTURES else None
+        if not emotion and not gesture:
+            return
+        if emotion:
+            self.emotion = emotion
+            self._live_emo = how
+        await self.send_json({"type": "express", "emotion": emotion, "gestures": [gesture] if gesture else []})
+
     async def _live_send_text(self, text: str, *, show_user: bool):
+        # Saludo, mirada en vivo, toques y temporizadores no son turnos del usuario: ahí no se hace ninguna acción.
+        self._live_user = show_user
+        self._live_mixed = False
         if show_user:
             self._live_in_buf = [text]
             self._live_gesture = play.guess(text)
@@ -1120,14 +1164,17 @@ class Session:
             "gestures": gestures,
         })
 
-    async def _live_check_voice_cmd(self, text: str) -> bool:
-        """Comandos cortos por voz/texto en modo Live: «para» detiene controlar; «sí»/«no» responde tarjetas."""
+    async def _live_check_voice_cmd(self, text: str, *, heard: bool = False) -> bool:
+        """Comandos cortos por voz/texto en modo Live: «para» detiene controlar; «sí»/«no» responde tarjetas.
+        `heard` con la pantalla sonando: un «sí» de un vídeo no puede aprobar nada («para» sí vale)."""
         said = re.sub(r"[^\w\s]", " ", actions._plain(text)).strip()
         if not said:
             return False
         if self.controlling and _STOP.match(said) and len(said.split()) <= 4:
             self.control_stop = True
             return True
+        if heard and self._live_mixed:
+            return False
         if (self.pending or self.confirms) and len(said.split()) <= 4:
             verdict = "allow" if _YES.match(said) else "deny" if _NO.match(said) else None
             if verdict:
@@ -1148,6 +1195,9 @@ class Session:
                 if self.closed:
                     break
                 if ev == "in_text":
+                    self._live_user = True                     # habló alguien: el turno ya es del usuario
+                    if self._live_screen_heard():
+                        self._live_mixed = True
                     self._live_in_buf.append(payload)
                     said = "".join(self._live_in_buf).strip()
                     if said:
@@ -1159,6 +1209,19 @@ class Session:
                     if not self._live_turn_open:
                         await self.set_state("listening")
                 elif ev == "tool_call":
+                    express = [fc for fc in payload if fc.get("name") == "expresar"]
+                    payload = [fc for fc in payload if fc.get("name") != "expresar"]
+                    if express:                     # no frena la voz ni el micrófono: solo mueve cara y cuerpo
+                        for fc in express:
+                            args = fc.get("args") if isinstance(fc.get("args"), dict) else {}
+                            await self._live_express(str(args.get("emocion") or ""), str(args.get("gesto") or ""))
+                        try:
+                            await client.send_tool_response([{"id": str(fc.get("id") or ""), "name": "expresar",
+                                                              "response": {"ok": True}} for fc in express])
+                        except gemini_live.GeminiLiveError:
+                            pass
+                    if not payload:
+                        continue
                     called_this_turn = True
                     self._live_in_tool = True
                     responses = []
@@ -1168,7 +1231,10 @@ class Session:
                             cid = str(fc.get("id") or "")
                             fname = str(fc.get("name") or "")
                             args = fc.get("args") if isinstance(fc.get("args"), dict) else {}
-                            if fname == "ejecutar_accion" and self.actions_on():
+                            if fname == "ejecutar_accion" and not self._live_user:
+                                responses.append({"id": cid, "name": fname, "response": {
+                                    "ok": False, "error": "solo cuando el usuario lo pide en este turno"}})
+                            elif fname == "ejecutar_accion" and self.actions_on():
                                 accion = str(args.get("accion") or "").strip()
                                 arg_list = [str(args[k]).strip() for k in ("arg1", "arg2") if args.get(k)]
                                 if accion and arg_list:
@@ -1187,7 +1253,8 @@ class Session:
                         now = time.monotonic()
                         has_frames = any(now - ts <= FRAME_MAX_AGE for _, ts, _, _ in self.frames.values())
                         trusted = set() if has_frames else {actions._plain(n).replace(" ", "_") for n, _ in wanted}
-                        self._spawn(self._live_exec_actions(wanted[:actions.MAX_PER_REPLY], trusted))
+                        self._spawn(self._live_exec_actions(wanted[:actions.MAX_PER_REPLY], trusted,
+                                                            card=self._live_mixed))
                 elif ev == "audio":
                     await self._live_open_sentence()
                     self.audio_bytes += len(payload)
@@ -1196,8 +1263,12 @@ class Session:
                     await self._live_open_sentence()
                     self._live_out_buf.append(payload)
                     clean = gemini_live.clean_spoken_text("".join(self._live_out_buf))
+                    if not self._live_emo and len(clean) >= 12:
+                        self._live_emo = "guess"           # se mira una vez por respuesta; `expresar` manda después
+                        await self._live_express(gemini_live.guess_emotion(clean), None, "guess")
                     await self.send_json({"type": "caption_delta", "id": self._live_sentence_id, "text": clean})
                 elif ev == "interrupted":
+                    self._live_emo = ""
                     self._live_turn_open = False
                     self.client_playing = False
                     self._live_out_buf.clear()
@@ -1208,19 +1279,25 @@ class Session:
                     user_said = "".join(self._live_in_buf).strip()
                     if user_said:
                         store.add_message("user", user_said)
-                        handled_cmd = await self._live_check_voice_cmd(user_said)
-                        if not handled_cmd and not called_this_turn and self.actions_on():
+                        handled_cmd = await self._live_check_voice_cmd(user_said, heard=True)
+                        if not handled_cmd and not called_this_turn and self.actions_on() and self._live_user:
                             guessed = await actions.guess_async(user_said)
                             if guessed:
                                 log.info("Gemini Live fallback acción: %s", guessed)
-                                await self._ask([guessed], quiet=True, trusted={guessed[0]})
+                                now = time.monotonic()
+                                seen = any(now - ts <= FRAME_MAX_AGE for _, ts, _, _ in self.frames.values())
+                                await self._ask([guessed], quiet=True, trusted=set() if seen else {guessed[0]},
+                                                card=self._live_mixed)
                     if reply:
                         store.add_message("assistant", reply)
+                        mood.feel(self.emotion, self.persona["personality"])
                     if self._live_turn_open:
                         await self.send_json({"type": "sentence_end", "id": self._live_sentence_id})
                         await self.send_json({"type": "reply_end", "text": reply})
                         self._live_turn_open = False
                     called_this_turn = False
+                    self._live_user = self._live_mixed = False
+                    self._live_emo = ""
                     self._live_in_buf.clear()
                     self._live_out_buf.clear()
                     self.last_talk = time.monotonic()
@@ -1239,7 +1316,7 @@ class Session:
                 self.live = None
             self._live_turn_open = False
 
-    async def _live_exec_actions(self, wanted: list[tuple[str, list[str]]], trusted: set[str]):
+    async def _live_exec_actions(self, wanted: list[tuple[str, list[str]]], trusted: set[str], card: bool = False):
         """Ejecuta las acciones pedidas por Gemini Live. Si pide «controlar» una app que aún no está abierta
         (ej. Apple Music), primero la abre con `abrir_app`, espera a que aparezca su ventana y luego la controla."""
         for name, args in wanted:
@@ -1250,7 +1327,8 @@ class Session:
                 except actions.ActionError:
                     # La ventana aún no existe: intentamos abrir la app primero y esperar brevemente a que arranque.
                     log.info("Gemini Live: %s no está abierta aún; abro la app antes de controlar", args[0])
-                    await self._ask([("abrir_app", [args[0]])], quiet=True, trusted=trusted | {"abrir_app"})
+                    await self._ask([("abrir_app", [args[0]])], quiet=True,
+                                    trusted=(trusted | {"abrir_app"}) if trusted else set(), card=card)
                     for _ in range(8):
                         await asyncio.sleep(0.5)
                         try:
@@ -1258,7 +1336,7 @@ class Session:
                             break
                         except actions.ActionError:
                             continue
-            await self._ask([(name, args)], trusted=trusted)
+            await self._ask([(name, args)], trusted=trusted, card=card)
 
     async def reset_live(self):
         """Cierra la sesión actual de Gemini Live (al cambiar ajustes, personalidad o cerrar la ventana)."""
@@ -1271,6 +1349,7 @@ class Session:
             await client.close()
         self._live_turn_open = False
         self._live_in_tool = False
+        self._live_user = self._live_mixed = False
         self._live_pcm_buf.clear()
         self._live_in_buf.clear()
         self._live_out_buf.clear()

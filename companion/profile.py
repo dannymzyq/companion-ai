@@ -28,6 +28,20 @@ PRESETS = {
              "note": "Muy rápido. Sin probar aquí."},
     "mistral": {"name": "Mistral", "base": "https://api.mistral.ai/v1", "keys": "https://console.mistral.ai/api-keys",
                 "note": "Sin probar aquí."},
+    # Añadidos el 21 nov 2026 (petición del usuario: «todas las opciones de pago que tenga»). Todos con su API
+    # compatible con la de OpenAI; ninguno probado aquí con una clave real.
+    "anthropic": {"name": "Anthropic (Claude)", "base": "https://api.anthropic.com/v1",
+                  "keys": "https://console.anthropic.com/settings/keys", "note": "De pago. Sin probar aquí."},
+    "xai": {"name": "xAI (Grok)", "base": "https://api.x.ai/v1", "keys": "https://console.x.ai",
+            "note": "De pago. Sin probar aquí."},
+    "deepseek": {"name": "DeepSeek", "base": "https://api.deepseek.com/v1", "keys": "https://platform.deepseek.com/api_keys",
+                 "note": "De pago, muy barato. No ve imágenes. Sin probar aquí."},
+    "qwen": {"name": "Qwen (Alibaba)", "base": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+             "keys": "https://modelstudio.console.alibabacloud.com", "note": "Cuota gratuita al empezar. Sin probar aquí."},
+    "cerebras": {"name": "Cerebras", "base": "https://api.cerebras.ai/v1", "keys": "https://cloud.cerebras.ai",
+                 "note": "Muy rápido, con capa gratuita. Sin probar aquí."},
+    "together": {"name": "Together AI", "base": "https://api.together.xyz/v1", "keys": "https://api.together.ai/settings/api-keys",
+                 "note": "Muchos modelos abiertos. Sin probar aquí."},
     "custom": {"name": "Otro (compatible con OpenAI)", "base": "", "keys": "", "note": "Escribe la dirección de su API."},
 }
 
@@ -120,7 +134,10 @@ def voice_engine() -> str:
 
 
 def ear_engine() -> str:
-    """Dónde se transcribe lo que dices: local (Whisper en esta PC) o nube (stt_cloud)."""
+    """Dónde se transcribe lo que dices: local (Whisper en esta PC) o nube (stt_cloud). En vivo, el oído es el
+    del proveedor: nada de Whisper en la tarjeta (21 nov 2026)."""
+    if gemini_live():
+        return "nube"
     e = (state.load().get("ear") or {}).get("engine")
     return e if e in EAR_ENGINES else "local"
 
@@ -128,6 +145,38 @@ def ear_engine() -> str:
 def cloud_only() -> bool:
     """Modo «solo nube»: cerebro, oído y voz en la nube; nada de modelos en esta PC (ni el respaldo local)."""
     return bool(state.load().get("cloud_only"))
+
+
+def live() -> dict:
+    """Proveedor de la conversación en vivo: {provider, key, model, voice, url}. Gemini usa la clave del cerebro
+    (si el cerebro es Gemini) cuando no se puso una propia."""
+    from .realtime import LIVE_PROVIDERS
+    s = state.load().get("live") or {}
+    provider = s.get("provider") if s.get("provider") in LIVE_PROVIDERS else "gemini"
+    cfg = LIVE_PROVIDERS[provider]
+    key = s.get("key") or ""
+    if not key and provider == "gemini":
+        c = cloud()
+        key = c["key"] if c["preset"] == "gemini" else ""
+    model = s.get("model") or (settings.gemini_live_model if provider == "gemini" else (cfg["models"] or [""])[0])
+    return {"provider": provider, "key": key, "model": model, "voice": s.get("voice") or "",
+            "url": s.get("url") or cfg.get("url", "")}
+
+
+def live_ready() -> bool:
+    """¿Modo en vivo encendido y con clave?"""
+    return gemini_live() and bool(live()["key"])
+
+
+def public_live() -> dict:
+    from .realtime import LIVE_PROVIDERS
+    lv = live()
+    own = bool((state.load().get("live") or {}).get("key"))
+    return {"provider": lv["provider"], "name": LIVE_PROVIDERS[lv["provider"]]["name"], "model": lv["model"],
+            "voice": lv["voice"], "url": lv["url"] if lv["provider"] == "custom" else "", "has_key": bool(lv["key"]),
+            "own_key": own,
+            "providers": [{"id": k, **{f: v.get(f) for f in ("name", "free", "keys", "models", "voices", "note")}}
+                          for k, v in LIVE_PROVIDERS.items()]}
 
 
 def gemini_live() -> bool:
@@ -217,6 +266,8 @@ def engine_now() -> tuple[str, str]:
     sin memoria (un juego abierto), llm._too_slow marca _squeezed y también se pasa a la ligera."""
     from . import tts_light, voz_proc
     pref = voice_engine()
+    if gemini_live():                     # en vivo habla el proveedor: no se arranca la voz completa (F5)
+        pref = "nube"
     if pref == "nube":
         from . import tts_cloud
         return ("nube", "") if tts_cloud.installed() else ("ligera", "falta la librería de la voz en la nube")
@@ -329,7 +380,7 @@ def cloud() -> dict:
 def public_cloud() -> dict:
     c = cloud()
     return {"preset": c["preset"], "name": PRESETS[c["preset"]]["name"], "base": c["base"], "model": c["model"],
-            "has_key": bool(c["key"]), "key_hint": f"…{c['key'][-4:]}" if len(c["key"]) >= 8 else ""}
+            "has_key": bool(c["key"])}
 
 
 def apply():
@@ -356,7 +407,7 @@ def apply():
                                 or voice_engine() != "nube"):
         s = state.save(cloud_only=False)
     # «Gemini Live» requiere cerebro en la nube con Gemini; si se cambia a local u otro proveedor, se apaga solo.
-    if s.get("gemini_live") and (s.get("provider", "gemini") != "gemini" or c["preset"] != "gemini"):
+    if s.get("gemini_live") and (s.get("provider", "gemini") != "gemini" or not live()["key"]):
         s = state.save(gemini_live=False)
     # En «solo nube» o «Gemini Live» no se carga el modelo local ni como respaldo (ocuparía RAM o vídeo).
     settings.local_fallback = _ENV_LOCAL_FALLBACK and not cloud_only() and not gemini_live()

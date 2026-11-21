@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 
-KEYS = (("cloud", "key"), ("ear", "groq_key"))     # dónde hay claves dentro de settings.json
+KEYS = (("cloud", "key"), ("ear", "groq_key"), ("live", "key"))     # dónde hay claves dentro de settings.json
 _DPAPI, _KEYCHAIN = "dpapi:", "llavero:"
 _SERVICE = "Companion"
 _cache: dict[str, str] = {}                        # lo cifrado → la clave (el Llavero es un proceso por lectura)
@@ -51,7 +51,7 @@ def _security(*args: str) -> str:
 
 def protect(value: str, name: str, scope: str = "") -> str:
     """La clave lista para guardar. Si el sistema no puede protegerla, se guarda tal cual (como antes).
-    `scope`: la carpeta de datos. En el Llavero cada carpeta tiene su entrada: el servidor de prueba (data\prueba)
+    `scope`: la carpeta de datos. En el Llavero cada carpeta tiene su entrada: el servidor de prueba (data/prueba)
     nunca pisa la clave de verdad."""
     if not value or value.startswith((_DPAPI, _KEYCHAIN)):
         return value

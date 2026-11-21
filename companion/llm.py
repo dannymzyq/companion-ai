@@ -416,7 +416,10 @@ def _gemini_error(code: int, detail: str, model: str) -> str:
 async def check_cloud(base: str, key: str) -> list[str]:
     """Comprueba una clave contra la API del proveedor y devuelve los modelos que ofrece."""
     try:
-        r = await _client.get(f"{base.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"}, timeout=15)
+        headers = {"Authorization": f"Bearer {key}"}
+        if "anthropic.com" in base:       # su lista de modelos pide su propia cabecera (el chat acepta Bearer)
+            headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
+        r = await _client.get(f"{base.rstrip('/')}/models", headers=headers, timeout=15)
     except httpx.HTTPError as e:
         raise LLMError(f"No pude conectar con esa dirección ({type(e).__name__}).") from e
     if r.status_code in (400, 401, 403):
@@ -462,6 +465,32 @@ async def installed_local() -> dict | None:
     if not data:
         return None
     return {m.get("name"): round(m.get("size", 0) / 1e9, 1) for m in data.get("models", [])}
+
+
+_caps: dict[str, list[str]] = {}         # modelo → capacidades de Ollama (completion, vision, tools, embedding…)
+
+
+def is_ollama_cloud(name: str) -> bool:
+    """Modelos «:cloud» de Ollama: se ejecutan en los servidores de Ollama, no en la tarjeta."""
+    return name.endswith(("-cloud", ":cloud"))
+
+
+async def local_info(names) -> dict[str, dict]:
+    """Lo que puede hacer cada modelo que el usuario tiene en Ollama (21 nov 2026, «que detecte otros modelos de
+    Ollama instalados por el usuario»): {nombre: {chat, vision, cloud}}. Los de embeddings no conversan."""
+    out = {}
+    for n in names:
+        if n not in _caps:
+            try:
+                r = await _local.post(f"{settings.ollama_url}/api/show", json={"model": n}, timeout=5)
+                _caps[n] = list(r.json().get("capabilities") or [])
+            except (httpx.HTTPError, ValueError):
+                _caps[n] = []
+        caps = _caps[n]
+        if caps:
+            _vision.setdefault(n, "vision" in caps)
+        out[n] = {"chat": not caps or "completion" in caps, "vision": "vision" in caps, "cloud": is_ollama_cloud(n)}
+    return out
 
 
 # ------------------------------------------------------------------ Ollama

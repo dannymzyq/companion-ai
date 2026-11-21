@@ -39,15 +39,81 @@ VOICE_MAP = {
     "satoshi": "Charon",
 }
 
+from .prompt import EMOTIONS, GESTURES  # noqa: E402
+
+# Nota final del prompt en vivo. Los modelos en vivo atienden sobre todo a lo último del systemInstruction: por eso
+# la personalidad se repite aquí en corto (live_recap) aunque ya esté entera más arriba (21 nov 2026: «en el modo
+# Live la personalidad y las emociones se ignoran»).
 LIVE_PROMPT_NOTE = (
-    "\n\n[Modo Gemini Live activo: respondes directamente con tu propia voz en español, "
-    "en frases naturales y breves como en una llamada. Mantén siempre al pie de la letra tu personalidad "
-    "actual (tono, nivel de humor, muletillas, formalidad y estilo de las frases de ejemplo). "
-    "No leas en voz alta ni escribas etiquetas entre corchetes como [emo:...], [gesto:...] ni [accion:...]. "
+    "\n\n# Modo en vivo (llamada de voz)\n"
+    "Respondes con tu propia voz en español, en frases naturales y breves como en una llamada, y con TU forma de "
+    "ser: el tono, el humor, las muletillas y el estilo de tus ejemplos se tienen que notar en cada respuesta. Nada "
+    "de tono de asistente neutra.\n"
+    "Tu cara y tu cuerpo se mueven con la herramienta `expresar`: llámala al EMPEZAR cada respuesta con la emoción "
+    "que de verdad sientes ante lo que te dicen (y un gesto si viene a cuento), y otra vez si cambias de emoción. "
+    "No cambia lo que dices ni hay que esperar su respuesta: sigue hablando.\n"
+    "Nunca digas en voz alta etiquetas entre corchetes ([emo:…], [gesto:…], [accion:…]) ni el nombre de una herramienta.\n"
     "Cuando el usuario te pida abrir una aplicación, poner una canción en Apple Music/Spotify, abrir una web "
     "o carpeta, buscar un archivo, poner un temporizador o cambiar música/volumen, llama a la herramienta "
-    "`ejecutar_accion` con la acción correspondiente.]"
+    "`ejecutar_accion` con la acción correspondiente."
 )
+
+EXPRESS_TOOL = {
+    "name": "expresar",
+    "description": ("Muestra en tu cara y tu cuerpo la emoción que sientes y, si viene a cuento, un gesto. "
+                    "Llámala al empezar cada respuesta. No hace falta esperar su resultado."),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "emocion": {"type": "STRING", "enum": list(EMOTIONS)},
+            "gesto": {"type": "STRING", "enum": ["ninguno", *GESTURES]},
+        },
+        "required": ["emocion"],
+    },
+}
+
+
+def live_recap(p: dict, user_name: str) -> str:
+    """Resumen corto de quién es el personaje ahora, para el final del prompt en vivo."""
+    q = p.get("personality") or {}
+    s = p.get("speech_style") or {}
+    lines = [f"Recuerda quién eres: {p.get('name', 'tú')}"
+             + (f", con la personalidad «{q['name']}»" if q.get("name") else "") + "."]
+    if p.get("personality_text"):
+        lines.append(str(p["personality_text"]))
+    if q.get("emotions"):
+        lines.append(f"Se te notan sobre todo: {', '.join(q['emotions'])}; tu ánimo de siempre es {q.get('base_mood', 'neutral')}.")
+    if s.get("catchphrases"):
+        lines.append(f"Tus muletillas (de vez en cuando): {', '.join(s['catchphrases'])}.")
+    if q.get("examples"):
+        lines.append("Suenas así: " + " · ".join(f"«{x}»" for x in q["examples"][:4]))
+    lines.append(f"Hablas con {user_name}: reacciona a lo que siente y a cómo te habla, como lo harías tú.")
+    return "\n".join(lines)
+
+
+# Emoción deducida del texto mientras llega (la de `expresar` llega a los 3-4 s, ya hablando: medido el 21 nov 2026).
+_EMO_WORDS = [
+    ("triste", r"lo siento|qu[eé] pena|qu[eé] triste|qu[eé] mal|\bpobre|lamento|\bánimo"),
+    ("molesta", r"\boye\b|qu[eé] pesad|no me gusta|me molesta|ya basta|qu[eé] rabia"),
+    ("sorprendida", r"\bwow\b|en serio\?|de verdad\?|no me digas|no puede ser"),
+    ("emocionada", r"qu[eé] emoci[oó]n|incre[ií]ble|felicidades|enhorabuena|me encanta|\bgenial\b"),
+    ("sonrojada", r"me sonroj|qu[eé] cosas dices|ay,? (calla|para)"),
+    ("carinosa", r"cari[nñ]o|aqu[ií] estoy|te quiero|mi vida|\babrazo"),
+    ("feliz", r"\bjaj|\bjej|qu[eé] bien|me alegra|\bbonito|claro que s[ií]"),
+    ("pensativa", r"\bhmm|d[eé]jame pensar|\ba ver\b|buena pregunta"),
+    ("confundida", r"no entiendo|\bc[oó]mo\?|\bqu[eé] dices"),
+    ("nerviosa", r"\beh+\.\.\.|\bum+\b|\bbueno\.\.\."),
+]
+_EMO_RES = [(e, re.compile(rx, re.IGNORECASE)) for e, rx in _EMO_WORDS]
+
+
+def guess_emotion(text: str) -> str | None:
+    """Emoción probable del principio de una respuesta (para que la cara reaccione ya, antes de `expresar`)."""
+    for emo, rx in _EMO_RES:
+        if rx.search(text or ""):
+            return emo
+    return None
+
 
 # Herramienta nativa (Function Calling) para el catálogo cerrado de acciones en la PC.
 ACTION_TOOLS = [{
@@ -87,6 +153,13 @@ ACTION_TOOLS = [{
         "required": ["accion", "arg1"],
     },
 }]
+
+# `expresar` no frena la voz: NON_BLOCKING en Gemini y respuesta SILENT (sin turno nuevo).
+SILENT_TOOLS = {"expresar"}
+
+
+def gemini_tools(tools: list[dict]) -> list[dict]:
+    return [{**t, "behavior": "NON_BLOCKING"} if t["name"] in SILENT_TOOLS else t for t in tools]
 
 _TAG_RE = re.compile(r"\[[^\]]+\]")
 
@@ -161,7 +234,7 @@ class GeminiLiveClient:
             "outputAudioTranscription": {},
         }
         if self.tools:
-            setup["tools"] = [{"functionDeclarations": self.tools}]
+            setup["tools"] = [{"functionDeclarations": gemini_tools(self.tools)}]
         return {"setup": setup}
 
     async def connect(self, timeout: float = 15.0):
@@ -239,7 +312,12 @@ class GeminiLiveClient:
         """Devuelve a Gemini Live el resultado de una o más llamadas a herramientas (toolCall)."""
         if not self.connected or not responses:
             return
-        await self._send_json({"toolResponse": {"functionResponses": responses}})
+        out = []
+        for r in responses:
+            if r.get("name") in SILENT_TOOLS:
+                r = {**r, "response": {**(r.get("response") or {}), "scheduling": "SILENT"}}
+            out.append(r)
+        await self._send_json({"toolResponse": {"functionResponses": out}})
 
     async def receive(self):
         """Itera eventos normalizados del servidor:

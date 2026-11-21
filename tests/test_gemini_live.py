@@ -227,7 +227,7 @@ class GeminiLiveSessionTests(unittest.IsolatedAsyncioTestCase):
         sess = Session(browser, persona, FakeTranscriber())
         asked = []
 
-        async def fake_exec(wanted, trusted):
+        async def fake_exec(wanted, trusted, card=False):
             asked.append((wanted, trusted))
 
         sess._live_exec_actions = fake_exec
@@ -247,6 +247,75 @@ class GeminiLiveSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(asked), 1)
         self.assertEqual(asked[0][0], [("controlar", ["Apple Music", "pon La Barca"])])
         self.assertTrue(any("toolResponse" in m for m in remote.sent))
+        await sess.close()
+
+    def _sess(self, remote):
+        browser = FakeBrowserWS()
+        persona = {"name": "Mika", "age": 22, "speaks": "f", "role": "asistente", "personality": "cercana"}
+        sess = Session(browser, persona, FakeTranscriber())
+        sess._live_factory = lambda key, sys_p, **kw: gemini_live.GeminiLiveClient(
+            key, sys_p, ws_connect=lambda url, **c_kw: asyncio.sleep(0, result=remote), **kw
+        )
+        return sess, browser
+
+    async def _drain(self, sess):
+        if sess.live_task:
+            await asyncio.wait_for(sess.live_task, 5)
+        if sess.side:
+            await asyncio.gather(*list(sess.side))
+
+    async def test_saludo_no_puede_ejecutar_acciones(self):
+        """Saludo, mirada, toques y temporizadores no son turnos del usuario: la herramienta se rechaza."""
+        remote = FakeRemoteWS([
+            {"setupComplete": {}},
+            {"toolCall": {"functionCalls": [{"id": "c1", "name": "ejecutar_accion",
+                                             "args": {"accion": "abrir_web", "arg1": "https://example.com"}}]}},
+            {"serverContent": {"turnComplete": True}},
+        ])
+        sess, _ = self._sess(remote)
+        asked = []
+
+        async def fake_exec(wanted, trusted, card=False):
+            asked.append(wanted)
+        sess._live_exec_actions = fake_exec
+        await sess.on_message({"type": "start"})
+        await self._drain(sess)
+        self.assertEqual(asked, [])
+        resp = [m for m in remote.sent if "toolResponse" in m][0]["toolResponse"]["functionResponses"][0]
+        self.assertFalse(resp["response"]["ok"])
+        await sess.close()
+
+    async def test_sonido_de_pantalla_no_aprueba_ni_ordena(self):
+        """Con la pantalla sonando, un «sí» oído no aprueba tarjetas y las acciones piden tarjeta."""
+        remote = FakeRemoteWS([
+            {"setupComplete": {}},
+            {"serverContent": {"inputTranscription": {"text": "sí"}}},
+            {"toolCall": {"functionCalls": [{"id": "c1", "name": "ejecutar_accion",
+                                             "args": {"accion": "abrir_web", "arg1": "https://example.com"}}]}},
+            {"serverContent": {"turnComplete": True}},
+        ])
+        sess, _ = self._sess(remote)
+        got = []
+
+        async def fake_exec(wanted, trusted, card=False):
+            got.append(card)
+        sess._live_exec_actions = fake_exec
+        answered = []
+
+        async def fake_answer(req, verdict):
+            answered.append(verdict)
+        sess._answer = fake_answer
+
+        class Req:
+            id = "r1"
+        sess.pending["r1"] = Req()
+        sess._live_screen_at = __import__("time").monotonic()
+        await sess._ensure_live()
+        await self._drain(sess)
+        self.assertEqual(answered, [])
+        self.assertIn("r1", sess.pending)
+        self.assertEqual(got, [True])
+        sess.pending.clear()
         await sess.close()
 
 

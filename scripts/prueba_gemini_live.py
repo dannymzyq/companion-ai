@@ -135,7 +135,7 @@ async def main():
         ws.reset_turn()
         called_actions = []
 
-        async def capture_exec(wanted, trusted):
+        async def capture_exec(wanted, trusted, card=False):
             called_actions.extend(wanted)
 
         sess._live_exec_actions = capture_exec

@@ -131,9 +131,9 @@ async def main():
             print(f"   nombre           : el personaje se llama {cfg['name']!r} (tarjeta de inicio: {titulo!r})")
             assert cfg["name"] == "Kenji" and titulo == "Kenji"
             print(f"7. guardado         : onboarded={cfg['onboarded']} · perfil={cfg['profile']} · voz={cfg['voice']} · nube={cfg['cloud']['name']} "
-                  f"(clave oculta: {cfg['cloud']['key_hint'][:1]}····) · +18 posible en local={cfg['adult']}")
+                  f"(clave guardada: {cfg['cloud']['has_key']}) · +18 posible en local={cfg['adult']}")
             assert cfg["onboarded"] and cfg["profile"] == {"name": "Ana", "birth_year": 2000, "gender": "mujer"} and cfg["voice"] == "Kenji"
-            assert cfg["model_id"] == "avatar2" and guardado["voice"] == "kenji" and "key" not in json.dumps(cfg["cloud"]).replace("key_hint", "").replace("has_key", "")
+            assert cfg["model_id"] == "avatar2" and guardado["voice"] == "kenji" and "key" not in json.dumps(cfg["cloud"]).replace("has_key", "")
 
             # al recargar no se repite, y desde Ajustes se cambia un paso suelto
             await p.cmd("Page.reload")

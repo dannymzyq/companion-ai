@@ -4,6 +4,21 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.9.1 — 2026-11-21
+
+- **Conversación en vivo con más proveedores**: además de Gemini Live (gratis con límite diario), OpenAI Realtime,
+  xAI Grok Voice, Qwen Omni Realtime (cuota gratis al empezar) o un servidor propio compatible. Cada uno con su clave
+  (guardada cifrada), voz y modelo.
+- **Personalidad y emociones en vivo**: el personaje vuelve a actuar según su personalidad y mueve cara y cuerpo
+  mientras habla, sin frenar la voz.
+- **En vivo no se carga nada en tu tarjeta**: ni el oído (Whisper) ni la voz completa.
+- **Más cerebros en la nube**: Anthropic, xAI, DeepSeek, Qwen, Cerebras y Together. Los modelos que ya tengas en
+  Ollama aparecen para elegirlos (con aviso de si ven imágenes o van en la nube).
+- **Ajustes de «Cerebro y voz» más fáciles**: un solo selector con cuatro modos (En vivo, Nube + voz en tu PC, Solo
+  nube, 100 % en tu PC) y debajo solo los ajustes del elegido; si falta una clave, se escribe y se activa en un paso.
+- **Más seguridad**: en vivo, las acciones en tu PC solo valen si las pediste tú en ese turno, y si sonaba la
+  pantalla compartida siempre piden permiso. La interfaz ya no muestra ningún trozo de tu clave.
+
 ## 0.9.0 — 2026-11-20
 
 - **Modo Gemini Live (directo)**: nueva integración oficial por WebSocket con la **Gemini Live API**

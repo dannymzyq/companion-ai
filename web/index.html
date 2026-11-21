@@ -363,78 +363,104 @@
             </div>
           </section>
 
-          <!-- TAB 2: Cerebro y Voz -->
+          <!-- TAB 2: Cerebro y Voz. Un solo selector de modo; debajo, solo lo que ese modo usa (21 nov 2026). -->
           <section class="stab-panel" data-stab-panel="cerebro">
             <div class="set-card">
               <div class="card-head">
-                <h3>Modo rápido</h3>
-                <small class="card-meta">Elige cómo funciona el companion con un clic</small>
+                <h3>¿Cómo quieres que funcione?</h3>
+                <small class="card-meta">Un clic y listo: puedes cambiarlo cuando quieras</small>
               </div>
-              <div class="quick-modes" id="quick-modes">
-                <button type="button" class="qmode" data-qmode="live">
-                  <b>Gemini Live</b>
-                  <small>Voz, oído y visión en vivo · 0 GB GPU</small>
+              <div class="modes" id="modes" role="radiogroup" aria-label="Modo de funcionamiento">
+                <button type="button" class="mode" data-mode="live" role="radio">
+                  <span class="mode-top"><b>En vivo</b><i class="tag good">Más natural</i></span>
+                  <small>Habla contigo como en una llamada: te oye, piensa y responde con su voz al instante, en la nube.</small>
+                  <span class="mode-tags"><i>Tu tarjeta queda libre</i><i>Necesita internet y una clave</i></span>
                 </button>
-                <button type="button" class="qmode" data-qmode="hybrid">
-                  <b>Nube + tu voz</b>
-                  <small>Gemini + voz clonada local (F5-TTS)</small>
+                <button type="button" class="mode" data-mode="hybrid" role="radio">
+                  <span class="mode-top"><b>Nube + voz en tu PC</b><i class="tag">Recomendado</i></span>
+                  <small>Piensa en la nube y habla con su voz clonada, que se genera en tu tarjeta gráfica.</small>
+                  <span class="mode-tags"><i>La voz de más calidad</i><i>Unos 2,5 GB de tarjeta</i></span>
                 </button>
-                <button type="button" class="qmode" data-qmode="local">
-                  <b>100 % Local</b>
-                  <small>Ollama en tu PC · sin internet</small>
+                <button type="button" class="mode" data-mode="cloud" role="radio">
+                  <span class="mode-top"><b>Solo nube</b></span>
+                  <small>Todo en internet: para PCs sin tarjeta gráfica o con poca memoria.</small>
+                  <span class="mode-tags"><i>No usa tu tarjeta</i><i>Voz más sencilla</i></span>
+                </button>
+                <button type="button" class="mode" data-mode="local" role="radio">
+                  <span class="mode-top"><b>100 % en tu PC</b></span>
+                  <small>Nada sale de tu PC: el cerebro corre con Ollama. Funciona sin internet.</small>
+                  <span class="mode-tags"><i>Máxima privacidad</i><i>Pide una buena tarjeta</i></span>
                 </button>
               </div>
+              <p class="mode-now" id="mode-now" role="status" aria-live="polite"></p>
             </div>
 
-            <div class="set-card">
+            <div class="set-card" id="mode-settings">
               <div class="card-head">
-                <h3>Cerebro</h3>
+                <h3 id="mode-settings-title">Ajustes de este modo</h3>
               </div>
-              <label class="row set">
-                <span><b>Gemini Live (directo)</b><button class="info" data-tip="gemini-live-note" aria-label="Qué es esto">i</button>
-                  <small class="tip" id="gemini-live-note" hidden>Conexión directa por WebSocket a Gemini Live API: Gemini hace de oído, cerebro, visión y voz en tiempo real sin cargar modelos en tu PC. Usa las voces predefinidas de Gemini.</small></span>
-                <input type="checkbox" id="gemini-live" class="switch">
-              </label>
-              <label class="row set">
-                <span><b>Solo nube (clásico)</b><button class="info" data-tip="cloud-only-note" aria-label="Qué es esto">i</button>
-                  <small class="tip" id="cloud-only-note" hidden>Pone cerebro, oído (Groq/Gemini) y voz (Edge) en la nube sin cargar modelos en tu PC.</small></span>
-                <input type="checkbox" id="cloud-only" class="switch">
-              </label>
-              <div class="set">
-                <div class="set-head"><b>Dónde piensa</b><button class="info" data-tip="brain-note" aria-label="Qué es esto">i</button></div>
-                <p class="tip" id="brain-note" hidden></p>
-                <div class="segment" id="provider">
-                  <button data-value="gemini"><b>Nube</b><small id="cloud-name">Gemini</small></button>
-                  <button data-value="local"><b>Local</b><small>Ollama en esta PC</small></button>
+
+              <div class="set" data-modes="live">
+                <div class="set-head"><b>Con quién habla en vivo</b><button class="info" data-tip="live-note" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="live-note" hidden></p>
+                <div class="picker" id="live-box">
+                  <select id="live-provider" aria-label="Proveedor en vivo"></select>
+                  <input id="live-key" type="password" autocomplete="off" spellcheck="false" placeholder="Clave de API" aria-label="Clave del proveedor en vivo">
+                  <select id="live-voice" aria-label="Voz en vivo"></select>
+                  <details class="adv">
+                    <summary>Opciones avanzadas</summary>
+                    <label for="live-model">Modelo</label>
+                    <input id="live-model" type="text" list="live-models" autocomplete="off" spellcheck="false" placeholder="Modelo">
+                    <datalist id="live-models"></datalist>
+                    <label for="live-url" id="live-url-label" hidden>Dirección del proveedor</label>
+                    <input id="live-url" type="text" autocomplete="off" spellcheck="false" placeholder="wss://…" hidden>
+                  </details>
+                  <div class="line"><small id="live-state"></small><button class="mini primary-mini" id="live-save">Guardar</button></div>
+                  <small><a id="live-keys" href="#" target="_blank" rel="noopener">Conseguir una clave</a> · Se guarda cifrada solo en esta PC.</small>
                 </div>
               </div>
-              <div class="set">
-                <div class="set-head"><b>Proveedor y clave</b><button class="info" data-tip="tip-cloud" aria-label="Qué es esto">i</button></div>
-                <p class="tip" id="tip-cloud" hidden>El proveedor y la clave de API para la nube. Se guarda cifrada solo en esta PC.</p>
-                <div class="line"><span id="cloud-line"></span><button class="mini" data-edit="cerebro">Proveedor y clave</button></div>
+
+              <div class="set" data-modes="hybrid cloud">
+                <div class="set-head"><b>Cerebro en la nube</b><button class="info" data-tip="tip-cloud" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-cloud" hidden>Qué empresa le da el cerebro (Google Gemini tiene capa gratuita) y tu clave de API. Se guarda cifrada solo en esta PC.</p>
+                <div class="line"><span id="cloud-line"></span><button class="mini" data-edit="cerebro">Cambiar</button></div>
               </div>
-              <div class="set">
-                <div class="set-head"><b>Modelo local (Ollama)</b><button class="info" data-tip="tip-local" aria-label="Qué es esto">i</button></div>
-                <p class="tip" id="tip-local" hidden>El modelo que corre en tu PC con Ollama cuando eliges «Local».</p>
+
+              <div class="set" data-modes="local">
+                <div class="set-head"><b>Cerebro en tu PC</b><button class="info" data-tip="tip-local" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-local" hidden>El modelo que corre en tu PC con Ollama. Aparecen también los que ya tengas instalados en Ollama.</p>
                 <div class="line"><span id="local-line"></span><button class="mini" data-edit="local">Cambiar</button></div>
               </div>
-            </div>
 
-            <div class="set-card">
-              <div class="card-head">
-                <h3>Voz y sonido</h3>
-                <small id="sum-voz" class="card-meta"></small>
-              </div>
-              <div class="set">
-                <div class="set-head"><b>Voz y motor</b><button class="info" data-tip="tip-voice" aria-label="Qué es esto">i</button></div>
-                <p class="tip" id="tip-voice" hidden>La voz del personaje (le da su nombre) y su motor: completa (clonada F5-TTS en GPU), ligera (Piper en CPU) o nube (Edge).</p>
+              <div class="set" data-modes="hybrid cloud local">
+                <div class="set-head"><b>Su voz</b><button class="info" data-tip="tip-voice" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-voice" hidden>La voz del personaje (le da su nombre). Completa: clonada, en tu tarjeta gráfica. Ligera: en el procesador. Nube: por internet.</p>
                 <div class="line"><span id="voice-line"></span><button class="mini" data-edit="voz">Cambiar</button></div>
               </div>
-              <label class="row set">
-                <span><b>Pasar sola a la voz ligera</b><button class="info" data-tip="voice-auto-note" aria-label="Qué es esto">i</button>
+
+              <label class="row set" data-modes="hybrid local">
+                <span><b>Si falta memoria, usar la voz ligera</b><button class="info" data-tip="voice-auto-note" aria-label="Qué es esto">i</button>
                   <small class="tip" id="voice-auto-note" hidden></small></span>
                 <input type="checkbox" id="voice-auto" class="switch">
               </label>
+
+              <p class="note" data-modes="cloud">Te escucha por internet con Groq o Gemini: la clave de Groq (opcional, gratis) está en Dispositivos › Oído.</p>
+              <p class="note" data-modes="live">En vivo no se carga nada en tu tarjeta: ni el oído (Whisper) ni la voz completa.</p>
+              <p class="tip" id="brain-note" hidden></p>
+
+              <!-- Los controles de antes siguen aquí, escondidos, para no romper nada que los lea. -->
+              <div hidden>
+                <input type="checkbox" id="gemini-live"><input type="checkbox" id="cloud-only">
+                <div id="provider"><button data-value="gemini"><small id="cloud-name"></small></button><button data-value="local"></button></div>
+                <div id="quick-modes"><small id="qmode-live-name"></small></div>
+              </div>
+            </div>
+
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Sonido</h3>
+                <small id="sum-voz" class="card-meta"></small>
+              </div>
               <div class="set-split">
                 <div class="set">
                   <div class="set-head"><b>Salida de audio</b><button class="info" data-tip="tip-output" aria-label="Qué es esto">i</button></div>
@@ -443,7 +469,7 @@
                 </div>
                 <div class="set">
                   <div class="set-head"><b>Volumen</b><span id="volume-value" class="value"></span><button class="info" data-tip="tip-volume" aria-label="Qué es esto">i</button></div>
-                  <p class="tip" id="tip-volume" hidden>Volumen de la voz dentro de la app (aparte de Windows).</p>
+                  <p class="tip" id="tip-volume" hidden>Volumen de la voz dentro de la app (aparte del de Windows).</p>
                   <input type="range" id="volume" min="0" max="150" step="5" aria-label="Volumen de la voz">
                 </div>
               </div>
@@ -467,9 +493,10 @@
               </div>
               <div class="set">
                 <div class="set-head"><b>Oído (transcripción)</b><button class="info" data-tip="tip-ear" aria-label="Qué es esto">i</button></div>
-                <p class="tip" id="tip-ear" hidden>Local: Whisper en tu PC. Nube: Groq (~2.000 frases/día gratis) o Gemini. En modo Gemini Live el oído va directo por WebSocket.</p>
+                <p class="tip" id="tip-ear" hidden>Cómo pasa tu voz a texto. En tu PC: Whisper, en la tarjeta gráfica. Nube: Groq (unas 2.000 frases al día gratis) o Gemini.</p>
+                <p class="note lock" id="ear-lock" hidden>En el modo «En vivo» te escucha directamente el proveedor en vivo: este ajuste no se usa.</p>
                 <div class="segment" id="ear">
-                  <button data-value="local"><b>Local</b><small>Whisper en esta PC</small></button>
+                  <button data-value="local"><b>En tu PC</b><small>Whisper, sin internet</small></button>
                   <button data-value="nube"><b>Nube</b><small id="ear-cloud-name">Groq o Gemini</small></button>
                 </div>
                 <div class="picker" id="groq-box">

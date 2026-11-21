@@ -154,8 +154,8 @@ def public_config() -> dict:
                 # cargadas en este proceso hasta reiniciar el companion.
                 "restart_frees": transcriber.engine == "nube" and transcriber.used_cuda},
         "cloud_only": profile.cloud_only(),
-        "gemini_live": profile.gemini_live(), "gemini_live_model": settings.gemini_live_model,
-        "gemini_live_voice": _live_voice_name(),
+        "gemini_live": profile.gemini_live(), "gemini_live_model": profile.live()["model"],
+        "gemini_live_voice": _live_voice_name(), "live": profile.public_live(),
         "model": model_path() is not None or models.kind(persona["name"]) == "orb",
         "model_id": models.active_id(persona["name"]), "model_kind": models.kind(persona["name"]),
         "barge_in": settings.barge_in, "actions": _actions_state(),
@@ -166,9 +166,15 @@ def public_config() -> dict:
 
 
 def _live_voice_name() -> str:
-    from . import gemini_live
+    from . import gemini_live, realtime
+    lv = profile.live()
+    if lv["voice"]:
+        return lv["voice"]
     v = profile.voice()
-    return gemini_live.voice_for(v["id"] if v else None, (v or {}).get("speaks", "f"))
+    speaks = (v or {}).get("speaks", "f")
+    if lv["provider"] == "gemini":
+        return gemini_live.voice_for(v["id"] if v else None, speaks)
+    return realtime.voice_for(lv["provider"], speaks)
 
 
 def _ear_public() -> dict:
@@ -341,8 +347,12 @@ async def get_setup():
     recommended = res["recommended_engine"]
     if node_ok and tts_light.installed() and profile.voice_auto() and profile.full_voice_fits(True, "", res["total_gb"]):
         recommended = "completa"
-    others = [{"id": n, "vram_gb": profile.model_vram(n, installed), "fits": fits(profile.model_vram(n, installed))}
-              for n in sorted(installed or {}) if n not in ids]
+    extra = [n for n in sorted(installed or {}) if n not in ids]
+    info = await llm.local_info(extra)
+    others = [{"id": n, "vram_gb": 0.0 if info[n]["cloud"] else profile.model_vram(n, installed),
+               "fits": fits(0.0 if info[n]["cloud"] else profile.model_vram(n, installed)),
+               "vision": info[n]["vision"], "cloud": info[n]["cloud"]}
+              for n in extra if info[n]["chat"]]
     return {
         "resources": res,
         "voice_engine": {"selected": profile.voice_engine(), "in_use": settings.voice_engine, "reason": settings.voice_reason,
@@ -351,7 +361,7 @@ async def get_setup():
                          "light_installed": tts_light.installed(), "light_size_mb": tts_light.SIZE_MB,
                          "light_progress": tts_light.progress or None},
         "ear": {"engine": profile.ear_engine(), **_ear_public()}, "cloud_only": profile.cloud_only(),
-        "gemini_live": profile.gemini_live(), "gemini_live_model": settings.gemini_live_model,
+        "gemini_live": profile.gemini_live(), "gemini_live_model": profile.live()["model"], "live": profile.public_live(),
         "onboarded": bool(state.load().get("onboarded")), "character": character_name(), "year": time.localtime().tm_year,
         "profile": profile.get(), "suggested_name": settings.user_name,
         "provider": settings.llm_provider, "cloud": profile.public_cloud(),
@@ -371,7 +381,8 @@ class SetupIn(BaseModel):
     voice_engine: str | None = None       # completa | ligera | nube
     ear: dict | None = None               # {engine: local|nube, groq_key, remove_groq_key}; sin groq_key se conserva
     cloud_only: bool | None = None        # cerebro, oído y voz en la nube (al apagarlo vuelve lo de antes)
-    gemini_live: bool | None = None       # conexión directa WebSocket a Gemini Live API (oído, cerebro, visión y voz)
+    gemini_live: bool | None = None       # modo en vivo: el proveedor oye, piensa, ve y habla (WebSocket directo)
+    live: dict | None = None              # {provider, key, remove_key, model, voice, url}; sin key se conserva
     voice_auto: bool | None = None        # pasar sola a la ligera cuando la completa no cabe en la tarjeta
     onboarded: bool | None = None
 
@@ -442,6 +453,8 @@ async def set_setup(body: SetupIn):
             if ear.get("engine") == "nube" and not (ear.get("groq_key") or stt_cloud.gemini_key()):
                 raise ValueError("Para el oído en la nube hace falta una clave de Groq o el cerebro con Gemini.")
             changes["ear"] = ear
+        if body.live is not None:
+            changes["live"] = _live_settings(body.live)
         if body.voice_auto is not None:
             changes["voice_auto"] = bool(body.voice_auto)
         if body.provider is not None:
@@ -468,7 +481,7 @@ async def set_setup(body: SetupIn):
         await asyncio.to_thread(voz_proc.sync)
     if "cloud" in changes:
         llm.reset_cloud()
-    if any(k in changes for k in ("gemini_live", "cloud", "voice", "profile", "provider")):
+    if any(k in changes for k in ("gemini_live", "live", "cloud", "voice", "profile", "provider")):
         from .session import _open
         for s in list(_open):
             if hasattr(s, "reset_live"):
@@ -504,6 +517,34 @@ def _cloud_only_changes(on: bool, changes: dict) -> dict:
     return {"cloud_only": True, "gemini_live": False, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
 
 
+def _live_settings(body: dict) -> dict:
+    """Proveedor de la conversación en vivo. La clave nunca vuelve a la interfaz."""
+    from .realtime import LIVE_PROVIDERS
+    lv = dict(state.load().get("live") or {})
+    provider = str(body.get("provider") or lv.get("provider") or "gemini")
+    if provider not in LIVE_PROVIDERS:
+        raise ValueError("Proveedor en vivo no reconocido.")
+    if provider != lv.get("provider", "gemini"):
+        lv = {}                                        # otra empresa: su clave, modelo y voz son otros
+    lv["provider"] = provider
+    key = str(body.get("key") or "").strip()
+    if key:
+        lv["key"] = key[:300]
+    if body.get("remove_key"):
+        lv.pop("key", None)
+    for f, n in (("model", 120), ("voice", 60)):
+        if body.get(f) is not None:
+            lv[f] = str(body[f]).strip()[:n]
+    if body.get("url") is not None:
+        url = str(body["url"]).strip()
+        if url and not url.startswith("wss://"):
+            raise ValueError("La dirección del proveedor en vivo tiene que empezar por wss://")
+        lv["url"] = url[:300]
+    if provider == "custom" and not lv.get("url"):
+        raise ValueError("Escribe la dirección wss:// del proveedor.")
+    return lv
+
+
 def _gemini_live_changes(on: bool, changes: dict) -> dict:
     """«Gemini Live»: conecta la interfaz directamente a la Gemini Live API (oído, cerebro, visión y voz en tiempo real).
     Guarda los ajustes previos para restaurarlos al apagarlo."""
@@ -521,11 +562,17 @@ def _gemini_live_changes(on: bool, changes: dict) -> dict:
             "voice_engine": before.get("voice_engine", profile.voice_engine()),
             "cloud_only": bool(before.get("cloud_only", False)),
         }
-    cloud = s.get("cloud") or {}
-    preset = cloud.get("preset", profile.cloud()["preset"])
-    key = cloud.get("key") or profile.cloud()["key"]
-    if preset != "gemini" or not key:
-        raise ValueError("Para usar Gemini Live hace falta configurar una clave de Google Gemini (Cerebro › Proveedor y clave).")
+    lv = s.get("live") or {}
+    provider = lv.get("provider") or profile.live()["provider"]
+    key = lv.get("key") or ""
+    if not key and provider == "gemini":
+        cloud = s.get("cloud") or {}
+        if cloud.get("preset", profile.cloud()["preset"]) == "gemini":
+            key = cloud.get("key") or profile.cloud()["key"]
+    if not key:
+        from .realtime import LIVE_PROVIDERS
+        raise ValueError(f"Para la conversación en vivo con {LIVE_PROVIDERS[provider]['name']} hace falta su clave "
+                         "(Cerebro y voz › En vivo).")
     before = {
         "provider": s.get("provider", settings.llm_provider),
         "ear": ear.get("engine", "local"),

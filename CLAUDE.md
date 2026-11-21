@@ -316,6 +316,13 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   nvidia-smi, restando lo nuestro; la estimación fija de 2 GB hacía que en la laptop de 4 GB del usuario, una RTX
   3050, la completa nunca pareciera caber, 15 nov 2026). Salida de audio y volumen: `audio.js` (`setSinkId`; `companion.output` y
   `companion.volume` en localStorage; Electron permite `speaker-selection`).
+- Ajustes › Cerebro y voz (21 nov 2026, «más fácil de usar»): un solo selector de modo (`#modes`: live, hybrid,
+  cloud, local; `currentMode`/`chooseMode`/`drawModes` en main.js) y debajo solo los ajustes de ese modo
+  (`[data-modes]`). Sustituye al modo rápido, los interruptores «en vivo» y «solo nube» y «Dónde piensa» (siguen en
+  el DOM escondidos). Sin clave, el modo queda «pendiente» (`modePending`) hasta guardarla («Guardar y activar»).
+  En vivo, Dispositivos › Oído se ve bloqueado con el motivo; con las acciones apagadas, sus otros dos interruptores.
+  Con otro proveedor elegido en la lista sin guardar, la tarjeta «En vivo» también queda pendiente. `public_cloud`
+  ya no da `key_hint` (enseñaba los 4 últimos caracteres de la clave): la interfaz dice «clave guardada».
 - Ajustes (15 nov 2026): secciones `<details name="ajustes">` (una abierta a la vez) con resumen en la cabecera
   (`sum-…`) y una «i» por opción (`.info[data-tip]` abre su `.tip`; dentro de un interruptor no lo cambia). El
   botón de flotar está en la barra de abajo, junto a compartir pantalla.
@@ -391,6 +398,26 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   Quita el respaldo local del cerebro (`settings.local_fallback`). La clave de Groq nunca se devuelve a la interfaz.
   `scripts\prueba_nube.py` mide RAM, procesador y vídeo (`--turnos 0` no gasta cuota). La clave de Groq no se ha
   probado de verdad (no había una): solo con peticiones simuladas en `tests\test_nube.py`.
+- Gemini Live (0.9.0, `companion/gemini_live.py`, `profile.gemini_live`, Ajustes › Cerebro y voz): WebSocket directo
+  (micrófono 16 kHz, imágenes, voz 24 kHz) y acciones por la herramienta `ejecutar_accion`. Frenos (21 nov 2026):
+  la herramienta solo vale en turnos que empezó el usuario (`_live_user`; saludo, mirada, toques y temporizadores la
+  rechazan) y, como Gemini recibe el micrófono y el sonido de la pantalla por el mismo canal, si la pantalla sonó en
+  los últimos 4 s (`_live_screen_heard` → `_live_mixed`) un «sí» oído no aprueba tarjetas y toda acción va con tarjeta
+  (`_ask(card=True)`, también con acceso total). Prueba real: `scripts\prueba_gemini_live.py` (datos aislados; córrela con
+  `COMPANION_ACTIONS_DRY=1`: Gemini llegó a pedir abrir una app de verdad).
+  Varios proveedores en vivo (21 nov 2026): `companion/realtime.py` (`LIVE_PROVIDERS`: gemini, openai, xai, qwen,
+  custom; `RealtimeClient` habla el protocolo de OpenAI Realtime, «ga» u «beta», con la misma interfaz que
+  `GeminiLiveClient`). `settings.live` {provider, key (cifrada, `secret.KEYS`), model, voice, url};
+  `profile.live`/`live_ready`/`public_live`; Gemini usa la clave del cerebro si no hay una propia. Solo Gemini está
+  probado con clave real. En vivo `ear_engine()` es «nube» y `engine_now()` no da la completa: ni Whisper ni F5
+  (`lifecycle.loading` enseña solo «La conversación en vivo»).
+  Personalidad y emociones en vivo: herramienta `expresar` (NON_BLOCKING + respuesta SILENT en Gemini: no frena la
+  voz; llega a los 3-4 s, ya hablando) → `express` a la interfaz; antes, `guess_emotion` sobre el texto que llega.
+  `live_recap` repite la personalidad al final del prompt y `_live_context` mete la hora y el ánimo en el prompt al
+  conectar: mandarlos como mensaje aparte (turnComplete false) hacía responder de más y desfasaba un turno.
+  `mood.feel` al acabar cada respuesta. Gemini 3.1 Flash Live rechaza `enableAffectiveDialog` (1007).
+  Cerebro en la nube: `PRESETS` con Anthropic, xAI, DeepSeek, Qwen, Cerebras y Together (sin probar); Ollama propios:
+  `llm.local_info` (fuera los de embeddings; los «-cloud» no piden vídeo).
 - Memoria: `store.py` (messages, memories, summaries); los resúmenes los hace `Session._summarize` en ratos de calma.
 
 ## Reglas
