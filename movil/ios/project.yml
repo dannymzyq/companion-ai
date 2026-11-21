@@ -34,6 +34,8 @@ targets:
       - path: Companion
       - path: Motores
     dependencies:
+      - target: Pantalla
+        embed: true
       - package: WhisperKit
         product: WhisperKit
       - package: MLXSwiftLM
@@ -68,6 +70,19 @@ targets:
       - name: Interfaz y núcleo (www)
         script: '"$SRCROOT/../scripts/bundle_web.sh"'
         basedOnDependencyAnalysis: false
+  Pantalla:
+    # Compartir pantalla: extensión de transmisión de iOS (ReplayKit). Manda las imágenes a la app por 127.0.0.1.
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Pantalla
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.companion.app.pantalla
+        PRODUCT_NAME: Pantalla
+        INFOPLIST_FILE: Pantalla/Info.plist
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
   ProbarMotores:
     # Herramienta del Mac para medir los motores del modo teléfono con los mismos archivos de Motores/.
     type: tool

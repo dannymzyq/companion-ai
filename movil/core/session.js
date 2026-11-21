@@ -49,7 +49,7 @@ export class Session {
     this.audioBytes = 0;
     this.carryAudio = null;           // lo que dijo antes de una pausa, aún sin transcribir
     this.carryText = '';              // ídem, ya transcrito
-    this.frame = null;                // la última imagen de la cámara {jpeg, at}
+    this.frames = {};                 // la última imagen de la cámara y de la pantalla {camera|screen: {jpeg, at}}
     this.prevTs = store.lastTs();     // para «hace días que no hablaban» (solo cuenta en el primer turno)
     this.detector = new TurnDetector({
       start: () => this._speechStarted(),
@@ -135,9 +135,11 @@ export class Session {
       this.setState('idle');
     } else if (kind === 'frame') {
       // Cámara: una imagen por segundo (vision.js). Solo la ven los cerebros en la nube.
-      if (data.source === 'camera' && typeof data.jpeg === 'string' && data.jpeg.length < 2_000_000) this.frame = { jpeg: data.jpeg, at: Date.now() };
-    } else if (kind === 'frame_stop' && data.source === 'camera') {
-      this.frame = null;
+      if (['camera', 'screen'].includes(data.source) && typeof data.jpeg === 'string' && data.jpeg.length < 2_000_000) {
+        this.frames[data.source] = { jpeg: data.jpeg, at: Date.now() };
+      }
+    } else if (kind === 'frame_stop') {
+      delete this.frames[data.source];
     } else if (kind === 'playback_end') {
       this.lastTalk = Date.now();
       this.clientPlaying = false;
@@ -203,11 +205,14 @@ export class Session {
       this.prevTs = Date.now() / 1000;
       last.content = `${turnContext(localTime(), mood.describe(p.personality), gap)}${done}\n${last.content}`;
       // Con la cámara activa y el cerebro en la nube, la imagen de ahora va con su mensaje (como _images_openai).
-      const f = this.frame;
-      if (!instruction && f && llm.isCloud() && Date.now() - f.at <= FRAME_MAX_AGE) {
-        last.content = [{ type: 'text', text: '(Imagen de la cámara de su teléfono, ahora mismo)' },
-          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${f.jpeg}` } }, { type: 'text', text: last.content }];
-      }
+      // Con la pantalla compartida, igual: la pantalla de su teléfono (lo que está viendo).
+      const fresh = (f) => f && Date.now() - f.at <= FRAME_MAX_AGE;
+      const parts = [];
+      if (fresh(this.frames.screen)) parts.push({ type: 'text', text: '(Captura de la pantalla de su teléfono, lo que está viendo ahora mismo)' },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${this.frames.screen.jpeg}` } });
+      if (fresh(this.frames.camera)) parts.push({ type: 'text', text: '(Imagen de la cámara de su teléfono, ahora mismo)' },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${this.frames.camera.jpeg}` } });
+      if (!instruction && parts.length && llm.isCloud()) last.content = [...parts, { type: 'text', text: last.content }];
     }
     return messages;
   }

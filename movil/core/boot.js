@@ -6,8 +6,8 @@
   window.__companionBoot = true;
 
   // Lo que no existe en el teléfono se oculta. La interfaz puede preguntar con window.CAN.
-  window.CAN = { ACTIONS: false, SCREEN: false, FLOAT: true, CLONE: false, CUSTOM_MODELS: true, CAMERA: true };
-  const hide = ['#screen', '#preview-screen', '#screen-sound', '#dock', '#quit',
+  window.CAN = { ACTIONS: false, SCREEN: true, FLOAT: true, CLONE: false, CUSTOM_MODELS: true, CAMERA: true };
+  const hide = ['#screen-sound', '#dock', '#quit',
     'details[data-group="compartir"]', 'details[data-group="acciones"]',
     '#ob-voice-add', '#ob-voice-form', '#cam-picker', '#cloud-only-note', '#drop'];
   const css = `${hide.join(',')}{display:none!important}
@@ -19,7 +19,7 @@
   (document.head || document.documentElement).append(style);
 
   // Cámara (21 nov 2026): la interfaz la pide como en la PC; iOS pregunta el permiso la primera vez
-  // (NSCameraUsageDescription). Compartir pantalla no existe en el teléfono (#screen oculto).
+  // (NSCameraUsageDescription). Compartir pantalla (22 nov 2026): la extensión de transmisión de iOS (ui_movil.js, ReceptorPantalla.swift).
 
   // La consola de la web va al registro de la app (Xcode, o «simctl launch --console»).
   const nativeLog = (level, args) => {

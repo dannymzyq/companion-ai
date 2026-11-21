@@ -18,6 +18,17 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
         v.alCerrar = { [weak self] in self?.webView?.evaluateJavaScript("window.__native.emit('pip', false)", completionHandler: nil) }
         return v
     }()
+    lazy var pantalla: ReceptorPantalla = {
+        let r = ReceptorPantalla()
+        r.alCuadro = { [weak self] jpeg in
+            self?.webView?.evaluateJavaScript("window.__native.emit('pantalla', '\(jpeg.base64EncodedString())')", completionHandler: nil)
+        }
+        r.alCambiar = { [weak self] on in
+            self?.flotante.mantenerDespierta = on
+            self?.webView?.evaluateJavaScript("window.__native.emit('pantallaEstado', \(on))", completionHandler: nil)
+        }
+        return r
+    }()
     #if DEBUG || PRUEBAS
     var testHook: TestHook?
     #endif
@@ -153,6 +164,16 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
             guard let s = a["jpeg"] as? String, let data = Data(base64Encoded: s) else { throw BridgeError("Cuadro no válido") }
             flotante.cuadro(data)
             return flotante.activa
+        case "screen.start":
+            // Compartir pantalla: abre la hoja de iOS para transmitir (la extensión manda las imágenes aquí).
+            guard let web = webView else { throw BridgeError("Sin vista") }
+            try pantalla.escuchar()
+            if pantalla.activa { return true }
+            ReceptorPantalla.pedirTransmision(en: web)
+            return false
+        case "screen.stop":
+            pantalla.parar()
+            return true
         case "pip.close":
             flotante.cerrar()
             return true

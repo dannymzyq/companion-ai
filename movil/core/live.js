@@ -201,8 +201,8 @@ export class LiveSession {
         this.clientPlaying = false;
         this.setState('idle');
       } else if (kind === 'frame') {
-        // Cámara: como mucho una imagen por segundo a Gemini, solo con la conversación ya abierta.
-        if (data.source !== 'camera' || typeof data.jpeg !== 'string' || !this.sock) return;
+        // Cámara o pantalla compartida: como mucho una imagen por segundo a Gemini, solo con la conversación abierta.
+        if (!['camera', 'screen'].includes(data.source) || typeof data.jpeg !== 'string' || !this.sock) return;
         if (Date.now() - (this.frameAt || 0) < 1000) return;
         this.frameAt = Date.now();
         this.sock.transport.send(this.sock.id, JSON.stringify({ realtimeInput: { video: { mimeType: 'image/jpeg', data: data.jpeg } } })).catch(() => {});

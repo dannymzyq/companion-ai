@@ -524,6 +524,47 @@ export function init() {
     setTimeout(() => clearInterval(empezar), 20000);
   }).catch(() => {});
 
+  // Compartir pantalla (como en la PC): iOS solo deja ver otras apps con una «transmisión» (extensión Pantalla). El
+  // botón abre la hoja de iOS («Iniciar transmisión»); cada imagen llega aquí y va a la conversación como la pantalla
+  // compartida de la PC (una por segundo como mucho). Se para con el mismo botón, el de la vista previa o desde iOS.
+  const btnPantalla = $('screen'), figPantalla = $('preview-screen');
+  if (btnPantalla && figPantalla) {
+    btnPantalla.hidden = false;
+    btnPantalla.title = 'Compartir la pantalla: ve lo que tú ves en el iPhone';
+    const img = document.createElement('img');
+    img.alt = '';
+    figPantalla.querySelector('video').replaceWith(img);
+    style.textContent += ` #preview-screen img { display: block; width: 100%; aspect-ratio: 9 / 19.5; object-fit: cover; }
+      #preview-screen { width: 92px !important; }`;
+    let compartiendo = false, enviada = 0;
+    const marcar = (on) => {
+      compartiendo = on;
+      btnPantalla.classList.toggle('active', on);
+      figPantalla.hidden = !on;
+      if (!on) { img.removeAttribute('src'); window.companion && window.companion.send({ type: 'frame_stop', source: 'screen' }); }
+    };
+    on('pantallaEstado', (estado) => {
+      marcar(!!estado);
+      aviso(estado ? 'Compartiendo tu pantalla: ve lo que tú ves. Para dejarlo, vuelve aquí o toca la barra roja de arriba.'
+        : 'Dejaste de compartir la pantalla.');
+    });
+    on('pantalla', (b64) => {
+      if (!compartiendo) marcar(true);
+      if (!document.hidden) img.src = `data:image/jpeg;base64,${b64}`;
+      if (Date.now() - enviada < 1000 || !window.companion) return;
+      enviada = Date.now();
+      window.companion.send({ type: 'frame', source: 'screen', jpeg: b64 });
+    });
+    const alternar = async (e) => {
+      e.stopImmediatePropagation(); e.preventDefault();
+      if (compartiendo) { call('screen.stop').catch(() => {}); return; }
+      try { await call('screen.start'); } catch (err) { aviso(`No pude compartir la pantalla: ${err.message}`); }
+    };
+    btnPantalla.addEventListener('click', alternar, true);
+    const cerrarFig = figPantalla.querySelector('[data-stop]');
+    if (cerrarFig) cerrarFig.addEventListener('click', alternar, true);
+  }
+
   // Ventana flotante: encendida de serie (como las apps de vídeo), en Ajustes › Dispositivos se apaga y se recuerda.
   // El botón de flotar de la barra no se usa en el teléfono.
   const flotar = $('float-btn');

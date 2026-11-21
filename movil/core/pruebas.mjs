@@ -247,13 +247,26 @@ await prueba('cámara: en la nube la imagen de ahora va con el mensaje; vieja o 
   const m = s._messages(null);
   assert.ok(Array.isArray(lastUser().content) && lastUser().content[1].image_url.url.includes('QUJD'));
   assert.match(m[0].content, /cámara de su teléfono/);
-  s.frame.at -= 7000;
+  s.frames.camera.at -= 7000;
   assert.equal(typeof lastUser().content, 'string');
   await store.saveSettings({ mode: 'telefono' });
-  s.frame.at = Date.now();
+  s.frames.camera.at = Date.now();
   assert.equal(typeof lastUser().content, 'string', 'el cerebro del teléfono no ve imágenes');
   await s.onMessage({ type: 'frame_stop', source: 'camera' });
-  assert.equal(s.frame, null);
+  assert.equal(s.frames.camera, undefined);
+  s.close();
+});
+await prueba('pantalla compartida: en la nube la captura va con el mensaje, delante de la cámara', async () => {
+  await store.saveSettings({ mode: 'nube' });
+  const { s } = session('nube');
+  await s.onMessage({ type: 'frame', source: 'camera', jpeg: 'Q0FN' });
+  await s.onMessage({ type: 'frame', source: 'screen', jpeg: 'UEFO' });
+  store.addMessage('user', '¿qué estoy viendo?');
+  const c = s._messages(null).filter((x) => x.role === 'user').at(-1).content;
+  assert.match(c[0].text, /pantalla de su teléfono/);
+  assert.ok(c[1].image_url.url.includes('UEFO') && c[3].image_url.url.includes('Q0FN'));
+  await s.onMessage({ type: 'frame_stop', source: 'screen' });
+  assert.equal(s.frames.screen, undefined);
   s.close();
 });
 await prueba('cámara en vivo: como mucho una imagen por segundo a Gemini', async () => {

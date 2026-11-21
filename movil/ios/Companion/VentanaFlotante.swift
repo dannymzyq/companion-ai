@@ -120,6 +120,15 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
     private var motor: AVAudioEngine?
     private var avisos: [NSObjectProtocol] = []
 
+    /// Con la pantalla compartida, la app y la página siguen despiertas fuera de la app aunque la ventana flotante
+    /// esté apagada (si no, no llegarían las imágenes a la conversación).
+    var mantenerDespierta = false {
+        didSet {
+            vigilarSalida()
+            if mantenerDespierta && UIApplication.shared.applicationState != .active { despierta(true) }
+        }
+    }
+
     private func vigilarSalida() {
         guard avisos.isEmpty else { return }
         let nc = NotificationCenter.default
@@ -135,7 +144,7 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         // De vuelta en la app, la ventanita se cierra (si no, se queda encima de la propia app).
         if !on { motor?.stop(); motor = nil; if activa { pip?.stopPictureInPicture() }; return }
         mantenerPagina()
-        guard reloj != nil, motor == nil else { return }
+        guard reloj != nil || mantenerDespierta, motor == nil else { return }
         let s = AVAudioSession.sharedInstance()
         if s.category != .playAndRecord && s.category != .playback {
             try? s.setCategory(.playback, mode: .default, options: [.mixWithOthers])
