@@ -230,7 +230,7 @@ function pipFrame() {
 
 // El botón ARMA la ventana: iOS no deja que una app se mande sola a segundo plano, así que (como las apps de
 // vídeo) la ventanita se abre al salir de la app (VentanaFlotante: canStartPictureInPictureAutomaticallyFromInline).
-async function abrirFlotante() {
+async function abrirFlotante(callado = false) {
   const av = window.companion && window.companion.avatar;
   if (!av || !av.renderer) throw new Error('El personaje todavía está cargando.');
   if (!pip.canvas) {
@@ -254,7 +254,7 @@ async function abrirFlotante() {
   tick();
   clearInterval(pip.timer);
   pip.timer = setInterval(tick, 66);              // ~15 cuadros por segundo
-  aviso('Ventana flotante lista: sal de la app y te acompaña en una ventanita. Tócalo otra vez para apagarla.');
+  if (!callado) aviso('Ventana flotante encendida: al salir de la app te acompaña en una ventanita.');
 }
 
 function cerrarFlotante() {
@@ -271,6 +271,8 @@ function aviso(text) {
   clearTimeout(aviso.timer);
   aviso.timer = setTimeout(() => { t.hidden = true; }, 4500);
 }
+function pipApagada() { try { return localStorage.getItem('pip_apagada') === '1'; } catch { return false; } }
+function guardarPip(encendida) { try { localStorage.setItem('pip_apagada', encendida ? '0' : '1'); } catch { /* sin guardar */ } }
 window.companionPip = { abrir: abrirFlotante, cerrar: cerrarFlotante, estado: () => pip.on };
 
 window.companionPhone = { fill, save, refresh: refrescar };
@@ -336,12 +338,25 @@ export function init() {
     flotar.setAttribute('aria-label', 'Ventana flotante');
     flotar.addEventListener('click', (e) => {
       e.stopImmediatePropagation(); e.preventDefault();
-      if (pip.on) { cerrarFlotante(); flotar.classList.remove('on'); aviso('Ventana flotante apagada.'); return; }
+      if (pip.on) {
+        cerrarFlotante(); flotar.classList.remove('on'); guardarPip(false);
+        aviso('Ventana flotante apagada: al salir de la app ya no se abre.'); return;
+      }
+      guardarPip(true);
       abrirFlotante().then(() => flotar.classList.add('on'), (err) => {
         console.warn('Ventana flotante', err);
         aviso(`No pude preparar la ventana flotante: ${err.message}`);
       });
     }, true);
+    // Encendida de serie (como las apps de vídeo): en cuanto el personaje carga, al salir de la app se abre sola.
+    // El botón la apaga y se recuerda.
+    const armar = setInterval(() => {
+      const av = window.companion && window.companion.avatar;
+      if (!av || !av.renderer || !av.vrm) return;
+      clearInterval(armar);
+      if (pipApagada() || pip.on) return;
+      abrirFlotante(true).then(() => flotar.classList.add('on'), (err) => console.warn('Ventana flotante', err));
+    }, 1000);
   }
 
   // La pestaña «Acciones y memoria» aquí solo tiene la memoria.
@@ -354,14 +369,30 @@ export function init() {
     if (document.body.classList.contains('con-teclado') && input && !e.target.closest('#text-form')) input.blur();
   }, true);
 
-  // Primer plano del personaje (de la cintura a la cabeza): en vertical, el encuadre de la PC lo dejaba lejos.
-  const cerca = setInterval(() => {
+  // Primer plano del personaje (de medio muslo a la cabeza), entre los botones de abajo y el nombre de arriba: se
+  // mide esa franja en la pantalla (con el teclado abierto no se recalcula, para que no salte).
+  const franja = () => {
+    const H = window.innerHeight || 1;
+    const head = document.querySelector('header'), bar = document.querySelector('footer > .controls');
+    const top = head ? head.getBoundingClientRect().bottom / H + 0.015 : 0.13;
+    const bottom = bar && bar.offsetParent ? bar.getBoundingClientRect().top / H - 0.015 : 0.85;
+    return { top, bottom };
+  };
+  const encuadrar = () => {
     const av = window.companion && window.companion.avatar;
-    if (!av) return;
-    clearInterval(cerca);
-    av.closeUp = true;
+    if (!av || document.body.classList.contains('con-teclado')) return false;
+    av.closeUp = franja();
     if (!av.userMoved && av.frame) av.frame();
-  }, 200);
+    return true;
+  };
+  const cerca = setInterval(() => { if (encuadrar()) clearInterval(cerca); }, 200);
+  window.addEventListener('resize', () => setTimeout(encuadrar, 50));
+  setTimeout(encuadrar, 1500);                    // cuando la barra ya tiene su tamaño final
+
+  // Sin zoom de la página (doble toque o pellizco): solo se acerca o aleja al personaje, con dos dedos sobre él.
+  const vp = document.querySelector('meta[name="viewport"]');
+  if (vp && !/user-scalable/.test(vp.content)) vp.content += ', maximum-scale=1, user-scalable=no';
+  style.textContent += ' html, body, button, input, textarea { touch-action: manipulation; }';
 
   adaptarNodo(document.body);
   new MutationObserver((muts) => {

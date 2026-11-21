@@ -25,6 +25,11 @@ struct CompanionView: UIViewRepresentable {
         web.isOpaque = false
         web.backgroundColor = .black
         web.scrollView.isScrollEnabled = false
+        // Sin zoom de la página (doble toque o pellizco): solo el personaje se acerca, con sus propios gestos.
+        web.scrollView.minimumZoomScale = 1
+        web.scrollView.maximumZoomScale = 1
+        web.scrollView.pinchGestureRecognizer?.isEnabled = false
+        web.scrollView.bouncesZoom = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.allowsBackForwardNavigationGestures = false
         #if DEBUG || PRUEBAS

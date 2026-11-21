@@ -44,8 +44,35 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         try? s.setActive(true)
     }
 
-    /// Un cuadro nuevo (JPEG). El primero arranca la ventana cuando la capa ya tiene imagen.
+    /// Un cuadro nuevo de la página (JPEG). Se guarda en un bucle con los últimos segundos: con la app en segundo
+    /// plano iOS duerme la página (WebKit) y deja de mandar cuadros, y entonces la ventana repite ese bucle (de ida y
+    /// vuelta, para que no salte) y el personaje sigue moviéndose. Si la página vuelve a mandar, manda ella.
     func cuadro(_ jpeg: Data) {
+        ultimo = Date()
+        bucle.append(jpeg)
+        if bucle.count > Self.largo { bucle.removeFirst(bucle.count - Self.largo) }
+        mostrar(jpeg)
+        if reloj == nil {
+            reloj = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.repetir() }
+            }
+        }
+    }
+    private static let largo = 60                  // 4 s a 15 cuadros por segundo
+    private var bucle: [Data] = []
+    private var ultimo = Date.distantPast
+    private var reloj: Timer?
+    private var paso = 0, sentido = 1
+
+    private func repetir() {
+        guard Date().timeIntervalSince(ultimo) > 0.35, bucle.count > 2 else { paso = bucle.count - 1; sentido = -1; return }
+        paso += sentido
+        if paso >= bucle.count - 1 { paso = bucle.count - 1; sentido = -1 }
+        if paso <= 0 { paso = 0; sentido = 1 }
+        mostrar(bucle[paso], repetido: true)
+    }
+
+    private func mostrar(_ jpeg: Data, repetido: Bool = false) {
         guard let img = UIImage(data: jpeg)?.cgImage, let buf = Self.pixelBuffer(img) else { return }
         if formato == nil || CMVideoFormatDescriptionGetDimensions(formato!).width != Int32(img.width) {
             CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: buf, formatDescriptionOut: &formato)
@@ -65,11 +92,11 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         if capa.status == .failed { capa.flush() }
         capa.enqueue(muestra)
         #if PRUEBAS
-        cuenta += 1
+        if repetido { repetidos += 1 } else { cuenta += 1 }
         if Date().timeIntervalSince(desde) >= 5 {
             let fondo = UIApplication.shared.applicationState == .background ? "en segundo plano" : "delante"
-            Registro.anotar("Ventana flotante: \(cuenta) cuadros en 5 s, app \(fondo), ventana \(activa ? "abierta" : "cerrada")")
-            cuenta = 0; desde = Date()
+            Registro.anotar("Ventana flotante: \(cuenta) cuadros en 5 s (+\(repetidos) del bucle), app \(fondo), ventana \(activa ? "abierta" : "cerrada")")
+            cuenta = 0; repetidos = 0; desde = Date()
         }
         #endif
         if let pip, !pip.isPictureInPictureActive, pip.isPictureInPicturePossible, empezar {
@@ -78,11 +105,12 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         }
     }
     var empezar = false
-    private var cuenta = 0
+    private var cuenta = 0, repetidos = 0
     private var desde = Date()
 
     func cerrar() {
         empezar = false
+        reloj?.invalidate(); reloj = nil; bucle.removeAll()
         pip?.stopPictureInPicture()
     }
 
