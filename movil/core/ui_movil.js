@@ -386,6 +386,17 @@ export function init() {
     return true;
   };
   const cerca = setInterval(() => { if (encuadrar()) clearInterval(cerca); }, 200);
+  // El personaje solo se gira, se mueve o se toca empezando en su zona visible (entre el nombre y los botones). Un
+  // gesto que empieza sobre la interfaz (como el de ir a inicio, desde abajo) no lo mueve.
+  const fueraDeZona = (e) => {
+    const av = window.companion && window.companion.avatar;
+    if (!av || !av.renderer || e.target !== av.renderer.domElement) return;
+    const t = e.touches ? e.touches[0] : e;
+    if (!t) return;
+    const y = t.clientY / (window.innerHeight || 1), z = av.closeUp && av.closeUp.top ? av.closeUp : franja();
+    if (y < z.top - 0.01 || y > z.bottom + 0.01) { e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); }
+  };
+  for (const ev of ['pointerdown', 'touchstart', 'mousedown']) window.addEventListener(ev, fueraDeZona, { capture: true, passive: false });
   window.addEventListener('resize', () => setTimeout(encuadrar, 50));
   setTimeout(encuadrar, 1500);                    // cuando la barra ya tiene su tamaño final
 

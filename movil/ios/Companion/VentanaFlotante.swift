@@ -53,6 +53,7 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         if bucle.count > Self.largo { bucle.removeFirst(bucle.count - Self.largo) }
         mostrar(jpeg)
         if reloj == nil {
+            vigilarSalida()
             reloj = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.repetir() }
             }
@@ -108,8 +109,49 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
     private var cuenta = 0, repetidos = 0
     private var desde = Date()
 
+    // Sin audio sonando, iOS suspende la app unos segundos después de salir (aunque la ventanita esté abierta) y el
+    // personaje se queda quieto. Mientras la ventana está encendida y la app fuera, suena silencio (mezclado con lo
+    // demás, no corta la música): así la app sigue despierta y el bucle de cuadros sigue corriendo.
+    private var motor: AVAudioEngine?
+    private var avisos: [NSObjectProtocol] = []
+
+    private func vigilarSalida() {
+        guard avisos.isEmpty else { return }
+        let nc = NotificationCenter.default
+        avisos.append(nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.despierta(true) }
+        })
+        avisos.append(nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.despierta(false) }
+        })
+    }
+
+    private func despierta(_ on: Bool) {
+        if !on { motor?.stop(); motor = nil; return }
+        guard reloj != nil, motor == nil else { return }
+        let s = AVAudioSession.sharedInstance()
+        if s.category != .playAndRecord && s.category != .playback {
+            try? s.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        }
+        try? s.setActive(true)
+        let e = AVAudioEngine()
+        let fmt = e.outputNode.inputFormat(forBus: 0)
+        let silencio = AVAudioSourceNode(format: fmt) { _, _, _, lista in
+            for b in UnsafeMutableAudioBufferListPointer(lista) { if let d = b.mData { memset(d, 0, Int(b.mDataByteSize)) } }
+            return noErr
+        }
+        e.attach(silencio)
+        e.connect(silencio, to: e.mainMixerNode, format: fmt)
+        do { try e.start(); motor = e } catch {
+            #if PRUEBAS
+            Registro.anotar("Ventana flotante: no pude mantener la app despierta: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     func cerrar() {
         empezar = false
+        despierta(false)
         reloj?.invalidate(); reloj = nil; bucle.removeAll()
         pip?.stopPictureInPicture()
     }
