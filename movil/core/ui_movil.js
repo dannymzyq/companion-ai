@@ -373,6 +373,11 @@ export function init() {
     #previews video { aspect-ratio: 9 / 16 !important; }
     #preview-camera video { transform: none !important; }
     #preview-camera.frontal video { transform: scaleX(-1) !important; }
+    #preview-camera video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+    #preview-camera { width: 128px !important; aspect-ratio: 9 / 16; }
+    #preview-camera .zoom-txt { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); padding: 2px 7px;
+      border-radius: 10px; background: rgba(0,0,0,0.55); color: #fff; font-size: 0.7rem; pointer-events: none; }
+    #preview-camera .zoom-txt[hidden] { display: none; }
     #previews figure button.girar { left: 5px; right: auto; width: 30px; height: 30px; top: 5px; }
     #previews figure button.girar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2;
       stroke-linecap: round; stroke-linejoin: round; }`;
@@ -407,15 +412,95 @@ export function init() {
       } catch (err) {
         aviso(`No pude cambiar de cámara: ${err.message || err.name}`);
         try { await vis().start('camera'); } catch { /* se queda apagada */ }
-      } finally { girar.disabled = false; marcarFrontal(); }
+      } finally { girar.disabled = false; marcarFrontal(); figCam.dispatchEvent(new Event('camara-lista')); }
     }, true);
     figCam.append(girar);
-    new MutationObserver(marcarFrontal).observe(figCam, { attributes: true, attributeFilter: ['hidden'] });
+    // Zoom de la cámara trasera: pellizcar la vista previa (o tocarla: 1×, 2×, 5× y vuelta). Con la triple, 1 es
+    // la gran angular (0,5×) y 2 la normal.
+    const zoomTxt = document.createElement('span');
+    zoomTxt.className = 'zoom-txt';
+    figCam.append(zoomTxt);
+    const pista = () => { const s = vis() && vis().sources.camera; return s && s.stream.getVideoTracks()[0]; };
+    const ponerZoom = (z) => {
+      const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
+      if (!c) return false;
+      z = Math.min(Math.max(z, c.min), Math.min(c.max, 10));
+      t.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+      figCam.dataset.zoom = z;
+      zoomTxt.textContent = `${(z / (c.min < 1.5 && /triple|dual wide/i.test(t.label) ? 2 : 1)).toFixed(1).replace('.0', '')}×`;
+      return true;
+    };
+    let pellizco = null;
+    figCam.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        pellizco = { d, z: Number(figCam.dataset.zoom) || 1 };
+        e.preventDefault();
+      }
+    }, { passive: false });
+    figCam.addEventListener('touchmove', (e) => {
+      if (!pellizco || e.touches.length !== 2) return;
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      ponerZoom(pellizco.z * d / pellizco.d); e.preventDefault();
+    }, { passive: false });
+    figCam.addEventListener('touchend', () => { pellizco = null; });
+    figCam.querySelector('video').addEventListener('click', () => {
+      const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
+      if (!c) return;
+      const base = c.min < 1.5 && /triple|dual wide/i.test(t.label) ? 2 : 1;
+      const pasos = [base * 0.5, base, base * 2, base * 5].filter((z) => z >= c.min && z <= c.max);
+      const ahora = Number(figCam.dataset.zoom) || base;
+      ponerZoom(pasos[(pasos.findIndex((z) => z > ahora + 0.01) + pasos.length) % pasos.length] ?? pasos[0]);
+    });
+    figCam.addEventListener('camara-lista', () => {
+      const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
+      zoomTxt.hidden = !c;
+      if (c) ponerZoom(c.min < 1.5 && /triple|dual wide/i.test(t.label) ? 2 : c.min);
+    });
+    new MutationObserver(() => { marcarFrontal(); if (!figCam.hidden) setTimeout(() => figCam.dispatchEvent(new Event('camara-lista')), 300); }).observe(figCam, { attributes: true, attributeFilter: ['hidden'] });
   }
+
+  // Al abrir la app la cámara empieza apagada (se enciende con su botón).
+  try { localStorage.setItem('companion.cam.on', '0'); } catch { /* sin guardar */ }
+
+  // Solo dos cámaras: la frontal y UNA trasera, la virtual que junta las lentes (triple o doble), que pasa de
+  // gran angular a teleobjetivo con el zoom (pellizcando la vista previa). iOS lista hasta 7 (medido en un iPhone
+  // 16 Pro); el nombre que da WebKit va en inglés y aquí se traduce.
+  const TRASERAS = [/triple/i, /dual wide/i, /dual/i, /^back camera$|^cámara trasera$/i];
+  const listaCompleta = { fn: null };
+  const filtrarCamaras = () => {
+    const v = window.companion && window.companion.vision;
+    if (!v || listaCompleta.fn) return !!v;
+    listaCompleta.fn = v.listCams.bind(v);
+    v.listCams = async () => {
+      const todas = await listaCompleta.fn();
+      const frontal = todas.find((c) => /front|frontal/i.test(c.label));
+      let trasera = null;
+      for (const re of TRASERAS) { trasera = todas.find((c) => re.test(c.label)); if (trasera) break; }
+      const out = [];
+      if (frontal) out.push({ id: frontal.id, label: 'Cámara frontal' });
+      if (trasera) out.push({ id: trasera.id, label: 'Cámara trasera' });
+      return out.length ? out : todas;
+    };
+    return true;
+  };
+  const filtro = setInterval(() => { if (filtrarCamaras()) clearInterval(filtro); }, 200);
 
   // Micrófono y salida: siempre los que el iPhone usa en ese momento (AirPods, auriculares, el del teléfono). Uno
   // guardado de otra vez obligaba a usar ese aunque ahora haya otros conectados.
   try { localStorage.removeItem('companion.mic'); localStorage.removeItem('companion.output'); } catch { /* sin guardar */ }
+  // Sin elegir uno a mano en Ajustes, el micrófono es siempre el predeterminado del iPhone (la lista de la página
+  // pone el primero, que no siempre es el que se está usando).
+  let micElegido = false;
+  const selMic = $('mic-select-2');
+  if (selMic) selMic.addEventListener('change', () => { micElegido = true; }, true);
+  const envolverMic = setInterval(() => {
+    const a = window.companion && window.companion.audio;
+    if (!a) return;
+    clearInterval(envolverMic);
+    const abrir = a.openMic.bind(a);
+    a.openMic = (id) => abrir(micElegido ? id : '');
+  }, 100);
   let rutaT = 0;
   on('audioRoute', () => {
     const a = window.companion && window.companion.audio;
@@ -425,6 +510,20 @@ export function init() {
     rutaT = setTimeout(() => a.openMic('').then((m) => console.info('Micrófono:', m.label))
       .catch((err) => console.warn('No pude cambiar de micrófono', err)), 600);
   });
+
+  // Si iOS ya dio permiso al micrófono, se empieza solo (sin la tarjeta «Permitir micrófono»), con el micrófono
+  // y el altavoz que el iPhone usa en ese momento.
+  call('mic.permission').then((estado) => {
+    if (estado !== 'granted') return;
+    const empezar = setInterval(() => {
+      const btn = $('start-btn'), start = $('start');
+      if (!start || start.hidden) { clearInterval(empezar); return; }
+      if (!window.__companionConfig || !window.companion || !btn || !btn.onclick) return;
+      clearInterval(empezar);
+      btn.onclick();
+    }, 300);
+    setTimeout(() => clearInterval(empezar), 20000);
+  }).catch(() => {});
 
   // Ventana flotante: encendida de serie (como las apps de vídeo), en Ajustes › Dispositivos se apaga y se recuerda.
   // El botón de flotar de la barra no se usa en el teléfono.

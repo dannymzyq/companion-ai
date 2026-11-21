@@ -56,6 +56,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
             return ["platform": "ios", "simulator": simulator,
                     "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "",
                     "can": Bridge.capacidades()]
+        case "mic.permission":
+            // Si iOS ya dio permiso al micrófono, la página no vuelve a preguntar al arrancar.
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted: return "granted"
+            case .denied: return "denied"
+            default: return "undetermined"
+            }
         case "log":
             webLog.log("[web \(a["level"] as? String ?? "", privacy: .public)] \(a["text"] as? String ?? "", privacy: .public)")
             #if PRUEBAS
