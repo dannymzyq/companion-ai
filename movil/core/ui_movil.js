@@ -365,6 +365,67 @@ export function init() {
     document.body.classList.toggle('con-teclado', alto > 0);
   };
 
+  // Cámara en el teléfono: vista previa vertical (9:16), espejo solo con la frontal y un botón para pasar por las
+  // cámaras del iPhone (frontal, trasera, gran angular…). La elegida se recuerda (companion.cam, como en main.js).
+  style.textContent += `
+    #previews { top: calc(env(safe-area-inset-top) + 64px) !important; }
+    #previews figure { width: 112px !important; }
+    #previews video { aspect-ratio: 9 / 16 !important; }
+    #preview-camera video { transform: none !important; }
+    #preview-camera.frontal video { transform: scaleX(-1) !important; }
+    #previews figure button.girar { left: 5px; right: auto; width: 30px; height: 30px; top: 5px; }
+    #previews figure button.girar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round; }`;
+  const figCam = $('preview-camera');
+  const vis = () => window.companion && window.companion.vision;
+  const marcarFrontal = () => {
+    const src = vis() && vis().sources.camera;
+    const t = src && src.stream.getVideoTracks()[0];
+    const s = t ? t.getSettings() : {};
+    figCam.classList.toggle('frontal', s.facingMode ? s.facingMode === 'user' : /front|frontal|user/i.test(t ? t.label : ''));
+  };
+  if (figCam) {
+    const girar = document.createElement('button');
+    girar.className = 'girar';
+    girar.setAttribute('aria-label', 'Cambiar de cámara'); girar.title = 'Cambiar de cámara';
+    girar.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9.5 12.5a3 3 0 0 1 5-1.5l.8.8M14.5 14.5a3 3 0 0 1-5 1.5l-.8-.8"/><path d="M15.5 9.8v2h-2M8.5 17.2v-2h2"/></svg>';
+    girar.addEventListener('click', async (e) => {
+      e.stopPropagation(); e.preventDefault();
+      const v = vis();
+      if (!v || !v.active('camera') || girar.disabled) return;
+      girar.disabled = true;
+      try {
+        const cams = await v.listCams();
+        if (cams.length < 2) { aviso('Este iPhone solo tiene una cámara disponible.'); return; }
+        const actual = v.sources.camera.stream.getVideoTracks()[0].getSettings().deviceId;
+        const sig = cams[(cams.findIndex((c) => c.id === actual) + 1) % cams.length];
+        v.stop('camera');
+        await v.start('camera', sig.id);
+        try { localStorage.setItem('companion.cam', sig.id); } catch { /* sin guardar */ }
+        const sel = $('cam-select-2'); if (sel) sel.value = sig.id;
+        aviso(sig.label);
+      } catch (err) {
+        aviso(`No pude cambiar de cámara: ${err.message || err.name}`);
+        try { await vis().start('camera'); } catch { /* se queda apagada */ }
+      } finally { girar.disabled = false; marcarFrontal(); }
+    }, true);
+    figCam.append(girar);
+    new MutationObserver(marcarFrontal).observe(figCam, { attributes: true, attributeFilter: ['hidden'] });
+  }
+
+  // Micrófono y salida: siempre los que el iPhone usa en ese momento (AirPods, auriculares, el del teléfono). Uno
+  // guardado de otra vez obligaba a usar ese aunque ahora haya otros conectados.
+  try { localStorage.removeItem('companion.mic'); localStorage.removeItem('companion.output'); } catch { /* sin guardar */ }
+  let rutaT = 0;
+  on('audioRoute', () => {
+    const a = window.companion && window.companion.audio;
+    try { localStorage.removeItem('companion.mic'); } catch { /* sin guardar */ }
+    if (!a || !a.stream) return;
+    clearTimeout(rutaT);
+    rutaT = setTimeout(() => a.openMic('').then((m) => console.info('Micrófono:', m.label))
+      .catch((err) => console.warn('No pude cambiar de micrófono', err)), 600);
+  });
+
   // Ventana flotante: encendida de serie (como las apps de vídeo), en Ajustes › Dispositivos se apaga y se recuerda.
   // El botón de flotar de la barra no se usa en el teléfono.
   const flotar = $('float-btn');

@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import OSLog
 import WebKit
@@ -204,8 +205,20 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
     /// El teclado se pone ENCIMA de la app: WKWebView desplazaba toda la página para enseñar el campo de texto (el
     /// personaje subía con él). La página queda fija y solo la barra de abajo sube lo que ocupa el teclado
     /// (--teclado en ui_movil.js).
+    /// Auriculares que se conectan o desconectan (AirPods, cable, coche): la página vuelve a abrir el micrófono
+    /// predeterminado, el que iOS usa en ese momento. La salida sigue sola a la ruta del sistema.
+    private var ruta: NSObjectProtocol?
+    func watchAudioRoute(_ web: WKWebView) {
+        ruta = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak web] n in
+            let r = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            guard r == .newDeviceAvailable || r == .oldDeviceUnavailable else { return }
+            web?.evaluateJavaScript("window.__native && window.__native.emit('audioRoute', true)", completionHandler: nil)
+        }
+    }
+
     func watchKeyboard(_ web: WKWebView) {
         Self.sinBarraDelTeclado(web)
+        watchAudioRoute(web)
         pin = web.scrollView.observe(\.contentOffset, options: [.new]) { sv, _ in
             if sv.contentOffset != .zero { DispatchQueue.main.async { sv.contentOffset = .zero } }
         }
