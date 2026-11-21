@@ -49,10 +49,11 @@ CORTA_REF = os.getenv("VOZ_REF_CORTA") == "1"
 # trozo suena antes, y un trozo corto se genera antes de que acabe de sonar el anterior). En el Mac, donde cada
 # frase tarda más, voz_proc lo baja a 90.
 LARGA = int(os.getenv("VOZ_LARGA", "150"))
+LENTA_S = float(os.getenv("VOZ_LENTA_S", "2.5"))   # una frase corta más lenta que esto: modo rápido (_medir_tarjeta)
 _CONJ = re.compile(r"\s(?=(?:y|e|o|u|pero|porque|que|cuando|aunque|mientras|para|si)\s)", re.IGNORECASE)
 CORTA, MIN_S = 25, 1.7                     # una frase de menos letras recibe al menos MIN_S segundos para decirse
 _ref_s: dict[str, float] = {}
-estado = {"tts": None, "error": "", "voz": None, "dispositivo": ""}
+estado = {"tts": None, "error": "", "voz": None, "dispositivo": "", "listo": False}
 
 
 def _parche_torchaudio():
@@ -192,6 +193,25 @@ def partir(texto: str) -> list[str]:
     return unidos
 
 
+def _medir_tarjeta():
+    """Modo rápido en tarjetas lentas (18 nov 2026): en una RTX 3050 de laptop cada frase tardaba 5-6,5 s (la GPU al
+    100 %; en la 5070 Ti, 1,1 s), más lenta que lo que dura. Se mide una frase corta tras el calentamiento y, si pasa
+    de LENTA_S, se usa lo mismo que en el Mac: 16 pasos, la muestra corta y frases partidas antes. Se pierde algo de
+    precisión (con 16 pasos se comía más palabras) a cambio de empezar a hablar varias veces antes. VOZ_NFE o
+    VOZ_REF_CORTA en el entorno lo fijan a mano."""
+    global NFE, CORTA_REF, LARGA
+    t = time.perf_counter()
+    _decir("Vale, ahora mismo te lo cuento.", POR_DEFECTO, 1.0)
+    s = time.perf_counter() - t
+    estado["frase_s"] = round(s, 2)
+    if s <= LENTA_S or os.getenv("VOZ_NFE") or os.getenv("VOZ_REF_CORTA"):
+        log.info("Tarjeta: una frase corta en %.2f s (modo normal)", s)
+        return
+    NFE, CORTA_REF, LARGA = 16, True, min(LARGA, 90)
+    estado["rapida"] = True
+    log.info("Tarjeta lenta: una frase corta tardó %.2f s; modo rápido (16 pasos, muestra corta)", s)
+
+
 def cargar():
     try:
         import torch
@@ -220,6 +240,11 @@ def cargar():
             _decir("Hola, ¿qué tal estás hoy?", POR_DEFECTO, 1.0)      # calentamiento: la primera frase tarda más
             log.info("F5-TTS listo en %s (%s, calentamiento %.1f s) · voces en %s", disp, ckpt.name,
                      time.perf_counter() - t, VOCES)
+            if disp == "cuda":
+                _medir_tarjeta()
+            # Lista solo ahora: antes, el companion le pedía la primera respuesta mientras medía la tarjeta, las dos
+            # se frenaban y la medida salía el doble (laptop RTX 3050, 18 nov 2026: primer audio a los 30 s).
+            estado["listo"] = True
         try:
             preparar(dispositivo)
         except Exception:  # noqa: BLE001
@@ -229,7 +254,7 @@ def cargar():
             estado["tts"] = None
             preparar("cpu")
     except Exception as e:  # noqa: BLE001
-        estado["tts"] = None
+        estado["tts"], estado["listo"] = None, False
         estado["error"] = f"{type(e).__name__}: {e}"
         log.exception("No se pudo cargar F5-TTS")
 
@@ -246,8 +271,10 @@ candado = asyncio.Lock()                                           # una síntes
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "tts": "f5" if estado["tts"] else "none", "loading": not estado["tts"] and not estado["error"],
-            "error": estado["error"], "device": estado["dispositivo"]}
+    listo = bool(estado["tts"]) and estado["listo"]
+    return {"ok": True, "tts": "f5" if listo else "none", "loading": not listo and not estado["error"],
+            "error": estado["error"], "device": estado["dispositivo"],
+            "fast": bool(estado.get("rapida")), "phrase_s": estado.get("frase_s")}
 
 
 class Peticion(BaseModel):
@@ -261,7 +288,7 @@ class Peticion(BaseModel):
 
 @app.post("/v1/audio/speech")
 async def speech(p: Peticion):
-    if not estado["tts"]:
+    if not estado["tts"] or not estado["listo"]:
         raise HTTPException(503, estado["error"] or "La voz todavía está cargando")
     nombre = p.voice or POR_DEFECTO
     _voz(nombre)                                                   # 404 antes de empezar a responder

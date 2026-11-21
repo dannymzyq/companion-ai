@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import actions, config, llm, models, profile, state, store, tts, voice_import, voz_proc
+from . import actions, config, llm, models, mood, personality, profile, state, store, tts, voice_import, voz_proc
 from .config import settings
 from .prompt import adult_active, load_persona
 from .session import Session
@@ -27,8 +27,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("companion")
 STARTED = int(time.time())
 
+
+class _QuietPolls(logging.Filter):
+    """La mascota de escritorio pregunta por la ventana activa cada 0,6 s: eso no va al registro."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/api/desktop/scene" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietPolls())
+
 persona = load_persona(settings.persona_path)
-profile.apply()                           # lo elegido en la bienvenida manda sobre .env
+try:
+    state.protect_keys()                  # claves guardadas en claro por una versión anterior → cifradas
+except Exception:  # noqa: BLE001
+    log.exception("No se pudieron cifrar las claves guardadas")
+profile.apply()                         # lo elegido en la bienvenida manda sobre .env
 
 
 def character_name() -> str:
@@ -40,7 +53,8 @@ def _hint() -> str:
     return f"Conversación entre {settings.user_name} y {character_name()}, su asistente personal."
 
 
-transcriber = Transcriber(settings.stt_model, settings.stt_device, settings.stt_compute, settings.stt_language, hint=_hint())
+# El modelo del oído según la tarjeta (profile.ear_model: el pequeño en las de menos de 6,5 GB, si está instalado).
+transcriber = Transcriber(profile.ear_model(), settings.stt_device, settings.stt_compute, settings.stt_language, hint=_hint())
 transcriber.engine = profile.ear_engine()  # con el oído en la nube no se carga Whisper al arrancar
 
 
@@ -140,11 +154,27 @@ def public_config() -> dict:
                 # cargadas en este proceso hasta reiniciar el companion.
                 "restart_frees": transcriber.engine == "nube" and transcriber.used_cuda},
         "cloud_only": profile.cloud_only(),
+        "gemini_live": profile.gemini_live(), "gemini_live_model": profile.live()["model"],
+        "gemini_live_voice": _live_voice_name(), "live": profile.public_live(),
         "model": model_path() is not None or models.kind(persona["name"]) == "orb",
         "model_id": models.active_id(persona["name"]), "model_kind": models.kind(persona["name"]),
         "barge_in": settings.barge_in, "actions": _actions_state(),
+        "personality": {"id": personality.active_id(), "name": personality.active()["name"],
+                        "temper": personality.temper(personality.active())},
         "started": STARTED,               # iniciar.ps1 lo compara con la fecha del código para saber si reiniciar
     }
+
+
+def _live_voice_name() -> str:
+    from . import gemini_live, realtime
+    lv = profile.live()
+    if lv["voice"]:
+        return lv["voice"]
+    v = profile.voice()
+    speaks = (v or {}).get("speaks", "f")
+    if lv["provider"] == "gemini":
+        return gemini_live.voice_for(v["id"] if v else None, speaks)
+    return realtime.voice_for(lv["provider"], speaks)
 
 
 def _ear_public() -> dict:
@@ -175,7 +205,15 @@ async def set_config(body: ConfigIn):
             raise HTTPException(422, "provider debe ser gemini o local")
         changed = body.provider != settings.llm_provider
         settings.llm_provider = body.provider
-        state.save(provider=body.provider)            # se recuerda para la próxima sesión
+        if body.provider == "local" and profile.gemini_live():
+            state.save(provider=body.provider, gemini_live=False)
+            profile.apply()
+            from .session import _open
+            for s in list(_open):
+                if hasattr(s, "reset_live"):
+                    await s.reset_live()
+        else:
+            state.save(provider=body.provider)            # se recuerda para la próxima sesión
         if changed:                       # local: se carga ya, para no esperar en el primer turno · nube: se libera la GPU
             _background(llm.warm_local() if body.provider == "local" else llm.unload_local())
         elif body.provider == "local":    # volver a pulsar «Local» repite la elección del modelo que cabe
@@ -199,17 +237,19 @@ class ActionsIn(BaseModel):
     enabled: bool | None = None
     forget_always: str | None = None      # deja de permitir siempre esa acción (vuelve a preguntar)
     ask: bool | None = None               # pedir permiso en una tarjeta antes de cada acción
+    full: bool | None = None              # acceso total: ninguna acción pide tarjeta
 
 
 @app.post("/api/actions", dependencies=[Depends(same_origin)])
 async def set_actions(body: ActionsIn):
-    actions.save(enabled=body.enabled, forget_always=body.forget_always, ask=body.ask)
+    actions.save(enabled=body.enabled, forget_always=body.forget_always, ask=body.ask, full=body.full)
     return {**_actions_state(), "history": actions.history(30)}
 
 
 @app.delete("/api/memory", dependencies=[Depends(same_origin)])
 async def forget():
     store.forget_all()
+    mood.reset()                          # su ánimo también sale de lo que hablaron
     return {"ok": True}
 
 
@@ -228,6 +268,62 @@ class FactIn(BaseModel):
 async def forget_fact(body: FactIn):
     store.delete_memory(body.fact)
     return await memory()
+
+
+# ---------------------------------------------------------------- personalidad
+def _personality_state() -> dict:
+    return {**personality.public(), "mood": mood.public(personality.active())}
+
+
+@app.get("/api/personality")
+async def get_personality():
+    """Las personalidades (incluidas y propias), la elegida y su ánimo de ahora."""
+    return _personality_state()
+
+
+class PersonalitySelectIn(BaseModel):
+    id: str
+
+
+@app.post("/api/personality/select", dependencies=[Depends(same_origin)])
+async def select_personality(body: PersonalitySelectIn):
+    try:
+        personality.select(body.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    await _personality_ready()
+    return _personality_state()
+
+
+async def _personality_ready():
+    """La personalidad va en el prompt de sistema: con el cerebro local, el modelo lo lee ya (la interfaz enseña
+    «Ajustando…» mientras tanto), para que la primera respuesta no tarde. Como mucho 20 s: si no, sigue igual."""
+    from .session import _open
+    for s in list(_open)[-1:]:
+        if hasattr(s, "reset_live"):
+            await s.reset_live()
+        try:
+            await asyncio.wait_for(s.prime(), 20)
+        except Exception:  # noqa: BLE001 (incluye el tiempo agotado: solo era para adelantar trabajo)
+            pass
+
+
+@app.post("/api/personality/custom", dependencies=[Depends(same_origin)])
+async def save_personality(body: dict):
+    """Crea una personalidad propia (desde cero o copiando una incluida, con `from`) o cambia una propia (`id`)."""
+    try:
+        personality.save_custom(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    await _personality_ready()
+    return _personality_state()
+
+
+@app.delete("/api/personality/custom/{pid}", dependencies=[Depends(same_origin)])
+async def delete_personality(pid: str):
+    personality.delete_custom(pid)
+    await _personality_ready()
+    return _personality_state()
 
 
 # ---------------------------------------------------------------- bienvenida y ajustes guardados
@@ -251,8 +347,12 @@ async def get_setup():
     recommended = res["recommended_engine"]
     if node_ok and tts_light.installed() and profile.voice_auto() and profile.full_voice_fits(True, "", res["total_gb"]):
         recommended = "completa"
-    others = [{"id": n, "vram_gb": profile.model_vram(n, installed), "fits": fits(profile.model_vram(n, installed))}
-              for n in sorted(installed or {}) if n not in ids]
+    extra = [n for n in sorted(installed or {}) if n not in ids]
+    info = await llm.local_info(extra)
+    others = [{"id": n, "vram_gb": 0.0 if info[n]["cloud"] else profile.model_vram(n, installed),
+               "fits": fits(0.0 if info[n]["cloud"] else profile.model_vram(n, installed)),
+               "vision": info[n]["vision"], "cloud": info[n]["cloud"]}
+              for n in extra if info[n]["chat"]]
     return {
         "resources": res,
         "voice_engine": {"selected": profile.voice_engine(), "in_use": settings.voice_engine, "reason": settings.voice_reason,
@@ -261,6 +361,7 @@ async def get_setup():
                          "light_installed": tts_light.installed(), "light_size_mb": tts_light.SIZE_MB,
                          "light_progress": tts_light.progress or None},
         "ear": {"engine": profile.ear_engine(), **_ear_public()}, "cloud_only": profile.cloud_only(),
+        "gemini_live": profile.gemini_live(), "gemini_live_model": profile.live()["model"], "live": profile.public_live(),
         "onboarded": bool(state.load().get("onboarded")), "character": character_name(), "year": time.localtime().tm_year,
         "profile": profile.get(), "suggested_name": settings.user_name,
         "provider": settings.llm_provider, "cloud": profile.public_cloud(),
@@ -280,6 +381,8 @@ class SetupIn(BaseModel):
     voice_engine: str | None = None       # completa | ligera | nube
     ear: dict | None = None               # {engine: local|nube, groq_key, remove_groq_key}; sin groq_key se conserva
     cloud_only: bool | None = None        # cerebro, oído y voz en la nube (al apagarlo vuelve lo de antes)
+    gemini_live: bool | None = None       # modo en vivo: el proveedor oye, piensa, ve y habla (WebSocket directo)
+    live: dict | None = None              # {provider, key, remove_key, model, voice, url}; sin key se conserva
     voice_auto: bool | None = None        # pasar sola a la ligera cuando la completa no cabe en la tarjeta
     onboarded: bool | None = None
 
@@ -350,6 +453,8 @@ async def set_setup(body: SetupIn):
             if ear.get("engine") == "nube" and not (ear.get("groq_key") or stt_cloud.gemini_key()):
                 raise ValueError("Para el oído en la nube hace falta una clave de Groq o el cerebro con Gemini.")
             changes["ear"] = ear
+        if body.live is not None:
+            changes["live"] = _live_settings(body.live)
         if body.voice_auto is not None:
             changes["voice_auto"] = bool(body.voice_auto)
         if body.provider is not None:
@@ -360,6 +465,8 @@ async def set_setup(body: SetupIn):
             changes["onboarded"] = bool(body.onboarded)
         if body.cloud_only is not None:
             changes.update(_cloud_only_changes(bool(body.cloud_only), changes))
+        if body.gemini_live is not None:
+            changes.update(_gemini_live_changes(bool(body.gemini_live), changes))
     except ValueError as e:
         raise HTTPException(422, str(e))
     state.save(**changes)
@@ -374,6 +481,11 @@ async def set_setup(body: SetupIn):
         await asyncio.to_thread(voz_proc.sync)
     if "cloud" in changes:
         llm.reset_cloud()
+    if any(k in changes for k in ("gemini_live", "live", "cloud", "voice", "profile", "provider")):
+        from .session import _open
+        for s in list(_open):
+            if hasattr(s, "reset_live"):
+                await s.reset_live()
     if settings.llm_provider != before or "local_model" in changes:
         _background(llm.warm_local() if not settings.is_cloud else llm.unload_local())
     return await full_config()
@@ -402,7 +514,96 @@ def _cloud_only_changes(on: bool, changes: dict) -> dict:
     before = {"provider": s.get("provider", settings.llm_provider), "ear": ear.get("engine", "local"),
               "voice_engine": s.get("voice_engine", profile.voice_engine())}
     ear["engine"] = "nube"
-    return {"cloud_only": True, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
+    return {"cloud_only": True, "gemini_live": False, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
+
+
+def _live_settings(body: dict) -> dict:
+    """Proveedor de la conversación en vivo. La clave nunca vuelve a la interfaz."""
+    from .realtime import LIVE_PROVIDERS
+    lv = dict(state.load().get("live") or {})
+    provider = str(body.get("provider") or lv.get("provider") or "gemini")
+    if provider not in LIVE_PROVIDERS:
+        raise ValueError("Proveedor en vivo no reconocido.")
+    if provider != lv.get("provider", "gemini"):
+        lv = {}                                        # otra empresa: su clave, modelo y voz son otros
+    lv["provider"] = provider
+    key = str(body.get("key") or "").strip()
+    if key:
+        lv["key"] = key[:300]
+    if body.get("remove_key"):
+        lv.pop("key", None)
+    for f, n in (("model", 120), ("voice", 60)):
+        if body.get(f) is not None:
+            lv[f] = str(body[f]).strip()[:n]
+    if body.get("url") is not None:
+        url = str(body["url"]).strip()
+        if url and not url.startswith("wss://"):
+            raise ValueError("La dirección del proveedor en vivo tiene que empezar por wss://")
+        lv["url"] = url[:300]
+    if provider == "custom" and not lv.get("url"):
+        raise ValueError("Escribe la dirección wss:// del proveedor.")
+    return lv
+
+
+def _gemini_live_changes(on: bool, changes: dict) -> dict:
+    """«Gemini Live»: conecta la interfaz directamente a la Gemini Live API (oído, cerebro, visión y voz en tiempo real).
+    Guarda los ajustes previos para restaurarlos al apagarlo."""
+    s = {**state.load(), **changes}
+    if on == bool(s.get("gemini_live")):
+        return {}
+    ear = dict(s.get("ear") or {})
+    if not on:
+        before = s.get("before_gemini_live") or {}
+        ear["engine"] = before.get("ear", "local")
+        return {
+            "gemini_live": False,
+            "provider": before.get("provider", "gemini"),
+            "ear": ear,
+            "voice_engine": before.get("voice_engine", profile.voice_engine()),
+            "cloud_only": bool(before.get("cloud_only", False)),
+        }
+    lv = s.get("live") or {}
+    provider = lv.get("provider") or profile.live()["provider"]
+    key = lv.get("key") or ""
+    if not key and provider == "gemini":
+        cloud = s.get("cloud") or {}
+        if cloud.get("preset", profile.cloud()["preset"]) == "gemini":
+            key = cloud.get("key") or profile.cloud()["key"]
+    if not key:
+        from .realtime import LIVE_PROVIDERS
+        raise ValueError(f"Para la conversación en vivo con {LIVE_PROVIDERS[provider]['name']} hace falta su clave "
+                         "(Cerebro y voz › En vivo).")
+    before = {
+        "provider": s.get("provider", settings.llm_provider),
+        "ear": ear.get("engine", "local"),
+        "voice_engine": s.get("voice_engine", profile.voice_engine()),
+        "cloud_only": bool(s.get("cloud_only", False)),
+    }
+    ear["engine"] = "nube"
+    return {
+        "gemini_live": True,
+        "before_gemini_live": before,
+        "cloud_only": False,
+        "provider": "gemini",
+        "ear": ear,
+        "voice_engine": "nube",
+    }
+
+
+@app.get("/api/desktop/scene")
+async def desktop_scene(sit: int = 0):
+    """Para la mascota de escritorio (modo flotante): dónde está la ventana activa y, con `sit`, la ventana sobre la
+    que está sentada. Solo posición y estado, nunca el título ni el contenido (companion/desktop_scene.py)."""
+    from . import desktop_scene as ds
+    fg = await asyncio.to_thread(ds.foreground)
+    return {"fg": fg, "sit": await asyncio.to_thread(ds.window, sit) if sit else None}
+
+
+@app.get("/api/update")
+async def get_update():
+    """¿Hay una versión nueva publicada? (companion/update.py; como mucho una consulta a GitHub cada 12 horas)"""
+    from . import update
+    return await update.check()
 
 
 # ---------------------------------------------------------------- carga y cierre (lifecycle.py)
@@ -443,6 +644,7 @@ async def reset_setup(body: ResetIn):
     if body.data:
         state.clear()
         store.forget_all()
+        mood.reset()
         profile.apply()
         transcriber.hint = _hint()
         llm.reset_cloud()

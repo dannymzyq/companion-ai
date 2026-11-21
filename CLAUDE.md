@@ -17,7 +17,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `InstallLocation` en HKCU), admin una sola vez para crearla y dar Modificar al usuario (la app escribe ahí sus
   datos), luego `instalar_paquete.ps1` → `copiar_programa.ps1` (solo lo cambiado; borra lo que la versión anterior
   instaló y la nueva no trae; nunca toca lo que no está en un manifiesto) → `instalar.ps1` de la carpeta.
-  Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`. Publicar una
+  Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`.
+  Antivirus (18 nov 2026): Defender marcó la 0.8.6 al descargarla como Trojan:Win32/Wacatac.B!ml (heurística !ml,
+  archivo nuevo sin firma). Desde la 0.8.7 el lanzador abre PowerShell con `-ExecutionPolicy RemoteSigned` y SIN
+  `-WindowStyle Hidden` (CreateNoWindow basta), y lleva `instalador\app.manifest` (asInvoker) y Version.cs (versión,
+  empresa) que genera `crear_instalador.ps1`. No vuelvas a poner Bypass ni Hidden en el lanzador. Lo definitivo es
+  firmarlo (sin certificado todavía). Publicar una
   etiqueta es publicar un Release: solo cuando el usuario lo pida. Si el título de la versión en `CHANGELOG.md`
   dice «(solo Windows)», el Release no crea la app para Mac.
 - PyTorch de la voz completa (15 nov 2026): `instalar.ps1` lee en `nvidia-smi` el CUDA que admite el driver; con 13
@@ -45,6 +50,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   companion aislado con ellos (solo en el Mac).
   Se prueba en `.github\workflows\mac.yml` (macos-15; `release.yml` lo llama y adjunta el .dmg al Release). Nadie
   lo ha probado aún en un Mac con micrófono: el usuario lo probará.
+  Pruebas de Electron en el Mac (17 nov 2026): `_prueba.ELECTRON` usa `desktop/electron/Electron.app` (Electron
+  darwin-arm64 de la misma versión, o `COMPANION_ELECTRON`) y `_prueba.cerrar` cierra los procesos en los dos
+  sistemas. macOS devuelve a la pantalla las ventanas creadas en x=-4000 y deja a 2 cuadros por segundo las que
+  da por tapadas: con `COMPANION_TEST=1` en el Mac, main.js y mac.js usan `enableLargerThanScreen` (la flotante,
+  sin marco), `showInactive` + `setPosition`, opacidad 0 y sin clics para las que tienen marco, y apagan el
+  frenado de ventanas tapadas. `crear_app_mac.sh` copia todos los .js y .html de `desktop/`.
 - Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\ventana_instalar.ps1` (WPF) que ejecuta
   `instalar.ps1` con `COMPANION_UI=1` y lee sus marcas (`::paso::`, `::progreso::`, `::omitido::`, `::error::`,
   `::fin::`, de `scripts\comun_instalacion.ps1` y `preparar_recursos.py`). `Desinstalar.bat` →
@@ -62,7 +73,16 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Versiones fijas: el instalador usa `requirements.lock` y `voz\requirements.lock` (uv 0.13.8 con su SHA-256).
   Tras cambiar dependencias y probar, rehazlos con `scripts\fijar_versiones.ps1`.
 - Registros: `iniciar.ps1` guarda las tres sesiones anteriores (`data\companion.1.log`…) y `voz_proc` la anterior
-  de la voz (`voz.1.log`). Llevan lo que transcribe del usuario: no los muestres ni los subas.
+  de la voz (`voz.1.log`). Desde la 0.7.0 no llevan lo que se dice (`config.shown`: solo cuántos caracteres;
+  `LOG_TEXT=1` en `.env` lo vuelve a escribir). Aun así, no los muestres ni los subas.
+  La ventana (17 nov 2026) escribe `data\ventana.log` (anterior: `ventana.1.log`; en pruebas `data\prueba`): errores
+  y avisos de la consola de la página, «no responde» y caídas de la página o de la tarjeta gráfica. El bucle de
+  dibujo (`tick` en main.js) nunca se para por un error (`tickPart`), las cargas de modelo van de una en una
+  (`loadSeq`, 90 s como mucho) y tras perder el contexto WebGL se recarga el modelo (`onContextRestored`).
+  Fluidez (19 nov 2026, «tirones a pantalla completa»): `_readProbe` (readPixels) solo si el ratón se movió o cada
+  150 ms; `resize` limita los píxeles a `MAX_PIXELS` (3,7 M) y `_frameWatch` baja la resolución un 20 % si 3 s
+  van a menos de 40 fps; `setLevel` (main.js) solo escribe `--level` si cambia; `updateHit` con el ratón quieto
+  mira cada 120 ms. No vuelvas a leer píxeles ni a escribir estilos en cada cuadro.
 - El panel de navegador de Claude bloquea el micrófono: ahí la interfaz se prueba escribiendo; el avatar,
   con `scripts\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
   Para el micrófono de verdad, `scripts\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).
@@ -71,15 +91,139 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   ofrecer. `models.LEGACY` traduce lo guardado antes (default/chica/chico/esfera). `mika.vrm`, `mika_base.vrm`,
   `chica.vrm` y `chico.vrm` siguen en disco sin usarse; no los borres sin que el usuario lo pida.
   No abras la ventana del companion sin avisar: el usuario suele estar jugando.
+- Ventana y flotante (16 nov 2026): `desktop/main.js` tiene UNA página (`WebContentsView`) y al cambiar de modo la
+  pasa de un `BaseWindow` a otro sin recargarla (`open`), y avisa a la página con `companion:mode`
+  (`setMode` en `web/js/main.js`: `floating` cambia en caliente). Así no se corta la voz ni la conversación. No
+  vuelvas a abrir una página nueva por modo. Cámara libre (`OrbitControls` sin límites de ángulo, con
+  desplazamiento y zoom hacia el cursor); flotando: izquierdo mueve la ventana, derecho gira, central desplaza,
+  Ctrl + rueda acerca (`avatar.zoom`), doble clic `avatar.resetView`. «Desvanecer los pies al flotar»
+  (`companion.float.fade` en localStorage; apagado = `body.no-fade` + `avatar.setFullBody`, cuerpo entero).
+  Prueba: `scripts\prueba_flotante.py` (sin cerebro: suena un tono y cambia de modo dos veces).
+- Mascota de escritorio (16 nov 2026, solo flotando; Ajustes › «Escritorio (modo flotante)», `companion.pet` en
+  localStorage): `desktop/pet.js` mueve la ventana (gravedad hasta la barra de tareas, paseos, sentarse sobre la
+  ventana activa y seguirla, ir al lado de la ventana de una acción «controlar» y volver) y manda a la página
+  `pet:event` (cursor, activity, workmode, gesture); la página pone las animaciones (`avatar.setActivity`:
+  walk | carried | fall | sit | work, `ACTIVITIES` en avatar.js y su versión en orb.js; gestos internos `_toque` y
+  `_aterrizar`) y le manda los puntos del personaje (`avatar.anchors`: pies, asiento, cabeza), el estado y las
+  acciones. La ventana activa la da `GET /api/desktop/scene` (`companion/desktop_scene.py`: solo posición y estado,
+  nunca título ni contenido; el sondeo no va al registro). `control_start`/`control_step` llevan `window` (dónde
+  está) y `kind`/`point` del paso. Con algo a pantalla completa no pasea ni salta. Mientras trabaja, el modelo no
+  recibe clics (los reales del control lo atravesarían). Mover la ventana flotante SIEMPRE con `setBounds` y el
+  tamaño guardado: con escalado 150 %, `setPosition` o `getBounds` la hacen crecer en cada llamada (medido).
+  Prueba: `scripts\prueba_mascota.py` (pantalla y ventanas inventadas en x=-4000, nunca las reales; hoja de
+  poses en `data\prueba\mascota_poses.png`). Poses con cada modelo, incluidos los VRM propios del usuario (se copian
+  solo a `data\prueba`): `scripts\hoja_modelos.py`. Sentada va DE COSTADO (`opts.side`) y con los muslos algo caídos:
+  de frente y con muslos horizontales, faldas y vestidos atravesaban las piernas (16 nov 2026). Andar: `WALK_HZ`
+  (avatar.js y pet.js, el mismo) y la ventana avanza según el largo de la pierna, para que no patine.
+  Transparencia al flotar (`alpha` en `companion.pet`, `--pet-opacity`): con `.hover` (ratón encima o agarrándola)
+  vuelve a opaca.
+  Fluidez (17 nov 2026): en el proceso principal de Electron en Windows, `setInterval(16)` da un cuadro cada 31 ms
+  (medido; el mínimo es 15,6 ms). Mientras algo se mueve, pet.js pide cuadros (`frames`) y la página llama a
+  `desktop.pet.frame()` en cada requestAnimationFrame (`pageFrame` → `frame`); el temporizador de 8 ms es solo
+  respaldo. Todo movimiento nuevo de la ventana va por `animate` o por `frame` con dt, nunca con su propio
+  temporizador. Sentada, la escena se mira cada 150 ms y `followSeat` la sigue. `moving` → `body.pet-moving`
+  (barra y subtítulos escondidos; `#asks` y `#control` nunca). `insets` → `--pet-cut-*` (lo que queda fuera del área
+  de trabajo: la barra sube). Con los pies por debajo de la ventana, `A().feet` es el borde de abajo. `fitBar` (main.js)
+  encoge la barra con `zoom` para que quepa en la ventana (mínimo 220 px de ancho).
+  `prueba_mascota.py` mide los fps (`lastMoveFps`) y la barra con zoom (8b).
 - Animación (`web/js/avatar.js`): muelles por hueso (`SPRING`), ruido suave en lo ocioso, dedos por separado
   (`ix` índice, `sp` abanico en `ARMS`). Para probar poses desde la consola: `await import('/js/avatar.js')` da
   `ARMS` editable en vivo; `avatar.sheet([...])` hace la hoja de contactos.
+- Animaciones grabadas (17 nov 2026, petición del usuario: «como ZZZ»): `web/anim/clips.json` (Quaternius UAL 1 y 2,
+  CC0, `web/anim/CREDITOS.md`) hecho con `scripts/convertir_animaciones.py` (giros respecto a la pose en T =
+  espacio normalizado de three-vrm, en Euler XYZ). `web/js/clips.js` las muestrea; `applyLayer` las pone con
+  máscara por zonas ANTES de lo procedural (reposo/hablar en `_buildPose`, andar, agacharse/arrodillarse en
+  `pointerWork`, caer, `_aterrizar`, enfado = brazos cruzados). Solo clips CC0 o equivalentes: Mixamo no deja
+  repartir sus archivos y Bandai Namco es no comercial. En la hoja: `{clip: 'walk', clipT}` muestra un clip y
+  `{clips: false}` lo de antes; `avatar.clipOn = false` las apaga en vivo. Flotando, `_inertia` mueve las puntas
+  de los muelles del VRM lo contrario a la ventana (`_currentTail`/`_prevTail` de three-vrm). `anchors().step`
+  da el largo del paso a pet.js. Probado con los 3 incluidos y los 4 VRM del usuario (copias en `data\prueba`).
+  Estilos (17 nov 2026, «aplica todo lo que se pueda»): `walk_<estilo>`/`idle_<estilo>` de 100STYLE (CC BY 4.0: hay
+  que citar «The 100STYLE Dataset - Ian Mason»; Zenodo 8127870), con `--estilos` y `scripts/anim_bvh.py` (bucle
+  recortado de cada toma, sin recorrido ni giro, cuello −15°). `EMO_STYLE`/`EMO_AMP`, `_styleNow` (emoción o
+  personalidad), `styleW` (fundido), `_styled` (marcha a la par por `cycles`), `gait()` → `anchors().hz/speed` →
+  pet.js. Pies: `_legIK` al final de `_applyPose` (clavados de pie con pasito, solo altura al andar; `ikOn`).
+  Descartados por licencia: Bandai Namco, LAFAN1, ai4anim-webgpu (no comerciales).
+- Cara ARKit (17 nov 2026, «lo añades»): `face.addParts` busca primero las 52 formas de ARKit (`ARKIT_NEED`, sin
+  importar mayúsculas ni prefijos) y arma cada parte (`brw…`, `eye…`, `mth…`) con varias (`ARKIT_PARTS`), más partes
+  propias `ak…` (media sonrisa, una ceja, labios apretados, mejillas, nariz, `LIP_PARTS` de los labios al hablar:
+  `_face` las mueve con `mouth.oh/ou` y `lipClose`). `parts.kind` = 'arkit' | 'vroid'. Probado con Test-Chan (CC0,
+  solo en `data\prueba`). Ningún VRM del usuario ni los incluidos tienen ARKit.
+- Dedos y cara (17 nov 2026, «utiliza los repositorios… que se adapten mejor»): `HANDS`/`hs`/`p.hand` (cada dedo,
+  `CASCADE`, `FINGER_RATE`, oposición del pulgar `THUMB`: en Y negativo, medido con primeros planos); gestos
+  `pulgar` y `paz` (también en prompt.py y orb.js). `web/js/face.js`: partes de VRoid como expresiones `p_…`
+  (`addParts`, solo si hay cejas, ojos y boca) + `EMO_PARTS` + `Micro` (ideas de TalkingHead, MIT; ninguno de los
+  VRM del usuario tiene ARKit, así que Audio2Face y las caras de TalkingHead no sirven). `web/js/lipsync.js` adapta
+  wawa-lipsync (MIT: el aviso va en `web/js/CREDITOS.md`). Primeros planos en la consola: proyectar un hueso dentro de
+  `renderer.render` durante `sheet` y recortar. Triste: `idle_triste` con `spine` 0,4 y `head` 0,25.
+- Bailes y vuelta (18 nov 2026, «más animaciones y bailes»): `DANCES` en avatar.js (clip, twist, ola, robot,
+  saltitos; `_bailar` elige uno sin repetir con `a._dance`), `_girar` con `SPIN_PREP/TURN/END` (impulso al revés,
+  giro quíntico en `_petTick`, passé y cabeza que «mira al frente»), pasatiempos nuevos `_ninja`, `_zombi`,
+  `_llamar`, `_boxear`, `_concentrar` (públicos sin «_», `concentrarse`; en prompt.py, play.py y orb.js) con clips
+  nuevos de UAL (`convertir_animaciones.py --anadir` añade a clips.json sin rehacer los de 100STYLE). Esfera
+  flotando: `frame` la sube y `anchors().feet` es el borde de abajo de la ventana.
+  Coquetos (petición del usuario): `_sensual`, `_posar`, `_beso`, `_melena` (públicos sin «_»), sugerentes y nunca
+  explícitos; NO van en HOBBIES. En play.py «sensual» va antes que «bailar».
+- Pasatiempos y rubor (17 nov 2026): `HOBBIES`/`BORED_AFTER`/`wake`/`endHobby` en avatar.js (gestos `_…` largos;
+  clip `spell` añadido a `WANTED`), interruptor «Se entretiene sola» (`companion.hobby`). Las pruebas que miran
+  posiciones ponen `avatar.hobbyOn = false` (prueba_mascota). Rubor: `effects.attachBlush` (planos hijos de la
+  cabeza, con profundidad) y `_onSkin` (rayo a la piel); la esfera sigue con los carteles.
+- Sueño y peticiones (17 nov 2026): `SLEEP_AFTER`, `sleepNow`/`_sleepPose`. Lo normal es `lean` (petición del
+  usuario: «que se recueste en la esquina… con una tablet o un celular hasta que se duerme»): `_leanPose` + `LEAN`
+  (editable en vivo) + `web/js/props.js` (`Device`, `_placeDevice` después de `vrm.update`). Flotando espera a
+  `restAt`: `onSleep(on, mode)` → `desktop.pet.rest` → pet.js `rest`/`walkTo` (va a la esquina aunque esté «dormida»)
+  → evento `rest`. `body.sleeping` quita el degradado de pies. `nod` (seiza) y `nap` (`lay_up` al revés) quedan para
+  la ventana. Postura (imagen de referencia del usuario, apoyada sobre un codo): base `lay_up` en `LEAN.base` 0,28,
+  reflejada con `mirrorPose` para `side < 0` (la animación no es simétrica), `LEAN.roll` hacia el costado de apoyo, y
+  `_leanIK` con `_ikChain` (IK de dos huesos con polo): manos a la pantalla delante del pecho (dormida, al pecho), codo
+  de apoyo hacia el suelo detrás, pie de la pierna alta delante de la rodilla de la tendida (`LEAN.ik`). La tendida es
+  la que da a la cámara (`ik.leanDown`), con la rodilla fijada algo hacia delante (si no, se doblaba al revés).
+  Variantes (`LEAN.variants`: codo, rodillas, tumbada; `sl.variant`, al azar sin repetir; `float: false` = no en la
+  ventana flotante): base y base dormida de `lay_up`, piernas (`extend`/`raise`/`knees`), puntos de pantalla y de
+  descanso (`screen`/`rest`, desde chest, head o knees) y cabeza; `_leanIK` y `_placeDevice` (`_restPoint`) las usan.
+  `hipsY`/`headY` se miden en la pose en T al cargar (medidas con el modelo anterior dormido salían mal).
+  Recostada: `_legIK` con `ik.lean` (pierna izquierda tendida a ras de suelo hacia delante y algo hacia
+  su lado, `LEAN.legSide`, con el pie siguiendo a la pierna; antes seguía a la animación y en algunos modelos quedaba
+  cruzada bajo la otra; la derecha pisando). `LEAN.legReach` 0,75: la rodilla algo levantada (petición del usuario).
+  Al dormirse se cierra el chat (`onSleep` → `showKeyboard(false)`); `pet-moving` no esconde `#text-form`.
+  `LEAN.lift` (cadera a ~10 cm) y, flotando, `LEAN.rise` (todo el cuerpo algo arriba, que la pierna no se corte).
+  Ropa: `_legColliders` (cápsulas en muslos y espinillas + suelo, en los huesos de verdad; `sb._isSortedJointsDirty`).
+  Prueba: `prueba_mascota.py` 8d (captura en `data\prueba\mascota_recostada.png`). `onSleep` →
+  `pet.state('sleep')`. Gestos públicos en `GESTURES` (alias de
+  los `_…`) + `dormir`; en prompt.py `GESTURES` y la frase «Tienes cuerpo en la pantalla…»; `companion/play.py`
+  (`guess`: imperativo, o «puedes/quiero que…» + infinitivo o subjuntivo; negaciones fuera) y `Session._speak` lo
+  añade a la primera frase. Solo mueve al personaje: no es una acción en la PC.
 
 - **El usuario puede tener el companion abierto.** No reinicies ni apagues el servidor real (puerto 8200): pídele
   que lo haga él (`detener.ps1`, o `Companion.bat`, que lo reinicia solo si el código o `.env` son más nuevos).
   Nunca llames a `DELETE /api/memory` contra él: borra su conversación y sus recuerdos. Las pruebas van
   contra el servidor aislado de `scripts\_prueba.py` (puerto 8201, `data\prueba`); con `--local` usan Ollama.
-- Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,1 GB + escritorio ~2,5 GB. El modelo local tiene que
+- Tarjetas pequeñas (18 nov 2026, «optimizar para 4-6 GB»), medido en esta PC: voz completa 1,03 GB en reposo y
+  1,12 de pico (F5 ya va en float16 en CUDA); Whisper en GPU int8_float16: turbo 1,29 GB / 1,4 % de palabras
+  perdidas, small 0,53 / 3-5 %, base 0,14 / 6-9 % (small en el procesador: 1,8 s por frase). `profile.ear_model`:
+  small por debajo de `SMALL_EAR_BELOW` (6,5 GB) si está en `models\whisper\small` (lo trae `preparar_recursos.py
+  --oido`, no en el Mac); `STT_MODEL` en `.env` manda. `EAR_MODELS`/`ear_gb()` en las cuentas. Avatar: los
+  incluidos traen 8 texturas de 4096 px (~430 MB de vídeo); `avatar.setQuality` + `_shrinkTextures` (createImageBitmap
+  al cargar) y `QUALITY`/`qualityNow` en main.js (≥7,8 GB alta, ≥5,5 media 2048 px, si no baja 1024 px; sin dato de
+  tarjeta, media; `companion.quality` en localStorage, Ajustes › «Calidad del personaje»). Nube saturada: `Overloaded`
+  (5xx, «high demand», sin respuesta) y `CLOUD_FIRST_S` 4,5 s al primer texto si quedan otros modelos → `_busy` (al
+  final `CLOUD_BUSY_S` 10 min); la mirada en vivo calla si está saturado; `stt_cloud._busy` 5 min. Medido el 18 nov:
+  gemini-3.6-flash daba 503 tras 8-49 s y Flash-Lite contestaba en 1 s. El plan Google AI Pro no sube los límites de
+  la API (solo AI Studio). Herramientas para medir: no se guardaron en scripts (eran de una sesión).
+  Laptop del usuario (RTX 3050 4 GB, i5-12500H, 16 GB; probada el 18 nov 2026 por Remote Control con la 0.8.3): F5
+  tardaba 5,4–6,6 s por frase (GPU al 100 %); con 16 pasos + muestra corta + VOZ_LARGA 90, ~1,9 s y más rápido que
+  tiempo real. `voz/servidor.py _medir_tarjeta`: tras calentar mide una frase corta; si pasa de `LENTA_S` (2,5 s,
+  `VOZ_LENTA_S`) entra en modo rápido (`/health` → `fast`, `phrase_s`), salvo VOZ_NFE/VOZ_REF_CORTA fijados.
+  `voz_proc.fast()` → `Session._checks_voice` no comprueba con Whisper en modo rápido. Todo junto ahí (turbo + voz
+  + avatar + Brave): ~2,1 GB de 4; con la 0.8.4 (small), 1,3 GB. `STT_MODEL=large-v3-turbo` (el de los .env
+  antiguos) cuenta como automático. La voz da `/health` tts=f5 solo con `estado["listo"]` (tras medir): con la 0.8.4
+  la primera respuesta se pidió durante la medida y el primer audio llegó a los 30 s. Con la 0.8.5 allí: primera
+  frase ~1,3 s y primer audio ~4,1 s (voz ~2,9 s), pero con pausas a mitad de respuesta; `Session._speak` en modo
+  rápido junta frases de menos de `FAST_MERGE` (60) hasta `FAST_MERGE_MAX` (90) letras (`pending` guarda la que no
+  cabe). Pruebas: `tests/test_voz_juntar.py`. Con la 0.8.7 allí (6 turnos): primera frase 1,1-2,5 s, primer audio
+  2,6-3,9 s (voz ~1,4 s), sin pausas a mitad de respuesta, 1,3 GB de vídeo; Defender no marcó el instalador. El
+  primer turno sin «Primer audio» es el saludo cortado porque el usuario habla enseguida (esperado).
+- Memoria de vídeo (16 GB): voz completa ~1 GB (`voz\servidor.py`) + Whisper ~1,3 GB + escritorio ~2,5 GB. El modelo local tiene que
   caber en lo que queda: `gemma4:e4b-it-qat` (4,8 GB, el recomendado) con respaldo `gemma4:e2b-it-qat`.
   `gemma4:12b` (10,6 GB) cabe desde que la voz es la propia (58–93 tokens/s, 13 nov 2026) y está en el catálogo
   con `recommend: False` (con un juego abierto no cabe); el usuario lo tiene elegido. `llm.py` mide la velocidad
@@ -123,10 +267,40 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   y clave, modelo local, voz). Lo guardado manda sobre `.env`. La clave nunca se devuelve a la interfaz ni se
   imprime en las pruebas (ni siquiera sus últimos caracteres). `_prueba.Servidor()` arranca con la bienvenida
   hecha; `Servidor(nuevo=True)` la deja pendiente.
+  Auditoría (16 nov 2026, 0.7.0): `state.save` escribe en un temporal y lo cambia de una vez (con copia
+  `settings.json.bak`, que `load` usa si el bueno está roto). Las claves (`cloud.key`, `ear.groq_key`) van cifradas
+  con `companion/secret.py`: DPAPI en Windows (`dpapi:…`), Llavero en el Mac (`llavero:<cuenta>`, una entrada por
+  carpeta de datos; las pruebas ponen `COMPANION_KEYCHAIN=0`). Para leer la clave en un script, `secret.reveal`
+  sobre el json, nunca el json a mano. `state.protect_keys` cifra al arrancar las guardadas en claro.
+  `TIMEZONE` vacío (o el `America/Lima` que copiaba el instalador) = la hora del sistema.
+  Aviso de versión nueva: `companion/update.py` (`GET /api/update`, Releases de GitHub cada 12 h, solo etiquetas
+  vX.Y.Z con el instalador de ese sistema; `UPDATE_CHECK=0` lo apaga, y las pruebas rápidas lo apagan).
+  Textos en el Mac: `web/js/platform.js` adapta «esta PC», «tarjeta gráfica», «memoria de vídeo»… al Mac en toda
+  la página (también lo que se escribe después); un texto nuevo de la interfaz no necesita nada más.
+  Nube lenta (como en iOS): si un modelo tarda más de 8 s en dar el primer texto dos turnos seguidos, se empieza
+  por el siguiente del relevo 30 min (`llm._note_wait`, `_by_speed`). En el Mac, un turno local es lento si cae por
+  debajo del 45 % de lo mejor que ha ido ese modelo (`llm.slow_limit`); en la PC sigue `SLOW_TPS`.
+  `abrir_carpeta` rechaza rutas de red (`\\servidor`, `//`, `smb://`, unidades de red) ANTES de comprobar si
+  existen: comprobarlo ya conectaba con el servidor y Windows le daba una huella de la contraseña.
 - El personaje se llama como la voz elegida (`profile.character`): `personas/mika.json` es la ficha común y su
   `name` solo sirve para el archivo del modelo por defecto. Voces y personajes no llevan etiquetas de género en
   la interfaz (decisión del usuario, 12 nov 2026); `speaks` en `voices.json` solo decide cómo habla de sí.
   Nunca llames a `POST /api/setup/reset` contra el servidor real: con `data` borra todo lo del usuario.
+- Cambio de personalidad (17 nov 2026, «se queda pegada»): la interfaz enseña `#personality-busy` («Ajustando…»)
+  y bloquea la sección mientras dura (`adjusting` en personality.js, 30 s como mucho); el servidor, con el cerebro
+  local y la sesión libre, hace que Ollama lea ya el prompt nuevo (`Session.prime` → `llm.prime_local`, un token,
+  mismo `num_ctx`; `_personality_ready` espera 20 s como mucho). Pruebas: `tests/test_personalidad.py` (Reajuste).
+- Prompt «más persona» (17 nov 2026, petición del usuario): `personality_block` lleva opiniones (`opinions`) y
+  reacciones (`reactions`) de la personalidad, «Antes de responder, lee el mensaje» (tono, intención, confianza) y
+  «Tienes criterio» (permiso para discrepar, nunca condescendiente); «Cómo hablas» prohíbe frases de plantilla, la
+  pregunta forzada al final y abusar de las muletillas; «Memoria viva» con ejemplos. Medido con gemma4 E4B contra el
+  prompt anterior (casos fijos: tierra plana, día fatal, piropo, prisa, hambre, dejar el trabajo).
+- Personalidades (16 nov 2026, Ajustes › Personalidad): `companion/personality.py` + `personas/personalidades.json`;
+  `personality.apply` pone sobre la ficha rasgos, estilo, gustos y ejemplos (nunca nombre, edad, voz, límites ni
+  +18) y `prompt.personality_block` los lleva al prompt de sistema (fijo mientras no se cambie). Las propias (`c_…`)
+  en `settings.json`; personalizar una incluida la copia. Textos de la interfaz sin género (emociones como
+  sustantivos: `EMOTION_NAMES` en `web/js/personality.js`). Ánimo entre turnos: `companion/mood.py` (va en
+  `turn_context`, nunca en el prompt de sistema). Pruebas: `tests/test_personalidad.py`.
 - Recursos: `profile.resources` reparte la memoria de vídeo (escritorio 2 GB + oído 1,1 GB + voz) y recomienda
   voz y modelo local; `profile.LOCAL_MODELS` es el catálogo (12B, E4B, E2B, Qwen 3 1.7B, Gemma 3 1B; los dos
   últimos no ven imágenes; `TOP_RECOMMENDED` es el mayor que se llega a recomendar). El modelo local que elige el usuario es el que se carga (`llm.choose_local`): no lo cambies
@@ -142,6 +316,13 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   nvidia-smi, restando lo nuestro; la estimación fija de 2 GB hacía que en la laptop de 4 GB del usuario, una RTX
   3050, la completa nunca pareciera caber, 15 nov 2026). Salida de audio y volumen: `audio.js` (`setSinkId`; `companion.output` y
   `companion.volume` en localStorage; Electron permite `speaker-selection`).
+- Ajustes › Cerebro y voz (21 nov 2026, «más fácil de usar»): un solo selector de modo (`#modes`: live, hybrid,
+  cloud, local; `currentMode`/`chooseMode`/`drawModes` en main.js) y debajo solo los ajustes de ese modo
+  (`[data-modes]`). Sustituye al modo rápido, los interruptores «en vivo» y «solo nube» y «Dónde piensa» (siguen en
+  el DOM escondidos). Sin clave, el modo queda «pendiente» (`modePending`) hasta guardarla («Guardar y activar»).
+  En vivo, Dispositivos › Oído se ve bloqueado con el motivo; con las acciones apagadas, sus otros dos interruptores.
+  Con otro proveedor elegido en la lista sin guardar, la tarjeta «En vivo» también queda pendiente. `public_cloud`
+  ya no da `key_hint` (enseñaba los 4 últimos caracteres de la clave): la interfaz dice «clave guardada».
 - Ajustes (15 nov 2026): secciones `<details name="ajustes">` (una abierta a la vez) con resumen en la cabecera
   (`sum-…`) y una «i» por opción (`.info[data-tip]` abre su `.tip`; dentro de un interruptor no lo cambia). El
   botón de flotar está en la barra de abajo, junto a compartir pantalla.
@@ -154,6 +335,18 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Autorización (decisión del usuario, 13 nov 2026): su orden basta, sin tarjeta (`actions.config()["ask"]`
   apagado por defecto). Se mantienen: confirmar pasos delicados que la orden no pedía (`control.task_allows`) y
   tarjeta si la acción la eligió el modelo con pantalla o cámara compartidas. No quites esos dos frenos.
+  Excepciones del usuario (16 nov 2026): «controlar» también admite «permitir siempre», y «Acceso total»
+  (`actions.config()["full"]`, opcional, apagado por defecto) quita todas las tarjetas, también la segunda. Aun con
+  acceso total se mantienen el catálogo cerrado, que solo cuenten turnos con mensaje suyo y la confirmación de pasos
+  delicados (`task_allows`).
+- Toques, miradas y mano de puntero (16 nov 2026): `avatar.react(zone)` por partes del cuerpo (`zoneAt`, con los
+  huesos proyectados; en la ventana normal `pickAt` lee el píxel en el siguiente cuadro) y sube de tono al repetir
+  (nivel 1-3, `setTemper` con la personalidad). `_watchView` detecta cara/pecho/piernas de cerca, desde abajo, por
+  la espalda y giros. Ambos pueden mandar `touch`/`look` (solo un tipo fijo, nunca texto) y `Session._poke` lo
+  comenta con `prompt.POKE` como mucho cada `POKE_GAP` (60 s con la nube). Flotando, cada paso de «controlar» con
+  punto lleva la punta del índice derecho (`anchors().hand`) a él con postura según su altura (`pointerWork`:
+  stand/crouch/kneel/reach). Chat flotante: `#text-form` como cápsula. Pruebas: `tests/test_toques.py` y
+  `scripts/prueba_mascota.py` (7b, 9b).
 - Usar ventanas (`companion/control.py` las piezas, `companion/control_task.py` el bucle de pasos; acción
   `controlar`): EN SEGUNDO PLANO (decisión del usuario, 13 nov:
   puede estar jugando). Cada paso escala por `attempt`: accesibilidad → mensajes a la ventana (PostMessage) →
@@ -205,6 +398,26 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   Quita el respaldo local del cerebro (`settings.local_fallback`). La clave de Groq nunca se devuelve a la interfaz.
   `scripts\prueba_nube.py` mide RAM, procesador y vídeo (`--turnos 0` no gasta cuota). La clave de Groq no se ha
   probado de verdad (no había una): solo con peticiones simuladas en `tests\test_nube.py`.
+- Gemini Live (0.9.0, `companion/gemini_live.py`, `profile.gemini_live`, Ajustes › Cerebro y voz): WebSocket directo
+  (micrófono 16 kHz, imágenes, voz 24 kHz) y acciones por la herramienta `ejecutar_accion`. Frenos (21 nov 2026):
+  la herramienta solo vale en turnos que empezó el usuario (`_live_user`; saludo, mirada, toques y temporizadores la
+  rechazan) y, como Gemini recibe el micrófono y el sonido de la pantalla por el mismo canal, si la pantalla sonó en
+  los últimos 4 s (`_live_screen_heard` → `_live_mixed`) un «sí» oído no aprueba tarjetas y toda acción va con tarjeta
+  (`_ask(card=True)`, también con acceso total). Prueba real: `scripts\prueba_gemini_live.py` (datos aislados; córrela con
+  `COMPANION_ACTIONS_DRY=1`: Gemini llegó a pedir abrir una app de verdad).
+  Varios proveedores en vivo (21 nov 2026): `companion/realtime.py` (`LIVE_PROVIDERS`: gemini, openai, xai, qwen,
+  custom; `RealtimeClient` habla el protocolo de OpenAI Realtime, «ga» u «beta», con la misma interfaz que
+  `GeminiLiveClient`). `settings.live` {provider, key (cifrada, `secret.KEYS`), model, voice, url};
+  `profile.live`/`live_ready`/`public_live`; Gemini usa la clave del cerebro si no hay una propia. Solo Gemini está
+  probado con clave real. En vivo `ear_engine()` es «nube» y `engine_now()` no da la completa: ni Whisper ni F5
+  (`lifecycle.loading` enseña solo «La conversación en vivo»).
+  Personalidad y emociones en vivo: herramienta `expresar` (NON_BLOCKING + respuesta SILENT en Gemini: no frena la
+  voz; llega a los 3-4 s, ya hablando) → `express` a la interfaz; antes, `guess_emotion` sobre el texto que llega.
+  `live_recap` repite la personalidad al final del prompt y `_live_context` mete la hora y el ánimo en el prompt al
+  conectar: mandarlos como mensaje aparte (turnComplete false) hacía responder de más y desfasaba un turno.
+  `mood.feel` al acabar cada respuesta. Gemini 3.1 Flash Live rechaza `enableAffectiveDialog` (1007).
+  Cerebro en la nube: `PRESETS` con Anthropic, xAI, DeepSeek, Qwen, Cerebras y Together (sin probar); Ollama propios:
+  `llm.local_info` (fuera los de embeddings; los «-cloud» no piden vídeo).
 - Memoria: `store.py` (messages, memories, summaries); los resúmenes los hace `Session._summarize` en ratos de calma.
 
 ## Reglas
@@ -223,7 +436,8 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   navegador contra el servidor de prueba. Los brazos se escriben para el izquierdo y se reflejan.
 - El prompt de sistema no debe llevar nada que cambie por turno (hora, lo que ve): eso va en `turn_context` y en
   las notas de imagen del último mensaje, para que el modelo local reutilice su caché.
-- No arranques el servidor con `STT_MODEL` distinto del instalado: faster-whisper lo descarga solo de Hugging Face.
+- No arranques el servidor con `STT_MODEL` distinto de los instalados (`models\whisper`: large-v3-turbo y small):
+  faster-whisper descarga cualquier otro solo de Hugging Face.
 - La interfaz se sirve con `Cache-Control: no-cache` y Electron vacía su caché al arrancar. Si una prueba se
   comporta como el código anterior, sospecha primero de JavaScript en caché (pasó el 11 nov 2026).
 - Micrófono y cámara reales: `scripts\prueba_dispositivos.py` (Electron oculto con `COMPANION_TEST_REAL_MEDIA=1`,

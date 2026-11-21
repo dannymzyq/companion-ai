@@ -20,5 +20,5 @@ NOWHERE = "http://127.0.0.1:9"                 # puerto cerrado: si algo intenta
 os.environ.update(DATA_DIR=str(TMP / "data"), MODELS_DIR=str(TMP / "models"), VOICE_INSTALL="0", VOICE_ENGINE="ligera",
                   LLM_PROVIDER="local", GEMINI_API_KEY="", OLLAMA_URL=NOWHERE, TTS_URL=NOWHERE, TTS_TOKEN="",
                   COMPANION_ACTIONS_DRY="1", COMPANION_CONTROL_NO_INPUT="1", HOST="127.0.0.1", PORT="8299",
-                  USER_NAME="Ana")
+                  USER_NAME="Ana", COMPANION_KEYCHAIN="0", UPDATE_CHECK="0")   # en el Mac, nunca el Llavero de verdad
 sys.path.insert(0, str(ROOT))

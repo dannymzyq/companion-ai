@@ -1,6 +1,6 @@
 """Trae a la carpeta del proyecto los modelos que el companion necesita (lo llama el instalador):
 
-    --oido      Whisper large-v3-turbo        → models/whisper/large-v3-turbo   (1,5 GB)
+    --oido      Whisper large-v3-turbo y small → models/whisper/large-v3-turbo y small (1,5 GB + 0,5 GB)
     --ligera    voces de Piper                → models/piper                    (380 MB)
     --completa  F5-TTS en español y su vocoder → voz/modelos                    (1,3 GB)
     --ollama M  el modelo local M con Ollama, por su API (para ver el progreso)
@@ -48,13 +48,21 @@ def vigilar(carpeta: Path, total: int, texto: str):
 
 
 def oido(nombre: str = "large-v3-turbo"):
+    _whisper(nombre, 1.62)
+    # El pequeño (unos 480 MB): el oído en tarjetas de menos de 6,5 GB (profile.ear_model) y el respaldo en el
+    # procesador cuando la tarjeta no sirve (stt.py). Antes se bajaba solo de Hugging Face la primera vez que hacía falta.
+    if nombre == "large-v3-turbo" and sys.platform != "darwin":      # el Mac usa el turbo en su GPU o el procesador
+        _whisper("small", 0.48)
+
+
+def _whisper(nombre: str, gb: float):
     destino = ROOT / "models" / "whisper" / nombre
     if (destino / "model.bin").is_file():
         return print(f"Oido: {nombre} ya esta en models/whisper")
     from faster_whisper import download_model
-    print(f"Oido: descargando Whisper {nombre} (1,5 GB)...", flush=True)
+    print(f"Oido: descargando Whisper {nombre} ({gb:.1f} GB)...".replace(".", ","), flush=True)
     destino.mkdir(parents=True, exist_ok=True)
-    parar = vigilar(destino, int(1.62 * 2**30), "Oído (Whisper)")
+    parar = vigilar(destino, int(gb * 2**30), "Oído (Whisper)")
     try:
         download_model(nombre, output_dir=str(destino))
     finally:

@@ -25,6 +25,20 @@ jobs:
           if ("v$v" -ne "${{ github.ref_name }}") { throw "VERSION dice $v pero la etiqueta es ${{ github.ref_name }}" }
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # Las pruebas rápidas (tests\), como en el Mac: si alguna falla no se publica nada. El entorno va fuera de la
+      # carpeta del proyecto para que no acabe en el paquete.
+      - name: Pruebas rápidas
+        shell: powershell
+        run: |
+          python -m pip install --quiet uv==0.13.8
+          $venv = Join-Path $env:RUNNER_TEMP "venv"
+          uv venv --python 3.13 $venv
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo crear el entorno" }
+          uv pip install --python "$venv\Scripts\python.exe" -r requirements.lock
+          if ($LASTEXITCODE -ne 0) { throw "No se pudieron instalar las dependencias" }
+          & "$venv\Scripts\python.exe" -m unittest discover -s tests -t .
+          if ($LASTEXITCODE -ne 0) { throw "Fallaron las pruebas rápidas: no se publica el Release" }
+
       - name: Crear el instalador
         shell: powershell
         run: ./scripts/crear_instalador.ps1

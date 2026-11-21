@@ -43,6 +43,13 @@ async def loading(transcriber) -> dict:
     """[{id, label, state: cargando|listo|error, detail}] y si queda algo cargando."""
     from . import llm, tts, tts_light, voz_proc
     from .config import settings
+    from . import profile
+    from .realtime import LIVE_PROVIDERS
+    if profile.live_ready():
+        # En vivo el proveedor oye, piensa y habla: no se carga Whisper ni la voz completa (21 nov 2026).
+        lv = profile.live()
+        return {"items": [{"id": "vivo", "label": f"La conversación en vivo ({LIVE_PROVIDERS[lv['provider']]['name']})",
+                           "state": "listo", "detail": "sin modelos en tu PC"}], "busy": False}
     items = []
     if transcriber.engine == "nube":
         items.append({"id": "oido", "label": "El oído", "state": "listo", "detail": "en la nube"})

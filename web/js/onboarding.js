@@ -90,7 +90,7 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
     $('ob-base-box').hidden = p.id !== 'custom';
     $('ob-keys-link').hidden = !p.keys;
     $('ob-keys-link').href = p.keys || '#';
-    $('ob-key').placeholder = saved ? `Clave guardada (${setup.cloud.key_hint}). Escribe otra para cambiarla` : 'Pega aquí tu clave';
+    $('ob-key').placeholder = saved ? 'Clave guardada. Escribe otra para cambiarla' : 'Pega aquí tu clave';
     $('ob-model-box').hidden = p.id === 'gemini';
     $('ob-key-state').textContent = '';
     if (p.id !== setup.cloud.preset) setModels([], '');
@@ -169,7 +169,9 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
         pick.className = 'pick';
         pick.innerHTML = '<b></b><small></small>';
         pick.firstChild.textContent = name;
-        pick.lastChild.textContent = `Ya instalado en Ollama · pide unos ${n(o.vram_gb)} GB de vídeo.${fitText(o.fits)}`;
+        pick.lastChild.textContent = o.cloud
+          ? `Tuyo, en la nube de Ollama (no usa tu tarjeta). ${o.vision ? 'Ve imágenes.' : 'No ve imágenes.'}`
+          : `Tuyo, ya instalado en Ollama · pide unos ${n(o.vram_gb)} GB de vídeo. ${o.vision ? 'Ve imágenes.' : 'No ve imágenes.'}${fitText(o.fits)}`;
         pick.onclick = () => { localPick = name; draw(); };
         row.append(pick);
         rows.push(row);

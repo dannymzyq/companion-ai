@@ -4,6 +4,265 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.9.1 — 2026-11-21
+
+- **Conversación en vivo con más proveedores**: además de Gemini Live (gratis con límite diario), OpenAI Realtime,
+  xAI Grok Voice, Qwen Omni Realtime (cuota gratis al empezar) o un servidor propio compatible. Cada uno con su clave
+  (guardada cifrada), voz y modelo.
+- **Personalidad y emociones en vivo**: el personaje vuelve a actuar según su personalidad y mueve cara y cuerpo
+  mientras habla, sin frenar la voz.
+- **En vivo no se carga nada en tu tarjeta**: ni el oído (Whisper) ni la voz completa.
+- **Más cerebros en la nube**: Anthropic, xAI, DeepSeek, Qwen, Cerebras y Together. Los modelos que ya tengas en
+  Ollama aparecen para elegirlos (con aviso de si ven imágenes o van en la nube).
+- **Ajustes de «Cerebro y voz» más fáciles**: un solo selector con cuatro modos (En vivo, Nube + voz en tu PC, Solo
+  nube, 100 % en tu PC) y debajo solo los ajustes del elegido; si falta una clave, se escribe y se activa en un paso.
+- **Más seguridad**: en vivo, las acciones en tu PC solo valen si las pediste tú en ese turno, y si sonaba la
+  pantalla compartida siempre piden permiso. La interfaz ya no muestra ningún trozo de tu clave.
+
+## 0.9.0 — 2026-11-20
+
+- **Modo Gemini Live (directo)**: nueva integración oficial por WebSocket con la **Gemini Live API**
+  (`gemini-3.1-flash-live-preview`). Con un solo interruptor en *Ajustes › Cerebro y voz*, Gemini se encarga en
+  tiempo real del oído (16 kHz), el cerebro, la visión (cámara y pantalla compartida, incluido el sonido de la
+  pantalla), la voz nativa (24 kHz) y las acciones en tu PC mediante Function Calling (con auto-apertura de apps como
+  Apple Music antes de controlarlas), sin cargar modelos en tu GPU. Incluye soporte de personalidad, toques, mirada en
+  vivo, gestos a petición y comandos rápidos por voz («sí», «no», «para»).
+- **Sin congelamientos en el modelo 3D (60 fps fluidos)**: corregido un error en los microgestos faciales
+  (`web/js/face.js`) que paralizaba el renderizado 1–2 s en modelos sin blendshapes ARKit; lectura de píxel
+  asíncrona con WebGL2 PBO en modo flotante, eliminación de reflows por cuadro (`getBoundingClientRect`), prioridad de
+  GPU dedicada y flags de Electron para evitar bajones de fps en segundo plano.
+- **Nueva interfaz de Configuración y HUD principal**: los 10 acordeones laterales se reorganizaron en un modal
+  espacioso con 5 pestañas (*Personaje*, *Cerebro y voz*, *Dispositivos*, *Acciones y memoria*, *Estado*) y 3 perfiles
+  rápidos en un clic (*Gemini Live*, *Nube + tu voz*, *100 % Local*). Barra inferior rediseñada en cápsula flotante y
+  subtítulos con mejor legibilidad.
+- **Página web de presentación**: nueva landing page interactiva en `docs/` con simulador de estados, explorador de
+  personalidades y reproductor de muestras de voz.
+
+## 0.8.9 — 2026-11-19
+
+- **Más fluido, en ventana y flotando**: se quitaron tres causas de tirones. Flotando, para saber si el ratón está
+  sobre el personaje se leía un píxel de la tarjeta gráfica en cada cuadro, lo que la obligaba a esperar; ahora solo
+  cuando el ratón se mueve (y como mucho cada 50-150 ms). A pantalla completa con escalado de Windows se dibujaban
+  hasta 8 millones de píxeles por cuadro; ahora como mucho unos 3,7 millones (~1440p), y si los cuadros van lentos
+  durante unos segundos baja sola la resolución. Y la página ya no rehace sus estilos 60 veces por segundo cuando
+  los niveles de voz y micrófono no cambian.
+
+## 0.8.8 — 2026-11-18
+
+- **Más bailes**: cada vez que baila elige uno distinto, sin repetir el anterior: el baile grabado, twist, «la ola»
+  (brazos arriba de lado a lado), robot y pasitos saltando. Cuando se entretiene sola, baila el doble de veces.
+- **Una vuelta de verdad**: coge impulso, gira deprisa de puntillas con una pierna doblada y los brazos recogidos,
+  la cabeza se queda mirando al frente y luego da el latigazo, como las bailarinas, y acaba con los brazos arriba.
+- **Animaciones nuevas** (Quaternius, CC0): salto ninja, hacerse la zombi, llamar con la mano, boxear de broma y
+  concentrarse con chispas. Las hace sola cuando se aburre y también se le pueden pedir («haz un salto ninja»,
+  «hazte la zombi», «boxea»); también la esfera.
+- **Gestos coquetos** (sugerentes, nada explícito): baile sensual (caderas en ocho, ola de cuerpo, mano al pelo),
+  posar con la mano en la cadera y un guiño, lanzar un beso con corazones y echarse el pelo atrás. Solo cuando se le
+  piden («baila algo sensual», «hazme una pose», «lánzame un beso») o cuando el personaje coquetea; no los hace sola.
+- **La esfera, bien encuadrada al flotar**: queda arriba de la ventana y la barra de botones debajo, sin taparla.
+
+## 0.8.7 — 2026-11-18
+
+- **El instalador ya no se parece a un virus**: Windows Defender marcó el `.exe` de la 0.8.6 al descargarlo como
+  «Trojan:Win32/Wacatac.B!ml» (una heurística automática, no un virus real; las versiones anteriores no saltaron).
+  El instalador ya no abre PowerShell escondido ni con `-ExecutionPolicy Bypass` (usa `RemoteSigned`, que basta
+  porque los scripts salen del propio `.exe`), y lleva datos de versión y un manifiesto de Windows (se ejecuta como
+  usuario normal). Sin firma digital esto no garantiza que nunca vuelva a saltar con una versión nueva.
+- Incluye lo de la 0.8.6 (frases cortas juntas en modo rápido).
+
+## 0.8.6 — 2026-11-18
+
+- **Menos silencios entre frases en tarjetas lentas**: en modo rápido, las frases cortas seguidas (menos de 60
+  letras) se juntan en una sola petición a la voz, hasta 90 letras. En la RTX 3050 cada petición cuesta unos 2 s
+  fijos y una frase corta dura menos al sonar, así que la siguiente no llegaba a tiempo y quedaban pausas a mitad
+  de las respuestas largas. En tarjetas rápidas no cambia nada.
+
+## 0.8.5 — 2026-11-18
+
+- **El primer turno tras arrancar ya no tarda medio minuto en tarjetas lentas**: la voz completa se da por lista
+  solo después de medir la tarjeta (antes, la primera respuesta se pedía mientras medía, las dos se frenaban y en la
+  RTX 3050 el primer audio llegó a los 30 s), y en modo rápido esa primera frase tampoco se comprueba con Whisper.
+  La medida es una sola frase (antes, dos).
+
+## 0.8.4 — 2026-11-18
+
+Probado en una laptop con RTX 3050 de 4 GB (con la 0.8.3 instalada).
+
+- **Voz completa en modo rápido en tarjetas lentas**: al arrancar, la voz mide una frase corta y, si tarda más de
+  2,5 s, usa 16 pasos, la muestra de voz corta y frases partidas antes (lo que ya usaba el Mac). En la RTX 3050 el
+  primer audio pasa de 5,4–6,6 s a ~1,9 s por frase, y ya habla más rápido de lo que dura. Ahí la frase no se
+  vuelve a escuchar con Whisper antes de sonar (cada repetición costaba otros 3–5 s). Se pierde algo de precisión
+  (en la 5070 Ti, 9 % de palabras frente a 6 %). En tarjetas rápidas no cambia nada.
+- **El oído pequeño se elige de verdad**: el `.env` de las instalaciones traía `STT_MODEL=large-v3-turbo` (de
+  `.env.example`) y anulaba la elección automática de la 0.8.3; ese valor cuenta ahora como automático y
+  `.env.example` trae `STT_MODEL=auto`.
+
+## 0.8.3 — 2026-11-18
+
+- **La nube ya no se queda esperando a un modelo saturado**: si Gemini responde «503, mucha demanda» o no empieza a
+  contestar en 4,5 s, se pasa al siguiente modelo en el acto y el saturado queda al final 10 minutos. Antes se le
+  esperaba y reintentaba: medido el 18 nov, gemini-3.6-flash tardaba de 8 a 49 s en dar su 503 mientras Flash-Lite
+  contestaba en 1 s, y algunos turnos llegaban a los 17 s. El oído en la nube hace lo mismo (5 min de descanso).
+- **Funciona mejor en tarjetas de 4 y 6 GB**:
+  - El oído usa Whisper «small» (0,5 GB) en tarjetas de menos de 6,5 GB en vez del «turbo» (1,3 GB): así caben el
+    oído y la voz completa a la vez. Entiende algo peor (3-5 % de palabras perdidas frente al 1,4 %), pero va igual
+    de rápido. El instalador lo trae ya (unos 480 MB más).
+  - El personaje 3D reduce sus texturas y su resolución según la tarjeta (Ajustes › Tú y tu personaje › «Calidad
+    del personaje»): los avatares incluidos pasan de ~430 MB de memoria de vídeo a ~170 MB en media y ~45 MB en baja.
+  - Las cuentas de memoria usan lo medido (voz completa 1,1 GB en vez de 1,5), así que la voz completa se recomienda
+    en más tarjetas.
+
+## 0.8.2 — 2026-11-17
+
+- **Más persona, menos servicio**: el personaje lee cada mensaje (si bromeas, vas en serio, estás mal o coqueteas;
+  si buscas ayuda, compañía o desahogarte; cuánta confianza hay) y adapta el largo, el tono y el humor. Reacciona
+  antes de responder, no usa frases de plantilla («estoy aquí para ayudarte», «suena difícil»…), no termina siempre
+  con una pregunta y no abusa de sus muletillas. Tiene permiso para no darte la razón y te lo dice si algo le parece
+  mala idea. Trae de vuelta, cuando encaja, detalles concretos que le contaste.
+- **Opiniones y reacciones propias en cada personalidad**: las incluidas traen las suyas y, al crear o personalizar
+  una, hay dos campos nuevos («Opiniones fuertes» y «Cómo reacciona a cosas concretas»).
+- **Cambiar de modelo no deja la ventana parada**: un error al dibujar ya no congela al personaje, las cargas van de
+  una en una (con un límite de 90 s) y, si la tarjeta gráfica pierde el dibujo, el modelo se recarga solo. La
+  ventana guarda sus errores en `data\ventana.log`.
+
+## 0.8.1 — 2026-11-17
+
+- **Cara ARKit**: los modelos que traen las 52 formas de ARKit («Perfect Sync», como Test-Chan) usan su cara
+  completa: cada lado de la boca, mejillas, cejas y ojos por separado, con media sonrisa, una ceja levantada, labios
+  apretados, mejillas hinchadas o la nariz arrugada según la emoción, y los labios redondeándose o apretándose al
+  hablar. El companion lo detecta solo al cargar el modelo; los demás siguen igual (VRoid por partes o expresiones).
+- **Cambiar de personalidad ya no parece colgado**: mientras se ajusta, una pequeña pantalla «Ajustando su
+  personalidad…» encima de la lista (y no se puede pulsar dos veces). Con el cerebro local, el modelo lee ya el prompt
+  nuevo durante ese rato, así que la primera respuesta tras el cambio no tarda más. Si algo no contesta en 30 s, se
+  deja de esperar y se avisa.
+
+## 0.8.0 — 2026-11-17
+
+Todo lo nuevo funciona igual en Windows y en el Mac (la app del Mac se crea con el mismo código).
+
+- **Animaciones grabadas**: el cuerpo se mueve ahora con animaciones de captura de movimiento (reposo, hablar,
+  andar, agacharse, arrodillarse, aterrizar, cruzarse de brazos al enfadarse), adaptadas a cualquier VRM, también a
+  los que cargues tú. Encima sigue lo de siempre: respiración, mirada, gestos al hablar, emociones y toques. Andar
+  flotando avanza lo que mide su paso, sin patinar. Son de la Universal Animation Library de Quaternius (CC0).
+- **Anda y está de pie según cómo se siente**: con alegría da pasos largos y mueve los brazos, triste arrastra
+  los pies con la cabeza baja, tímida camina con pasitos cortos, y también enfadada, pensativa (manos a la espalda),
+  enamorada (pasos ligeros) o nerviosa (de puntillas). Sin una emoción marcada, anda según su personalidad (más
+  tímida u orgullosa). Al cambiar de emoción a media marcha pasa de un estilo a otro sin saltos. Son capturas de
+  personas reales de The 100STYLE Dataset - Ian Mason (CC BY 4.0), algo exageradas, como en el anime.
+- **Los pies se quedan en el suelo**: de pie ya no resbalan ni se hunden al mover la cadera; si el peso cambia
+  mucho, da un pasito para recolocar el pie, como una persona. Andando, el pie de apoyo no atraviesa el suelo.
+- **Movimiento fluido en el escritorio**: la caída, los saltos a una ventana, los paseos y el ir y venir de las
+  acciones se veían a tirones (unos 30 cuadros por segundo); ahora van al ritmo de tu pantalla. Sentada sobre una
+  ventana que mueves, la sigue con suavidad en vez de a saltos, y la mano llega al punto de una acción sin brincos.
+- **Solo el personaje mientras se mueve**: al caer, saltar, pasear, cuando la llevas con el ratón o mientras hace una
+  acción, se esconden la barra de botones y los subtítulos. Si tienes el chat abierto, se queda abierto (salvo cuando
+  se va a dormir: entonces se cierra). Las tarjetas de permiso y el botón «Parar» siguen a la
+  vista.
+- **Faldas y vestidos que no atraviesan las piernas**: en todos los modelos (también los tuyos) la ropa con
+  físicas choca ahora con los muslos y las espinillas y con el suelo: al recostarse, sentarse o levantar la rodilla,
+  la falda cae por encima de la pierna en vez de atravesarla o quedarse tiesa, y la falda y el pelo largo se apoyan en
+  el suelo en vez de hundirse.
+- **Le entra sueño**: a los 3 minutos sin usar la app se recuesta en el suelo de una de tres maneras, hacia el lado
+  izquierdo o el derecho de la pantalla: apoyada sobre un codo (al dormirse se desliza hasta quedar tumbada), sentada
+  con las rodillas dobladas (al dormirse abraza las rodillas y apoya la cabeza) o tumbada boca arriba con el móvil
+  sobre la cara (al dormirse lo baja al pecho; esta, solo en la ventana normal). En la primera, la pierna de
+  abajo va casi estirada y la otra con la rodilla alta y saca una tablet o el móvil para ver algo (la pantalla se ve encendida); al rato le entra sueño, cabecea,
+  deja la pantalla sobre el pecho y se duerme, con «Z» que suben. Flotando, antes va andando a la esquina de abajo
+  más cercana y se recuesta con la espalda hacia el borde de la pantalla. A veces, en la ventana, se sienta sobre los
+  talones a cabecear o se tumba a echar la siesta. En cuanto vuelves se despierta, guarda la pantalla, se levanta y a
+  veces se despereza.
+- **Puedes pedirle que haga cosas**: «¿puedes bailar?», «salta», «date una vuelta», «estírate», «haz un hechizo»,
+  «canta algo», «bebe algo», «haz la V», «saluda», «aplaude», «duérmete»… y lo hace mientras te contesta. Si el
+  modelo se olvida de hacerlo, el companion reconoce la petición y lo hace igual.
+- **Se entretiene sola**: si pasas un rato (unos 50 s) sin hablarle, escribirle ni pasar el ratón por su ventana, de
+  vez en cuando hace algo por su cuenta: baila, salta, da una vuelta, se estira y bosteza, tararea con notas
+  musicales, hace un pequeño hechizo con destellos, bebe algo o curiosea a su alrededor. En cuanto vuelves, lo deja.
+  Se apaga en Ajustes › Tú y tu personaje › «Se entretiene sola».
+- **El rubor sigue la cara**: al girar la cabeza, el rubor de las mejillas se quedaba flotando sobre el pelo. Ahora
+  está pegado a cada mejilla, gira con la cara, el pelo que cae delante lo tapa y la mejilla que no se ve no lo enseña.
+- **Dedos uno a uno**: cada dedo se mueve por su cuenta y llega a su ritmo (el índice primero, el meñique el
+  último); en reposo caen en cascada, como una mano de verdad. Posturas nuevas con cada dedo: mano suave al
+  explicar, palma abierta, pinza u «OK» al precisar algo, señalar, puño. Dos gestos nuevos que puede hacer:
+  pulgar arriba y la V de la paz junto a la cara.
+- **Más gestos en la cara**: con los modelos de VRoid (los incluidos y muchos de los tuyos), cejas, ojos y boca se
+  mueven por separado, así que cada emoción tiene su cara propia (ojos alegres con media sonrisa, cejas de pena con
+  boca pequeña…). Encima hace microgestos: sube las cejas al recalcar algo, entrecierra los ojos, una sonrisita, a
+  veces enseña el colmillo. Los demás modelos siguen con sus expresiones de siempre, también con microgestos.
+- **La boca sigue mejor lo que dice**: distingue vocales y consonantes (en p, t, k cierra un instante; en s, f, ch
+  deja los dientes juntos), con la técnica de wawa-lipsync (MIT).
+- **Triste se le ve la cara**: antes se encorvaba tanto que de frente solo se veía la coronilla.
+- **Con zoom, la barra se sigue viendo**: si alejas al personaje con Ctrl + rueda, la barra ya no se queda debajo de la
+  barra de tareas; y si lo acercas tanto que los pies salen de la ventana, ya no se queda flotando en el aire. Con
+  la ventana pequeña (rueda del ratón), la barra encoge para caber entera, sin cortar los botones de los lados.
+- **El pelo y la ropa notan el movimiento de la ventana**: al arrastrarla, cuando anda o cae, se quedan atrás y
+  vuelven, como si el cuerpo se moviera de verdad.
+- **Cambiar a flotante ya no corta nada**: si está hablando, sigue hablando, y la conversación, el micrófono y
+  la cámara siguen igual al pasar a flotante y al volver (antes se abría una página nueva y la respuesta se
+  cortaba).
+- **El modelo entero al flotar**: nueva opción en Ajustes › Tú y tu personaje, «Desvanecer los pies al flotar».
+  Apagada, se ve el personaje completo, sin el degradado de abajo.
+- **Cámara libre**: el modelo se gira por completo en horizontal y en vertical, se desplaza con el botón derecho
+  y la rueda acerca o aleja hacia donde apunta el ratón. Flotando: botón derecho para girarlo, central para
+  desplazarlo y Ctrl + rueda para acercar la cámara. Doble clic vuelve al encuadre de siempre.
+- **Tu personaje vive en el escritorio** (modo flotante, nuevo apartado Ajustes › «Escritorio»):
+  - te sigue con la mirada y reacciona al pasar el ratón, al tocarla (cabeza o cuerpo) y al arrastrarla;
+  - gravedad: si la sueltas en el aire cae a la barra de tareas;
+  - pasea de vez en cuando por el borde de abajo;
+  - se puede sentar sobre la ventana activa y la sigue si la mueves;
+  - cuando le pides algo en una aplicación, va al lado de esa ventana y se la ve trabajando de espaldas
+    (teclea, señala, desplaza) y al terminar se da la vuelta y vuelve a su sitio.
+  Con un juego o un vídeo a pantalla completa se queda quieta. Las ventanas solo se miran por su posición.
+  - Sentada sobre una ventana se pone de costado, con las manos en el borde y la cara hacia ti, para que la ropa no
+    se vea rara; andar tiene un ciclo de marcha natural y avanza al ritmo de sus pasos.
+  - Transparencia al flotar: elige cuánto se transparenta; con el ratón encima o al agarrarla se ve entera.
+- La opción «Desvanecer los pies al flotar» pasa a ese apartado.
+- La mirada en vivo sin clave de la nube ya no dice que se agotó la cuota.
+- **Personalidades** (nuevo apartado Ajustes › Personalidad): ocho incluidas (De confianza, Pura energía, Ironía
+  fina, Corazón tímido, Modo profesional, Calma total, Orgullo y ternura, Caos simpático). «Personalizar» copia
+  una para ajustarla (nueve rasgos, forma de hablar, muletillas, gustos, ánimo habitual, emociones y frases de
+  ejemplo) y también se puede crear una desde cero. Las respuestas siguen la elegida: reacciona antes de ayudar,
+  tiene opiniones y no suena genérica.
+- **Estado de ánimo**: las emociones que muestra le dejan un ánimo que dura entre turnos y vuelve poco a poco al
+  de siempre de su personalidad. Además nota cuánto hace que no hablabais.
+- **Toques por partes del cuerpo**, también en la ventana normal (un clic corto sobre el personaje): cabeza,
+  pecho, barriga, cadera, piernas, pies, brazos y manos reaccionan distinto, y al repetir sube de tono (corazones
+  grandes en la cabeza; sorpresa, rubor, «no, no» y enfado en el pecho o las piernas; cosquillas en la barriga y
+  los pies), según su personalidad.
+- **Reacciona a cómo la miras** con la cámara libre: de muy cerca a la cara, al pecho o a las piernas, desde abajo,
+  por la espalda o haciéndola girar. A veces te lo dice en voz alta, con su personalidad (Ajustes › Personalidad ›
+  «Comentar toques y miradas»; como mucho uno por minuto con la nube).
+- **Escribirle flotando**: el botón del teclado abre una cápsula bajo el personaje (Intro envía, Esc la cierra).
+- **Hace ella las acciones flotando**: en cada paso al usar una aplicación se coloca para que su mano quede sobre
+  lo que pulsa o escribe: de pie, en cuclillas o de rodillas si está abajo, de puntillas si está arriba.
+- **Permisos**: «Permitir siempre» también para usar una aplicación, y nueva opción **Acceso total** (Ajustes ›
+  Acciones en tu PC) para que no pregunte nunca. Los pasos delicados que no pediste se siguen confirmando.
+
+## 0.7.0 — 2026-11-16
+
+Correcciones y mejoras de una revisión general del companion en Windows y en el Mac.
+
+- **Seguridad: «abrir una carpeta» ya no acepta carpetas de red.** Con una ruta como `\\servidor\carpeta`, solo
+  comprobar si existía hacía que Windows se conectara a ese servidor y le diera una huella de tu contraseña, antes
+  de pedir permiso (por ejemplo, si el modelo la sacaba de un texto que se veía en la pantalla compartida).
+- **Las claves de API se guardan cifradas**: en Windows con la protección de tu cuenta (copiadas a otra PC no
+  sirven) y en el Mac en el Llavero. Las que ya tenías se cifran solas al arrancar.
+- **Los ajustes ya no se pueden perder** si el companion se cierra justo al guardarlos (antes el archivo podía
+  quedar a medias y se perdían la clave y la bienvenida). Queda además una copia del anterior.
+- **La hora es la de tu PC.** Antes el instalador dejaba fija la de Lima en todas las PC.
+- **Si Gemini va lento, pasa al siguiente modelo**: si un modelo tarda más de 8 s en empezar a responder dos
+  veces seguidas, avisa y durante media hora empieza por el siguiente de la lista (hay días en que
+  `gemini-3.6-flash` tarda 20–30 s y Flash-Lite responde en 3).
+- **Aviso de versión nueva**: al abrir, si hay una versión publicada más nueva, lo dice y Ajustes › Estado trae
+  el enlace para descargarla (una consulta anónima a GitHub como mucho cada 12 horas; `UPDATE_CHECK=0` la apaga).
+- **Mac:** los textos ya hablan del Mac (no de «esta PC», «tarjeta gráfica» o «memoria de vídeo»), el estado
+  dice que el oído va en la GPU del Mac (antes decía «CPU»), y un Mac con un chip más modesto ya no baja de modelo
+  local sin motivo: allí «lento» se mide contra lo que suele ir ese modelo en ese Mac.
+- **Privacidad:** los registros ya no guardan lo que dices ni lo que responde (solo cuántos caracteres;
+  `LOG_TEXT=1` lo vuelve a activar), y «Borrar todo» compacta la base de datos para que lo borrado no quede dentro.
+- Los resúmenes de la memoria no usan «él» ni «ella» cuando la conversación no deja claro tu género.
+- Las ventanas se llaman «Companion» y la de compartir pantalla ya no nombra a un personaje fijo.
+- La versión de Windows corre también las pruebas antes de publicarse.
+
 ## 0.6.2 — 2026-11-16
 
 - **Mac: respuestas mucho más rápidas.** Con la voz completa, el companion empieza a hablar a los 3–4 s de que

@@ -9,18 +9,46 @@ import logging
 import re
 import time
 
-from . import actions, control, llm
-from .config import settings
+from . import actions, control, desktop_scene, llm
+from .config import settings, shown
 from .prompt import ACTION_RESULT, OPERATOR, OPERATOR_COORDS, OPERATOR_STEP
 
 log = logging.getLogger("companion.session")
+
+
+def _anim(verb: str) -> str:
+    """Qué animación hace el personaje en ese paso (modo flotante): señalar, teclear o desplazar."""
+    return {"pulsar": "click", "clic": "click", "doble_clic": "click", "escribir": "type", "teclear": "type",
+            "tecla": "type", "atajo": "type", "rueda": "scroll"}.get(verb, "read")
+
+
+async def _where(hwnd: int) -> dict | None:
+    """Dónde está la ventana, para la animación. Nunca debe frenar ni romper la tarea."""
+    try:
+        return await asyncio.to_thread(desktop_scene.window, hwnd)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _point(item, xy, shot) -> list[int] | None:
+    """Punto de la pantalla (píxeles reales) que toca ese paso, si se sabe."""
+    try:
+        if item is not None and item.box:
+            return [(item.box[0] + item.box[2]) // 2, (item.box[1] + item.box[3]) // 2]
+        if xy and shot:
+            return list(shot.to_screen(*xy))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 async def run(sess, req: actions.Request):
     """La tarea entera. `sess` es la Session de la conversación (para avisar a la interfaz y contar el resultado)."""
     win, task = req.target["window"], req.target["task"]
     sess.controlling, sess.control_stop = {"title": win.title, "task": task}, False
-    await sess.send_json({"type": "control_start", "title": win.title[:60], "task": task, "max": control.MAX_STEPS})
+    # Dónde está la ventana: en el modo flotante el personaje va a su lado y se le ve trabajando (desktop/pet.js).
+    await sess.send_json({"type": "control_start", "title": win.title[:60], "task": task, "max": control.MAX_STEPS,
+                          "window": await _where(win.hwnd)})
     steps: list[str] = []
     result, ok, bad, last_typed = "", False, 0, None
     # ¿cambió algo? · pasos seguidos sin efecto · cuántas veces se probó cada paso (cada vez, de forma más directa)
@@ -77,7 +105,8 @@ async def run(sess, req: actions.Request):
                                                                   images, background=True)])
                 llm.pop_notices()
                 step = control.parse(reply)
-                log.info("Control %d%s: %r → %s", n, " (con imagen)" if shot else "", reply[:120], step and (step[0], [a[:60] for a in step[1]]))
+                log.info("Control %d%s: %s → %s", n, " (con imagen)" if shot else "", shown(reply[:120]),
+                         step and (step[0], [a[:60] if settings.log_text else f"<{len(a)}>" for a in step[1]]))
                 if esc.pressed or sess.control_stop:
                     result = f"{settings.user_name} lo paró" + (" con Esc" if esc.pressed else "")
                     break
@@ -144,7 +173,9 @@ async def run(sess, req: actions.Request):
                         result = f"{settings.user_name} no aprobó «{desc}»"
                         actions.log_entry("controlar", f"{desc} en «{win.title}»", "negada", "")
                         break
-                await sess.send_json({"type": "control_step", "n": n, "max": control.MAX_STEPS, "text": desc})
+                await sess.send_json({"type": "control_step", "n": n, "max": control.MAX_STEPS, "text": desc,
+                                      "kind": _anim(verb), "point": _point(item, xy, shot),
+                                      "window": await _where(win.hwnd)})
 
                 # ---- hacerlo: si este mismo paso ya se probó sin efecto, se prueba de forma más directa
                 # (accesibilidad → mensajes a la ventana → teclado y ratón de verdad, solo si no usas la PC)

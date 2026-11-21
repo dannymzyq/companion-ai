@@ -161,3 +161,41 @@ class SoloNube(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OidoSaturado(unittest.TestCase):
+    """18 nov 2026: un 503 o un proveedor que no contesta descansa 5 min y se prueba el siguiente."""
+
+    def setUp(self):
+        stt_cloud._rest.clear()
+
+    def tearDown(self):
+        stt_cloud._rest.clear()
+
+    def test_503_pasa_al_siguiente_y_descansa(self):
+        import httpx
+        calls = []
+
+        def post(url, **kw):
+            calls.append(url)
+            if "groq" in url:
+                return httpx.Response(503, request=httpx.Request("POST", url))
+            return httpx.Response(200, request=httpx.Request("POST", url),
+                                  json={"choices": [{"message": {"content": "hola"}}]})
+        with mock.patch.object(stt_cloud, "groq_key", lambda: "g"), mock.patch.object(stt_cloud, "gemini_key", lambda: "k"), \
+                mock.patch.object(stt_cloud._client, "post", post):
+            self.assertEqual(stt_cloud.transcribe(np.zeros(16000, dtype=np.float32)), "hola")
+        self.assertTrue(stt_cloud._resting("groq"))
+
+    def test_sin_respuesta_descansa(self):
+        import httpx
+
+        def post(url, **kw):
+            if "groq" in url:
+                raise httpx.ReadTimeout("lento")
+            return httpx.Response(200, request=httpx.Request("POST", url),
+                                  json={"choices": [{"message": {"content": "hola"}}]})
+        with mock.patch.object(stt_cloud, "groq_key", lambda: "g"), mock.patch.object(stt_cloud, "gemini_key", lambda: "k"), \
+                mock.patch.object(stt_cloud._client, "post", post):
+            self.assertEqual(stt_cloud.transcribe(np.zeros(16000, dtype=np.float32)), "hola")
+        self.assertTrue(stt_cloud._resting("groq"))

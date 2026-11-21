@@ -27,7 +27,9 @@ GEMINI_MODELS = [m.strip() for m in os.getenv("EAR_GEMINI_MODELS", "gemini-3.5-f
 GEMINI_PROMPT = ("Transcribe literalmente lo que dice la persona en este audio, en {lang}, con su puntuación. "
                  "Responde solo con la transcripción, sin comillas ni comentarios. Si no se oye a nadie hablar, "
                  "responde exactamente: (silencio)")
-_client = httpx.Client(timeout=httpx.Timeout(20, connect=5))
+# 12 s como mucho: una frase se transcribe en 1-3 s; más suele ser un servidor saturado: se prueba el siguiente.
+_client = httpx.Client(timeout=httpx.Timeout(12, connect=4))
+BUSY_REST_S = 300                         # un proveedor saturado (5xx o sin respuesta) descansa 5 min
 _rest: dict[str, float] = {}              # proveedor → hasta cuándo no se usa (se acabó su cuota)
 last: dict = {}                           # el último proveedor que respondió y cuánto tardó (para el estado)
 
@@ -74,6 +76,12 @@ def _rest_after(name: str, r: httpx.Response):
     log.warning("El oído en la nube (%s) agotó su cuota: descanso %d min", name, round((_rest[name] - time.monotonic()) / 60))
 
 
+def _busy(name: str, why):
+    """Saturado (503 «high demand», otro 5xx o sin respuesta): 5 min al final de la cola, como el cerebro."""
+    _rest[name] = time.monotonic() + BUSY_REST_S
+    log.warning("El oído en la nube (%s) está saturado (%s): descansa %d min", name, why, BUSY_REST_S // 60)
+
+
 def _groq(wav: bytes, language: str, hint: str) -> str:
     data = {"model": GROQ_MODEL, "response_format": "verbose_json", "temperature": "0"}
     if language:
@@ -85,6 +93,8 @@ def _groq(wav: bytes, language: str, hint: str) -> str:
     if r.status_code == 429:
         _rest_after("groq", r)
         raise CloudEarError("Groq: cuota agotada")
+    if r.status_code >= 500:
+        _busy("groq", r.status_code)
     if r.status_code != 200:
         raise CloudEarError(f"Groq respondió {r.status_code}")
     out = r.json()
@@ -105,6 +115,8 @@ def _gemini(model: str, wav: bytes, language: str) -> str:
     if r.status_code == 429:
         _rest_after(model, r)
         raise CloudEarError(f"{model}: cuota agotada")
+    if r.status_code >= 500:
+        _busy(model, r.status_code)
     if r.status_code != 200:
         raise CloudEarError(f"{model} respondió {r.status_code}")
     text = str(r.json()["choices"][0]["message"].get("content") or "").strip().strip('"«»')
@@ -130,6 +142,9 @@ def transcribe(audio: np.ndarray, language: str = "es", hint: str = "") -> str:
             return text
         except CloudEarError as e:
             errors.append(str(e))
+        except httpx.TimeoutException as e:
+            _busy(name, type(e).__name__)
+            errors.append(f"{name}: {type(e).__name__}")
         except (httpx.HTTPError, ValueError, KeyError, IndexError) as e:
             errors.append(f"{name}: {type(e).__name__}")
     raise CloudEarError("; ".join(errors))

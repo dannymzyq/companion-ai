@@ -14,6 +14,9 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("Instalar Companion")]
 [assembly: AssemblyProduct("Companion")]
 [assembly: AssemblyDescription("Instalador de Companion")]
+[assembly: AssemblyCompany("Companion (github.com/dannymzyq/companion-ai)")]
+[assembly: AssemblyCopyright("Companion")]
+// La versión (AssemblyVersion, AssemblyFileVersion) la pone scripts\crear_instalador.ps1 en Version.cs al compilar.
 
 static class Lanzador
 {
@@ -35,8 +38,12 @@ static class Lanzador
             string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
                                      @"WindowsPowerShell\v1.0\powershell.exe");
             string ventana = Path.Combine(tmp, @"scripts\ventana_instalar.ps1");
+            // Sin «-WindowStyle Hidden» (ya va sin consola con CreateNoWindow) y con RemoteSigned en vez de Bypass: los
+            // scripts salen del propio .exe, sin la marca de «descargado de internet», así que RemoteSigned los deja
+            // correr. Un .exe pequeño que abre PowerShell escondido con Bypass es justo lo que el antivirus asocia a un
+            // virus (Windows marcó así la 0.8.6, 18 nov 2026).
             ProcessStartInfo psi = new ProcessStartInfo(ps,
-                "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + ventana + "\" -Paquete \"" + tmp + "\"");
+                "-NoProfile -STA -ExecutionPolicy RemoteSigned -File \"" + ventana + "\" -Paquete \"" + tmp + "\"");
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
             psi.WorkingDirectory = tmp;

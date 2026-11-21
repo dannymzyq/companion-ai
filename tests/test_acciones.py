@@ -26,15 +26,39 @@ class Preparar(unittest.TestCase):
         for mal in ("javascript:alert(1)", "file:///C:/Windows"):
             self.assertTrue(actions.prepare("abrir_web", [mal]).target["url"].startswith("https://www.google.com/search?q="))
 
+    def test_carpeta_de_red_nunca(self):
+        # Ni siquiera se comprueba si existe: eso ya conecta con el servidor (y Windows le da una huella de la clave)
+        from pathlib import Path
+        from unittest import mock
+        real = Path.is_dir
+
+        def is_dir(p):
+            if "servidor" in str(p):
+                raise AssertionError(f"tocó la red: {p}")
+            return real(p)
+        with mock.patch("pathlib.Path.is_dir", is_dir):
+            for mal in (r"\\servidor.ejemplo\carpeta", "//servidor.ejemplo/carpeta", r"\\?\UNC\servidor\x",
+                        "smb://servidor/x", "file://servidor/x"):
+                with self.assertRaises(actions.ActionError, msg=mal):
+                    actions.prepare("abrir_carpeta", [mal])
+
     def test_catalogo_cerrado(self):
         for nombre in ("borrar_archivo", "ejecutar", "enviar_correo", "comprar"):
             with self.assertRaises(actions.ActionError):
                 actions.prepare(nombre, ["x"])
 
-    def test_controlar_nunca_permitir_siempre(self):
-        self.assertTrue(actions.CATALOG["controlar"].get("no_always"))
+    def test_controlar_se_puede_permitir_siempre(self):
+        """Desde el 16 nov 2026 (petición del usuario); los pasos delicados se siguen confirmando aparte."""
         actions.save(add_always="controlar")
-        self.assertNotIn("controlar", actions.always())
+        self.assertIn("controlar", actions.always())
+        actions.save(forget_always="controlar")
+
+    def test_acceso_total(self):
+        actions.save(full=True, ask=True)
+        self.assertTrue(actions.config()["full"])
+        self.assertFalse(actions.config()["ask"])          # con acceso total no hay tarjetas
+        actions.save(full=False, ask=False)
+        self.assertFalse(actions.config()["full"])
 
 
 class OrdenesClaras(unittest.TestCase):

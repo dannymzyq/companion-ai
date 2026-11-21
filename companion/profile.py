@@ -28,6 +28,20 @@ PRESETS = {
              "note": "Muy rápido. Sin probar aquí."},
     "mistral": {"name": "Mistral", "base": "https://api.mistral.ai/v1", "keys": "https://console.mistral.ai/api-keys",
                 "note": "Sin probar aquí."},
+    # Añadidos el 21 nov 2026 (petición del usuario: «todas las opciones de pago que tenga»). Todos con su API
+    # compatible con la de OpenAI; ninguno probado aquí con una clave real.
+    "anthropic": {"name": "Anthropic (Claude)", "base": "https://api.anthropic.com/v1",
+                  "keys": "https://console.anthropic.com/settings/keys", "note": "De pago. Sin probar aquí."},
+    "xai": {"name": "xAI (Grok)", "base": "https://api.x.ai/v1", "keys": "https://console.x.ai",
+            "note": "De pago. Sin probar aquí."},
+    "deepseek": {"name": "DeepSeek", "base": "https://api.deepseek.com/v1", "keys": "https://platform.deepseek.com/api_keys",
+                 "note": "De pago, muy barato. No ve imágenes. Sin probar aquí."},
+    "qwen": {"name": "Qwen (Alibaba)", "base": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+             "keys": "https://modelstudio.console.alibabacloud.com", "note": "Cuota gratuita al empezar. Sin probar aquí."},
+    "cerebras": {"name": "Cerebras", "base": "https://api.cerebras.ai/v1", "keys": "https://cloud.cerebras.ai",
+                 "note": "Muy rápido, con capa gratuita. Sin probar aquí."},
+    "together": {"name": "Together AI", "base": "https://api.together.xyz/v1", "keys": "https://api.together.ai/settings/api-keys",
+                 "note": "Muchos modelos abiertos. Sin probar aquí."},
     "custom": {"name": "Otro (compatible con OpenAI)", "base": "", "keys": "", "note": "Escribe la dirección de su API."},
 }
 
@@ -68,10 +82,10 @@ TOP_RECOMMENDED = next(m["id"] for m in LOCAL_MODELS if m.get("recommend", True)
 
 # Memoria de vídeo (GB) de lo que convive con el modelo local, medida en esta PC (RTX 5070 Ti, nov 2026).
 VOICE_ENGINES = {
-    # 1,0 GB en reposo medido con voz/servidor.py (solo F5-TTS); 1,5 con margen para la síntesis. El nodo de
-    # waifuv3 que se usaba antes ocupaba de 5 a 9 GB porque cargaba también Chatterbox.
-    "completa": {"name": "Voz completa", "vram_gb": 1.5,
-                 "note": "Voces clonadas, la de más calidad. Necesita tarjeta NVIDIA: usa alrededor de 1,5 GB de memoria de vídeo."},
+    # Medido el 18 nov 2026 con voz/servidor.py (F5-TTS en float16): 1,03 GB en reposo y 1,12 GB de pico al hablar;
+    # 1,2 con algo de margen. El nodo de waifuv3 que se usaba antes ocupaba de 5 a 9 GB porque cargaba Chatterbox.
+    "completa": {"name": "Voz completa", "vram_gb": 1.2,
+                 "note": "Voces clonadas, la de más calidad. Necesita tarjeta NVIDIA: usa alrededor de 1,1 GB de memoria de vídeo."},
     "ligera": {"name": "Voz ligera", "vram_gb": 0.0,
                "note": "Voces sintéticas (Piper). Corre en el procesador: no usa memoria de vídeo. Suena más artificial y no es la voz clonada."},
     # Voces neuronales de Edge (tts_cloud): sin clave ni cupo, casi sin procesador; necesita internet.
@@ -82,8 +96,35 @@ if MAC:
     VOICE_ENGINES["completa"] = {**VOICE_ENGINES["completa"], "note": (
         "Voces clonadas, la de más calidad. Usa la GPU del Mac: empieza a hablar unos 3 segundos después que la ligera.")}
 EAR_ENGINES = ("local", "nube")
-EAR_GB = 1.1                              # Whisper large-v3-turbo
+# Oído en la GPU (int8_float16), medido el 18 nov 2026 con frases en español de voz clara: memoria de vídeo y
+# palabras perdidas. large-v3-turbo: 1,29 GB, 1,4 %, 0,13 s por frase · small: 0,53 GB, 3-5 %, 0,19 s ·
+# base: 0,14 GB, 6-9 %. En el procesador, small tarda 1,8 s por frase (en esta PC; más en una laptop).
+EAR_MODELS = {"large-v3-turbo": 1.3, "small": 0.55, "base": 0.15}
+EAR_GB = EAR_MODELS["large-v3-turbo"]
+SMALL_EAR_BELOW = 6.5                     # tarjetas de menos GB: el oído pequeño (deja sitio a la voz completa)
 DESKTOP_GB = 2.0                          # Windows, el navegador y la propia ventana (si no se puede medir)
+
+
+def ear_model(total: float | None = None) -> str:
+    """El Whisper que se carga en la GPU. STT_MODEL en .env manda; si no, en tarjetas de menos de SMALL_EAR_BELOW
+    GB el pequeño (si el instalador lo trajo): con el turbo (1,3 GB) y la voz completa (1,1 GB) una tarjeta de
+    4 GB no tenía sitio para las dos."""
+    # «large-v3-turbo» era el valor de .env.example hasta la 0.8.3 y está en el .env de todas las instalaciones: cuenta
+    # como automático (en la laptop de 4 GB del usuario seguía cargando el turbo, 18 nov 2026). Otro valor manda.
+    if (os.getenv("STT_MODEL") or "auto").strip().lower() not in ("", "auto", "large-v3-turbo"):
+        return settings.stt_model
+    if MAC:
+        return "large-v3-turbo"
+    total = gpu_total_gb() if total is None else total
+    small = (ROOT / "models" / "whisper" / "small" / "model.bin").is_file()
+    return "small" if 0 < total < SMALL_EAR_BELOW and small else "large-v3-turbo"
+
+
+def ear_gb() -> float:
+    """GB del oído que se usa ahora (o del que se cargaría)."""
+    from . import stt
+    name = stt.loaded_name or ear_model()
+    return EAR_MODELS.get(name, EAR_GB)
 
 
 def voice_engine() -> str:
@@ -93,7 +134,10 @@ def voice_engine() -> str:
 
 
 def ear_engine() -> str:
-    """Dónde se transcribe lo que dices: local (Whisper en esta PC) o nube (stt_cloud)."""
+    """Dónde se transcribe lo que dices: local (Whisper en esta PC) o nube (stt_cloud). En vivo, el oído es el
+    del proveedor: nada de Whisper en la tarjeta (21 nov 2026)."""
+    if gemini_live():
+        return "nube"
     e = (state.load().get("ear") or {}).get("engine")
     return e if e in EAR_ENGINES else "local"
 
@@ -101,6 +145,46 @@ def ear_engine() -> str:
 def cloud_only() -> bool:
     """Modo «solo nube»: cerebro, oído y voz en la nube; nada de modelos en esta PC (ni el respaldo local)."""
     return bool(state.load().get("cloud_only"))
+
+
+def live() -> dict:
+    """Proveedor de la conversación en vivo: {provider, key, model, voice, url}. Gemini usa la clave del cerebro
+    (si el cerebro es Gemini) cuando no se puso una propia."""
+    from .realtime import LIVE_PROVIDERS
+    s = state.load().get("live") or {}
+    provider = s.get("provider") if s.get("provider") in LIVE_PROVIDERS else "gemini"
+    cfg = LIVE_PROVIDERS[provider]
+    key = s.get("key") or ""
+    if not key and provider == "gemini":
+        c = cloud()
+        key = c["key"] if c["preset"] == "gemini" else ""
+    model = s.get("model") or (settings.gemini_live_model if provider == "gemini" else (cfg["models"] or [""])[0])
+    return {"provider": provider, "key": key, "model": model, "voice": s.get("voice") or "",
+            "url": s.get("url") or cfg.get("url", "")}
+
+
+def live_ready() -> bool:
+    """¿Modo en vivo encendido y con clave?"""
+    return gemini_live() and bool(live()["key"])
+
+
+def public_live() -> dict:
+    from .realtime import LIVE_PROVIDERS
+    lv = live()
+    own = bool((state.load().get("live") or {}).get("key"))
+    return {"provider": lv["provider"], "name": LIVE_PROVIDERS[lv["provider"]]["name"], "model": lv["model"],
+            "voice": lv["voice"], "url": lv["url"] if lv["provider"] == "custom" else "", "has_key": bool(lv["key"]),
+            "own_key": own,
+            "providers": [{"id": k, **{f: v.get(f) for f in ("name", "free", "keys", "models", "voices", "note")}}
+                          for k, v in LIVE_PROVIDERS.items()]}
+
+
+def gemini_live() -> bool:
+    """Modo «Gemini Live»: conexión WebSocket directa a Gemini Live API (oído, cerebro, visión y voz en tiempo real)."""
+    saved = state.load().get("gemini_live")
+    if saved is not None:
+        return bool(saved)
+    return os.getenv("GEMINI_LIVE", "").strip().lower() in ("1", "true", "si", "sí", "yes", "on")
 
 
 def voice_auto() -> bool:
@@ -153,7 +237,7 @@ def measured_others() -> float | None:
     g = llm.gpu_memory()
     if not g:
         return None
-    ours = (EAR_GB if stt.on_gpu else 0.0) + _ollama_on_gpu() + (VOICE_ENGINES["completa"]["vram_gb"] if running else 0.0)
+    ours = (ear_gb() if stt.on_gpu else 0.0) + _ollama_on_gpu() + (VOICE_ENGINES["completa"]["vram_gb"] if running else 0.0)
     _others = round(max(0.3, g["used"] / 1024 - ours), 1)
     return _others
 
@@ -161,7 +245,7 @@ def measured_others() -> float | None:
 def _need_full(others: float | None, model: float) -> float:
     """GB que hacen falta para la voz completa junto al oído, los demás programas y el modelo local. Con lo
     medido se deja 0,2 GB de holgura; con la estimación fija se toleraba 0,3 GB de más."""
-    base = EAR_GB + VOICE_ENGINES["completa"]["vram_gb"] + model
+    base = ear_gb() + VOICE_ENGINES["completa"]["vram_gb"] + model
     return base + (DESKTOP_GB - 0.3 if others is None else others + 0.2)
 
 
@@ -182,6 +266,8 @@ def engine_now() -> tuple[str, str]:
     sin memoria (un juego abierto), llm._too_slow marca _squeezed y también se pasa a la ligera."""
     from . import tts_light, voz_proc
     pref = voice_engine()
+    if gemini_live():                     # en vivo habla el proveedor: no se arranca la voz completa (F5)
+        pref = "nube"
     if pref == "nube":
         from . import tts_cloud
         return ("nube", "") if tts_cloud.installed() else ("ligera", "falta la librería de la voz en la nube")
@@ -212,7 +298,8 @@ def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bo
     lo que queda es para el modelo local."""
     total = round((gpu or {}).get("total", 0) / 1024, 1)
     desktop = DESKTOP_GB if others is None else others
-    base = EAR_GB + desktop
+    ear = EAR_MODELS.get(ear_model(total), EAR_GB)
+    base = ear + desktop
     room = {k: round(max(0.0, total - base - v["vram_gb"]), 1) for k, v in VOICE_ENGINES.items()}
     tier = "alto" if total >= 8 else "medio" if total >= 6 else "bajo"     # desde 8 GB cabe la voz completa con un modelo local
     # Voz recomendada: la completa solo si, además de ella, cabe el cerebro que se va a usar.
@@ -230,7 +317,7 @@ def resources(gpu: dict | None, *, is_cloud: bool, local_model: str, node_ok: bo
     # imágenes; si no, mejor la ligera con un modelo más capaz.
     sees = {m["id"]: m["vision"] for m in LOCAL_MODELS}
     pair = "completa" if node_ok and total and sees[best("completa")] else "ligera"
-    return {"total_gb": total, "tier": tier, "ear_gb": EAR_GB, "desktop_gb": desktop, "room": room,
+    return {"total_gb": total, "tier": tier, "ear_gb": ear, "ear_model": ear_model(total), "desktop_gb": desktop, "room": room,
             "engines": {k: {**v, "id": k} for k, v in VOICE_ENGINES.items()},
             "recommended_engine": engine, "recommended_model": best(pair), "recommended_pair": pair,
             "best": {k: best(k) for k in VOICE_ENGINES}}
@@ -293,7 +380,7 @@ def cloud() -> dict:
 def public_cloud() -> dict:
     c = cloud()
     return {"preset": c["preset"], "name": PRESETS[c["preset"]]["name"], "base": c["base"], "model": c["model"],
-            "has_key": bool(c["key"]), "key_hint": f"…{c['key'][-4:]}" if len(c["key"]) >= 8 else ""}
+            "has_key": bool(c["key"])}
 
 
 def apply():
@@ -319,8 +406,11 @@ def apply():
     if s.get("cloud_only") and (s.get("provider", "gemini") != "gemini" or ear_engine() != "nube"
                                 or voice_engine() != "nube"):
         s = state.save(cloud_only=False)
-    # En «solo nube» no se carga el modelo local ni como respaldo cuando se acaba la cuota (ocuparía RAM o vídeo).
-    settings.local_fallback = _ENV_LOCAL_FALLBACK and not cloud_only()
+    # «Gemini Live» requiere cerebro en la nube con Gemini; si se cambia a local u otro proveedor, se apaga solo.
+    if s.get("gemini_live") and (s.get("provider", "gemini") != "gemini" or not live()["key"]):
+        s = state.save(gemini_live=False)
+    # En «solo nube» o «Gemini Live» no se carga el modelo local ni como respaldo (ocuparía RAM o vídeo).
+    settings.local_fallback = _ENV_LOCAL_FALLBACK and not cloud_only() and not gemini_live()
     settings.voice_engine, settings.voice_reason = engine_now()
     v = voice()
     settings.tts_voice = v["tts_voice"] if v else _ENV_VOICE

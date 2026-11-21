@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mika</title>
+  <title>Companion</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23c084fc'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23fff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">
@@ -59,7 +59,8 @@
       <p id="mika-line"></p>
     </section>
     <form id="text-form" hidden>
-      <input id="text-input" type="text" autocomplete="off" placeholder="Escríbele a Mika…">
+      <input id="text-input" type="text" autocomplete="off" placeholder="Escríbele a Mika…" maxlength="2000">
+      <button id="text-send" type="submit" aria-label="Enviar" title="Enviar (Intro)"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
     </form>
     <div class="controls">
       <button id="keyboard" class="icon" aria-label="Escribir" title="Escribir">
@@ -227,195 +228,419 @@
   </div>
 
   <aside id="settings" hidden>
-    <div class="sheet">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="sheet-head">
-        <h2>Ajustes</h2>
+        <div>
+          <h2 id="settings-title">Ajustes</h2>
+          <p class="sheet-sub">Configura tu personaje, voz, cerebro y privacidad.</p>
+        </div>
         <button id="close-settings" class="icon" aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
-      <p class="note sheet-intro">Toca una sección para abrirla. El botón <span class="info-sample">i</span> explica cada opción.</p>
 
-      <!-- 1. Tú y tu personaje -->
-      <details class="group" name="ajustes" data-group="tu" open>
-        <summary>
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
-          <span><b>Tú y tu personaje</b><small id="sum-tu"></small></span>
-        </summary>
-        <div class="set">
-          <div class="set-head"><b>Tus datos</b><button class="info" data-tip="tip-me" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-me" hidden>Tu nombre, tu año de nacimiento y cómo quieres que te hable. Se guardan solo en esta PC.</p>
-          <div class="line"><span id="me-line"></span><button class="mini" data-edit="perfil">Cambiar</button></div>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Modelo 3D</b><button class="info" data-tip="tip-model" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-model" hidden>El cuerpo de tu personaje. Elige uno de los incluidos o sube un modelo .vrm (también puedes arrastrarlo a la ventana). Los avatares incluidos siempre quedan disponibles.</p>
-          <div id="model-list" class="model-list"></div>
-          <button id="model-upload" class="ghost">Subir un modelo .vrm</button>
-          <input type="file" id="model-file" accept=".vrm" hidden>
-        </div>
-      </details>
+      <div class="settings-body">
+        <nav class="settings-nav" role="tablist" aria-label="Secciones de ajustes">
+          <button class="snav active" role="tab" aria-selected="true" data-stab="personaje">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+            <span><b>Personaje</b><small id="sum-tu"></small></span>
+          </button>
+          <button class="snav" role="tab" aria-selected="false" data-stab="cerebro">
+            <svg viewBox="0 0 24 24"><path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-1.5 5.3A3 3 0 0 0 8 17.5a2.5 2.5 0 0 0 4 1.5V5.5A2.5 2.5 0 0 0 9 4.5ZM15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 1.5 5.3 3 3 0 0 1-3.5 4.7 2.5 2.5 0 0 1-4 1.5"/></svg>
+            <span><b>Cerebro y voz</b><small id="sum-cerebro"></small></span>
+          </button>
+          <button class="snav" role="tab" aria-selected="false" data-stab="escritorio">
+            <svg viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="12" rx="2.5"/><path d="M8.5 20h7M12 16.5V20"/></svg>
+            <span><b>Dispositivos</b><small id="sum-dispositivos"></small></span>
+          </button>
+          <button class="snav" role="tab" aria-selected="false" data-stab="memoria">
+            <svg viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>
+            <span><b>Acciones y memoria</b><small id="sum-acciones"></small></span>
+          </button>
+          <button class="snav" role="tab" aria-selected="false" data-stab="estado">
+            <svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>
+            <span><b>Estado</b><small id="sum-estado"></small></span>
+          </button>
+        </nav>
 
-      <!-- 2. Cerebro -->
-      <details class="group" name="ajustes" data-group="cerebro">
-        <summary>
-          <svg viewBox="0 0 24 24"><path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-1.5 5.3A3 3 0 0 0 8 17.5a2.5 2.5 0 0 0 4 1.5V5.5A2.5 2.5 0 0 0 9 4.5ZM15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 1.5 5.3 3 3 0 0 1-3.5 4.7 2.5 2.5 0 0 1-4 1.5"/></svg>
-          <span><b>Cerebro</b><small id="sum-cerebro"></small></span>
-        </summary>
-        <label class="row set">
-          <span><b>Solo nube</b><button class="info" data-tip="cloud-only-note" aria-label="Qué es esto">i</button>
-            <small class="tip" id="cloud-only-note" hidden>Pone el cerebro, el oído y la voz en la nube: no se carga ningún modelo en esta PC, así que casi no usa la tarjeta gráfica ni la RAM (para PC sin tarjeta o mientras juegas). Lo que dices y lo que responde viajan por internet. Las voces son las neuronales de Microsoft, no las clonadas. Al apagarlo vuelve a lo que tenías.</small></span>
-          <input type="checkbox" id="cloud-only" class="switch">
-        </label>
-        <div class="set">
-          <div class="set-head"><b>Dónde piensa</b><button class="info" data-tip="brain-note" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="brain-note" hidden></p>
-          <div class="segment" id="provider">
-            <button data-value="gemini"><b>Nube</b><small id="cloud-name">Gemini</small></button>
-            <button data-value="local"><b>Local</b><small>Ollama en esta PC</small></button>
-          </div>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Nube</b><button class="info" data-tip="tip-cloud" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-cloud" hidden>El proveedor y la clave de API con la que piensa en la nube. Responde mejor y no ocupa tu tarjeta gráfica. La clave se guarda solo en esta PC.</p>
-          <div class="line"><span id="cloud-line"></span><button class="mini" data-edit="cerebro">Proveedor y clave</button></div>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Modelo local</b><button class="info" data-tip="tip-local" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-local" hidden>El modelo que corre en tu PC con Ollama cuando eliges «Local». Nada sale de tu PC, pero comparte la memoria de vídeo de la tarjeta con la voz completa y el oído.</p>
-          <div class="line"><span id="local-line"></span><button class="mini" data-edit="local">Cambiar</button></div>
-        </div>
-      </details>
+        <div class="settings-panels">
+          <!-- TAB 1: Personaje (Tú, Modelo 3D y Personalidad) -->
+          <section class="stab-panel active" data-stab-panel="personaje">
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Tú y tu modelo 3D</h3>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Tus datos</b><button class="info" data-tip="tip-me" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-me" hidden>Tu nombre, tu año de nacimiento y cómo quieres que te hable. Se guardan solo en esta PC.</p>
+                <div class="line"><span id="me-line"></span><button class="mini" data-edit="perfil">Cambiar</button></div>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Modelo 3D</b><button class="info" data-tip="tip-model" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-model" hidden>El cuerpo de tu personaje. Elige uno de los incluidos o sube un modelo .vrm (también puedes arrastrarlo a la ventana). Doble clic vuelve a encuadrar la cámara.</p>
+                <div id="model-list" class="model-list"></div>
+                <button id="model-upload" class="ghost">Subir un modelo .vrm</button>
+                <input type="file" id="model-file" accept=".vrm" hidden>
+              </div>
+              <div class="set-split">
+                <div class="set">
+                  <div class="set-head"><b>Calidad 3D</b><button class="info" data-tip="tip-quality" aria-label="Qué es esto">i</button></div>
+                  <p class="tip" id="tip-quality" hidden>Cuánta memoria de vídeo usa el personaje 3D. «Automática» la ajusta según tu tarjeta.</p>
+                  <div class="picker"><select id="quality-select" aria-label="Calidad del personaje">
+                    <option value="auto">Automática</option>
+                    <option value="alta">Alta</option>
+                    <option value="media">Media</option>
+                    <option value="baja">Baja (tarjetas de 4 GB)</option>
+                  </select></div>
+                </div>
+                <label class="row set">
+                  <span><b>Se entretiene sola</b><button class="info" data-tip="tip-hobby" aria-label="Qué es esto">i</button>
+                    <small class="tip" id="tip-hobby" hidden>Si pasas un rato sin usar la app, hace pasatiempos por su cuenta y a los 3 minutos echa una siesta.</small></span>
+                  <input type="checkbox" id="hobby" class="switch">
+                </label>
+              </div>
+            </div>
 
-      <!-- 3. Voz y sonido -->
-      <details class="group" name="ajustes" data-group="voz">
-        <summary>
-          <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
-          <span><b>Voz y sonido</b><small id="sum-voz"></small></span>
-        </summary>
-        <div class="set">
-          <div class="set-head"><b>Voz</b><button class="info" data-tip="tip-voice" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-voice" hidden>La voz de tu personaje (también le da el nombre) y el motor: la completa suena como la voz clonada y usa la tarjeta gráfica; la ligera corre en el procesador y suena más sintética; la de la nube usa voces neuronales de Microsoft por internet, sin clave y casi sin recursos.</p>
-          <div class="line"><span id="voice-line"></span><button class="mini" data-edit="voz">Cambiar</button></div>
-        </div>
-        <label class="row set">
-          <span><b>Pasar sola a la voz ligera</b><button class="info" data-tip="voice-auto-note" aria-label="Qué es esto">i</button>
-            <small class="tip" id="voice-auto-note" hidden></small></span>
-          <input type="checkbox" id="voice-auto" class="switch">
-        </label>
-        <div class="set">
-          <div class="set-head"><b>Salida de audio</b><button class="info" data-tip="tip-output" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-output" hidden>Por dónde suena tu personaje: altavoces, auriculares o cualquier otra salida de la PC. «Predeterminada» sigue la que tenga Windows en cada momento.</p>
-          <div class="picker"><select id="output-select" aria-label="Salida de audio"></select></div>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Volumen</b><span id="volume-value" class="value"></span><button class="info" data-tip="tip-volume" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-volume" hidden>El volumen de la voz dentro de la app, aparte del volumen de Windows. Por encima de 100 % la refuerza, por si suena baja.</p>
-          <input type="range" id="volume" min="0" max="150" step="5" aria-label="Volumen de la voz">
-        </div>
-      </details>
+            <div class="set-card" id="personality-group">
+              <div class="card-head">
+                <h3>Personalidad</h3>
+                <small id="sum-personalidad" class="card-meta"></small>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Cómo es</b><button class="info" data-tip="tip-personality" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-personality" hidden>Su forma de ser y de hablar. Elige una incluida, personalízala o crea una desde cero.</p>
+                <div class="adjust-wrap">
+                  <div id="personality-list" class="model-list"></div>
+                  <div id="personality-busy" class="adjusting" hidden role="status" aria-live="polite">
+                    <div class="loading-ring"></div><b>Ajustando su personalidad…</b><small>Un momento: así la próxima respuesta ya sale con la nueva.</small>
+                  </div>
+                </div>
+                <button id="personality-new" class="ghost">Crear una personalidad nueva</button>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Su ánimo ahora</b><button class="info" data-tip="tip-mood" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-mood" hidden>Las emociones que muestra le dejan un ánimo que evoluciona con la charla y vuelve poco a poco al habitual.</p>
+                <div class="line"><span id="mood-line"></span></div>
+              </div>
+              <label class="row set">
+                <span><b>Comentar toques y miradas</b><button class="info" data-tip="tip-react-voice" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-react-voice" hidden>Si la tocas varias veces o la miras de muy cerca, a veces lo comenta en voz alta (con la nube gasta cuota).</small></span>
+                <input type="checkbox" id="react-voice" class="switch">
+              </label>
+              <form id="personality-form" class="voice-form picker" hidden>
+                <p class="ob-info" id="pf-title"></p>
+                <label for="pf-name">Nombre de la personalidad</label>
+                <input type="text" id="pf-name" maxlength="40" required>
+                <label for="pf-summary">En una línea</label>
+                <input type="text" id="pf-summary" maxlength="120" placeholder="Por ejemplo: bromista, pero muy protectora">
+                <label for="pf-description">Quién es y cómo es</label>
+                <textarea id="pf-description" maxlength="700" rows="4" placeholder="Su carácter, su historia, cómo te trata…"></textarea>
+                <label>Rasgos</label>
+                <div id="pf-traits" class="traits"></div>
+                <label for="pf-formality">Cómo te habla</label>
+                <select id="pf-formality"></select>
+                <label for="pf-speech">Su forma de hablar</label>
+                <textarea id="pf-speech" maxlength="400" rows="2" placeholder="Frases cortas, mucho humor, se ríe de todo…"></textarea>
+                <label for="pf-catch">Muletillas (separadas por comas)</label>
+                <input type="text" id="pf-catch" maxlength="200">
+                <label for="pf-likes">Le gusta (separado por comas)</label>
+                <input type="text" id="pf-likes" maxlength="500">
+                <label for="pf-dislikes">No le gusta (separado por comas)</label>
+                <input type="text" id="pf-dislikes" maxlength="400">
+                <label for="pf-opinions">Opiniones fuertes, una por línea</label>
+                <textarea id="pf-opinions" maxlength="850" rows="3" placeholder="La piña en la pizza es un crimen.&#10;Trasnochar está sobrevalorado."></textarea>
+                <label for="pf-reactions">Cómo reacciona a cosas concretas, una por línea</label>
+                <textarea id="pf-reactions" maxlength="700" rows="3" placeholder="Si te halagan, lo niegas y cambias de tema.&#10;Si dice una tontería, se lo dices con humor."></textarea>
+                <label for="pf-mood">Ánimo de siempre</label>
+                <select id="pf-mood"></select>
+                <label>Emociones que más se le notan (hasta tres)</label>
+                <div id="pf-emotions" class="chips"></div>
+                <label for="pf-examples">Frases de ejemplo, una por línea</label>
+                <textarea id="pf-examples" maxlength="1100" rows="4" placeholder="Cómo te respondería. Es lo que más ayuda a que suene a su personalidad."></textarea>
+                <div class="buttons">
+                  <button type="submit" class="primary">Guardar y usarla</button>
+                  <button type="button" id="pf-cancel" class="ghost">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </section>
 
-      <!-- 4. Micrófono y cámara -->
-      <details class="group" name="ajustes" data-group="dispositivos">
-        <summary>
-          <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
-          <span><b>Micrófono y cámara</b><small id="sum-dispositivos"></small></span>
-        </summary>
-        <div class="set">
-          <div class="set-head"><b>Micrófono</b><button class="info" data-tip="tip-mic" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-mic" hidden>El micrófono con el que te escucha. Habla: la barra debe moverse con tu voz. Dónde se transcribe lo decide «Oído», abajo.</p>
-          <div class="picker">
-            <select id="mic-select-2" aria-label="Micrófono"></select>
-            <div class="meter" aria-hidden="true"><i id="mic-meter-2"></i></div>
-            <button id="mic-allow-2" class="link" hidden>Permitir micrófono</button>
-          </div>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Oído</b><button class="info" data-tip="tip-ear" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-ear" hidden>Dónde se convierte en texto lo que dices. Local: Whisper en esta PC (usa ~1,1 GB de la tarjeta gráfica, o el procesador). Nube: tu voz viaja a Groq, que da unas 2.000 frases al día gratis con una clave propia (gratuita, en console.groq.com); sin ella, o si se acaba, usa Gemini con la clave del cerebro. Si la nube falla, vuelve a Whisper en el procesador. Con el oído en la nube no se transcribe el sonido de la pantalla compartida.</p>
-          <div class="segment" id="ear">
-            <button data-value="local"><b>Local</b><small>Whisper en esta PC</small></button>
-            <button data-value="nube"><b>Nube</b><small id="ear-cloud-name">Groq o Gemini</small></button>
-          </div>
-          <div class="picker" id="groq-box">
-            <input id="groq-key" type="password" autocomplete="off" spellcheck="false" placeholder="Clave de Groq (gsk_…)" aria-label="Clave de Groq">
-            <div class="line"><small id="groq-state"></small><button class="mini" id="groq-save">Guardar clave</button></div>
-            <small><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Conseguir una clave gratis</a> · Se guarda solo en esta PC.</small>
-          </div>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Cámara</b><button class="info" data-tip="tip-cam" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-cam" hidden>La cámara que se enciende con el botón de cámara y al empezar, para que te vea.</p>
-          <div class="picker"><select id="cam-select-2" aria-label="Cámara"></select></div>
-        </div>
-      </details>
+          <!-- TAB 2: Cerebro y Voz. Un solo selector de modo; debajo, solo lo que ese modo usa (21 nov 2026). -->
+          <section class="stab-panel" data-stab-panel="cerebro">
+            <div class="set-card">
+              <div class="card-head">
+                <h3>¿Cómo quieres que funcione?</h3>
+                <small class="card-meta">Un clic y listo: puedes cambiarlo cuando quieras</small>
+              </div>
+              <div class="modes" id="modes" role="radiogroup" aria-label="Modo de funcionamiento">
+                <button type="button" class="mode" data-mode="live" role="radio">
+                  <span class="mode-top"><b>En vivo</b><i class="tag good">Más natural</i></span>
+                  <small>Habla contigo como en una llamada: te oye, piensa y responde con su voz al instante, en la nube.</small>
+                  <span class="mode-tags"><i>Tu tarjeta queda libre</i><i>Necesita internet y una clave</i></span>
+                </button>
+                <button type="button" class="mode" data-mode="hybrid" role="radio">
+                  <span class="mode-top"><b>Nube + voz en tu PC</b><i class="tag">Recomendado</i></span>
+                  <small>Piensa en la nube y habla con su voz clonada, que se genera en tu tarjeta gráfica.</small>
+                  <span class="mode-tags"><i>La voz de más calidad</i><i>Unos 2,5 GB de tarjeta</i></span>
+                </button>
+                <button type="button" class="mode" data-mode="cloud" role="radio">
+                  <span class="mode-top"><b>Solo nube</b></span>
+                  <small>Todo en internet: para PCs sin tarjeta gráfica o con poca memoria.</small>
+                  <span class="mode-tags"><i>No usa tu tarjeta</i><i>Voz más sencilla</i></span>
+                </button>
+                <button type="button" class="mode" data-mode="local" role="radio">
+                  <span class="mode-top"><b>100 % en tu PC</b></span>
+                  <small>Nada sale de tu PC: el cerebro corre con Ollama. Funciona sin internet.</small>
+                  <span class="mode-tags"><i>Máxima privacidad</i><i>Pide una buena tarjeta</i></span>
+                </button>
+              </div>
+              <p class="mode-now" id="mode-now" role="status" aria-live="polite"></p>
+            </div>
 
-      <!-- 5. Compartir -->
-      <details class="group" name="ajustes" data-group="compartir">
-        <summary>
-          <svg viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="12" rx="2.5"/><path d="M8.5 20h7M12 16.5V20"/></svg>
-          <span><b>Pantalla y cámara compartidas</b><small id="sum-compartir"></small></span>
-        </summary>
-        <label class="row set" id="watch-row">
-          <span><b>Mirada en vivo</b><button class="info" data-tip="watch-note" aria-label="Qué es esto">i</button>
-            <small class="tip" id="watch-note" hidden></small></span>
-          <input type="checkbox" id="watch" class="switch">
-        </label>
-        <p class="note">Al compartir la pantalla eliges si también escucha su sonido. El botón de flotar, en la barra de abajo junto a compartir, saca a tu personaje de la ventana para que quede por encima de todo.</p>
-      </details>
+            <div class="set-card" id="mode-settings">
+              <div class="card-head">
+                <h3 id="mode-settings-title">Ajustes de este modo</h3>
+              </div>
 
-      <!-- 6. Acciones -->
-      <details class="group" name="ajustes" data-group="acciones">
-        <summary>
-          <svg viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>
-          <span><b>Acciones en tu PC</b><small id="sum-acciones"></small></span>
-        </summary>
-        <label class="row set">
-          <span><b>Permitir que pida acciones</b><button class="info" data-tip="actions-note" aria-label="Qué es esto">i</button>
-            <small class="tip" id="actions-note" hidden>Puede pedir abrir aplicaciones, webs y carpetas, buscar archivos por nombre, poner temporizadores, controlar la música y el volumen, y usar una aplicación abierta con tu ratón y teclado. Nada se hace sin tu permiso.</small></span>
-          <input type="checkbox" id="actions-on" class="switch">
-        </label>
-        <label class="row set">
-          <span><b>Pedir permiso antes de cada acción</b><button class="info" data-tip="tip-ask" aria-label="Qué es esto">i</button>
-            <small class="tip" id="tip-ask" hidden>Apagado: lo que le ordenas se hace directamente. Encendido: cada acción espera a que la apruebes en una tarjeta. Los pasos delicados (enviar, comprar, borrar algo que no pediste) se confirman siempre.</small></span>
-          <input type="checkbox" id="actions-ask" class="switch">
-        </label>
-        <div id="actions-always" class="memory-list"></div>
-        <div id="actions-log" class="memory-list"></div>
-      </details>
+              <div class="set" data-modes="live">
+                <div class="set-head"><b>Con quién habla en vivo</b><button class="info" data-tip="live-note" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="live-note" hidden></p>
+                <div class="picker" id="live-box">
+                  <select id="live-provider" aria-label="Proveedor en vivo"></select>
+                  <input id="live-key" type="password" autocomplete="off" spellcheck="false" placeholder="Clave de API" aria-label="Clave del proveedor en vivo">
+                  <select id="live-voice" aria-label="Voz en vivo"></select>
+                  <details class="adv">
+                    <summary>Opciones avanzadas</summary>
+                    <label for="live-model">Modelo</label>
+                    <input id="live-model" type="text" list="live-models" autocomplete="off" spellcheck="false" placeholder="Modelo">
+                    <datalist id="live-models"></datalist>
+                    <label for="live-url" id="live-url-label" hidden>Dirección del proveedor</label>
+                    <input id="live-url" type="text" autocomplete="off" spellcheck="false" placeholder="wss://…" hidden>
+                  </details>
+                  <div class="line"><small id="live-state"></small><button class="mini primary-mini" id="live-save">Guardar</button></div>
+                  <small><a id="live-keys" href="#" target="_blank" rel="noopener">Conseguir una clave</a> · Se guarda cifrada solo en esta PC.</small>
+                </div>
+              </div>
 
-      <!-- 7. Memoria y datos -->
-      <details class="group" name="ajustes" data-group="memoria">
-        <summary>
-          <svg viewBox="0 0 24 24"><path d="M5 4.5h11l3 3v12H5z"/><path d="M8.5 10h7M8.5 13.5h7M8.5 17h4"/></svg>
-          <span><b>Memoria y datos</b><small id="sum-memoria">Lo que recuerda de ti, y empezar de nuevo</small></span>
-        </summary>
-        <div class="set">
-          <div class="set-head"><b>Lo que recuerda</b><button class="info" data-tip="tip-memory" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-memory" hidden>Lo que <span class="ob-name">Mika</span> recuerda de ti entre sesiones: datos que le cuentas y un resumen de cada conversación pasada. Lo reciente lo tiene presente tal cual.</p>
-          <div id="memory-list" class="memory-list"></div>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Olvidar todo</b><button class="info" data-tip="tip-forget" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-forget" hidden>Borra el historial y lo que <span class="ob-name">Mika</span> recuerda de ti. Tu perfil y tus ajustes se conservan. No se puede deshacer.</p>
-          <button id="forget" class="danger">Olvidar todo</button>
-        </div>
-        <div class="set">
-          <div class="set-head"><b>Empezar de nuevo</b><button class="info" data-tip="tip-redo" aria-label="Qué es esto">i</button></div>
-          <p class="tip" id="tip-redo" hidden>«Repetir la bienvenida» vuelve a pasar por los pasos del principio con lo que ya tienes guardado, para cambiarlo. «Restablecer mis datos» borra tu perfil, la clave de API, la voz y el personaje elegidos, el micrófono y la cámara recordados, la conversación y los recuerdos: queda como recién instalado. Esto último no se puede deshacer.</p>
-          <div class="buttons">
-            <button id="redo-onboarding" class="ghost">Repetir la bienvenida</button>
-            <button id="reset-all" class="danger">Restablecer mis datos</button>
-          </div>
-        </div>
-      </details>
+              <div class="set" data-modes="hybrid cloud">
+                <div class="set-head"><b>Cerebro en la nube</b><button class="info" data-tip="tip-cloud" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-cloud" hidden>Qué empresa le da el cerebro (Google Gemini tiene capa gratuita) y tu clave de API. Se guarda cifrada solo en esta PC.</p>
+                <div class="line"><span id="cloud-line"></span><button class="mini" data-edit="cerebro">Cambiar</button></div>
+              </div>
 
-      <!-- 8. Estado -->
-      <details class="group" name="ajustes" data-group="estado">
-        <summary>
-          <svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>
-          <span><b>Estado</b><small id="sum-estado"></small></span>
-        </summary>
-        <dl id="health"></dl>
-      </details>
+              <div class="set" data-modes="local">
+                <div class="set-head"><b>Cerebro en tu PC</b><button class="info" data-tip="tip-local" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-local" hidden>El modelo que corre en tu PC con Ollama. Aparecen también los que ya tengas instalados en Ollama.</p>
+                <div class="line"><span id="local-line"></span><button class="mini" data-edit="local">Cambiar</button></div>
+              </div>
+
+              <div class="set" data-modes="hybrid cloud local">
+                <div class="set-head"><b>Su voz</b><button class="info" data-tip="tip-voice" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-voice" hidden>La voz del personaje (le da su nombre). Completa: clonada, en tu tarjeta gráfica. Ligera: en el procesador. Nube: por internet.</p>
+                <div class="line"><span id="voice-line"></span><button class="mini" data-edit="voz">Cambiar</button></div>
+              </div>
+
+              <label class="row set" data-modes="hybrid local">
+                <span><b>Si falta memoria, usar la voz ligera</b><button class="info" data-tip="voice-auto-note" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="voice-auto-note" hidden></small></span>
+                <input type="checkbox" id="voice-auto" class="switch">
+              </label>
+
+              <p class="note" data-modes="cloud">Te escucha por internet con Groq o Gemini: la clave de Groq (opcional, gratis) está en Dispositivos › Oído.</p>
+              <p class="note" data-modes="live">En vivo no se carga nada en tu tarjeta: ni el oído (Whisper) ni la voz completa.</p>
+              <p class="tip" id="brain-note" hidden></p>
+
+              <!-- Los controles de antes siguen aquí, escondidos, para no romper nada que los lea. -->
+              <div hidden>
+                <input type="checkbox" id="gemini-live"><input type="checkbox" id="cloud-only">
+                <div id="provider"><button data-value="gemini"><small id="cloud-name"></small></button><button data-value="local"></button></div>
+                <div id="quick-modes"><small id="qmode-live-name"></small></div>
+              </div>
+            </div>
+
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Sonido</h3>
+                <small id="sum-voz" class="card-meta"></small>
+              </div>
+              <div class="set-split">
+                <div class="set">
+                  <div class="set-head"><b>Salida de audio</b><button class="info" data-tip="tip-output" aria-label="Qué es esto">i</button></div>
+                  <p class="tip" id="tip-output" hidden>Altavoces o auriculares por donde suena tu personaje.</p>
+                  <div class="picker"><select id="output-select" aria-label="Salida de audio"></select></div>
+                </div>
+                <div class="set">
+                  <div class="set-head"><b>Volumen</b><span id="volume-value" class="value"></span><button class="info" data-tip="tip-volume" aria-label="Qué es esto">i</button></div>
+                  <p class="tip" id="tip-volume" hidden>Volumen de la voz dentro de la app (aparte del de Windows).</p>
+                  <input type="range" id="volume" min="0" max="150" step="5" aria-label="Volumen de la voz">
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- TAB 3: Dispositivos, Visión y Escritorio -->
+          <section class="stab-panel" data-stab-panel="escritorio">
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Micrófono, oído y cámara</h3>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Micrófono</b><button class="info" data-tip="tip-mic" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-mic" hidden>El micrófono con el que te escucha. Habla: la barra debe moverse con tu voz.</p>
+                <div class="picker">
+                  <select id="mic-select-2" aria-label="Micrófono"></select>
+                  <div class="meter" aria-hidden="true"><i id="mic-meter-2"></i></div>
+                  <button id="mic-allow-2" class="link" hidden>Permitir micrófono</button>
+                </div>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Oído (transcripción)</b><button class="info" data-tip="tip-ear" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-ear" hidden>Cómo pasa tu voz a texto. En tu PC: Whisper, en la tarjeta gráfica. Nube: Groq (unas 2.000 frases al día gratis) o Gemini.</p>
+                <p class="note lock" id="ear-lock" hidden>En el modo «En vivo» te escucha directamente el proveedor en vivo: este ajuste no se usa.</p>
+                <div class="segment" id="ear">
+                  <button data-value="local"><b>En tu PC</b><small>Whisper, sin internet</small></button>
+                  <button data-value="nube"><b>Nube</b><small id="ear-cloud-name">Groq o Gemini</small></button>
+                </div>
+                <div class="picker" id="groq-box">
+                  <input id="groq-key" type="password" autocomplete="off" spellcheck="false" placeholder="Clave de Groq (gsk_…)" aria-label="Clave de Groq">
+                  <div class="line"><small id="groq-state"></small><button class="mini" id="groq-save">Guardar clave</button></div>
+                  <small><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Conseguir una clave gratis</a> · Se guarda solo en esta PC.</small>
+                </div>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Cámara</b><button class="info" data-tip="tip-cam" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-cam" hidden>La cámara que se enciende con el botón de cámara para que te vea.</p>
+                <div class="picker"><select id="cam-select-2" aria-label="Cámara"></select></div>
+              </div>
+            </div>
+
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Pantalla compartida</h3>
+                <small id="sum-compartir" class="card-meta"></small>
+              </div>
+              <label class="row set" id="watch-row">
+                <span><b>Mirada en vivo</b><button class="info" data-tip="watch-note" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="watch-note" hidden></small></span>
+                <input type="checkbox" id="watch" class="switch">
+              </label>
+              <p class="note">Al compartir pantalla eliges si también escucha su sonido. El botón de flotar en la barra inferior saca a tu personaje sobre tus ventanas.</p>
+            </div>
+
+            <div class="set-card" id="pet-group" hidden>
+              <div class="card-head">
+                <h3>Escritorio (modo flotante)</h3>
+                <small id="sum-escritorio" class="card-meta"></small>
+              </div>
+              <p class="note">Con un juego o vídeo a pantalla completa se queda quieta y nunca te quita el foco.</p>
+              <label class="row set">
+                <span><b>Seguir el ratón con la mirada</b><button class="info" data-tip="tip-pet-follow" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-pet-follow" hidden>Mira hacia el cursor esté donde esté en la pantalla.</small></span>
+                <input type="checkbox" id="pet-follow" class="switch">
+              </label>
+              <label class="row set">
+                <span><b>Reaccionar al tocarla</b><button class="info" data-tip="tip-pet-react" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-pet-react" hidden>Saluda al pasar el ratón, reacciona al clic y cuelga al arrastrarla.</small></span>
+                <input type="checkbox" id="pet-react" class="switch">
+              </label>
+              <label class="row set">
+                <span><b>Gravedad</b><button class="info" data-tip="tip-pet-gravity" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-pet-gravity" hidden>Al soltarla cae hasta la barra de tareas o el borde de una ventana.</small></span>
+                <input type="checkbox" id="pet-gravity" class="switch">
+              </label>
+              <div class="set">
+                <div class="set-head"><b>Pasear por el escritorio</b><button class="info" data-tip="tip-pet-walk" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-pet-walk" hidden>Camina de vez en cuando por el borde inferior; se para si le hablas.</p>
+                <div class="picker"><select id="pet-walk" aria-label="Pasear por el escritorio">
+                  <option value="nunca">Nunca</option><option value="aveces">A veces</option><option value="amenudo">A menudo</option>
+                </select></div>
+              </div>
+              <label class="row set">
+                <span><b>Sentarse sobre la ventana activa</b><button class="info" data-tip="tip-pet-sit" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-pet-sit" hidden>Salta al borde superior de la ventana activa y la sigue si la mueves.</small></span>
+                <input type="checkbox" id="pet-sit" class="switch">
+              </label>
+              <label class="row set">
+                <span><b>Acompañar las acciones</b><button class="info" data-tip="tip-pet-work" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-pet-work" hidden>Al pedirle una acción en una app, va junto a esa ventana mientras trabaja.</small></span>
+                <input type="checkbox" id="pet-work" class="switch">
+              </label>
+              <div class="set">
+                <div class="set-head"><b>Transparencia al flotar</b><span id="pet-alpha-value" class="value"></span><button class="info" data-tip="tip-pet-alpha" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-pet-alpha" hidden>Al pasar el ratón encima o agarrarla vuelve a verse entera.</p>
+                <input type="range" id="pet-alpha" min="0" max="90" step="5" aria-label="Transparencia al flotar">
+              </div>
+              <label class="row set" id="float-fade-row">
+                <span><b>Desvanecer los pies al flotar</b><button class="info" data-tip="tip-fade" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-fade" hidden>Encendido: medio cuerpo con degradado abajo. Apagado: cuerpo entero.</small></span>
+                <input type="checkbox" id="float-fade" class="switch">
+              </label>
+            </div>
+          </section>
+
+          <!-- TAB 4: Acciones y Memoria -->
+          <section class="stab-panel" data-stab-panel="memoria">
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Acciones en tu PC</h3>
+              </div>
+              <label class="row set">
+                <span><b>Permitir que pida acciones</b><button class="info" data-tip="actions-note" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="actions-note" hidden>Abrir apps, webs y carpetas, buscar archivos, temporizadores, música, volumen y usar ventanas abiertas con permiso.</small></span>
+                <input type="checkbox" id="actions-on" class="switch">
+              </label>
+              <label class="row set">
+                <span><b>Pedir permiso antes de cada acción</b><button class="info" data-tip="tip-ask" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-ask" hidden>Encendido: cada acción espera confirmación en tarjeta. Los pasos delicados siempre se confirman.</small></span>
+                <input type="checkbox" id="actions-ask" class="switch">
+              </label>
+              <label class="row set">
+                <span><b>Acceso total</b><button class="info" data-tip="tip-full" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-full" hidden>Omite las tarjetas de permiso en el catálogo seguro. Enviar, comprar o borrar sigue pidiendo confirmación.</small></span>
+                <input type="checkbox" id="actions-full" class="switch">
+              </label>
+              <div id="actions-always" class="memory-list"></div>
+              <div id="actions-log" class="memory-list"></div>
+            </div>
+
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Memoria</h3>
+                <small id="sum-memoria" class="card-meta">Lo que recuerda de ti entre sesiones</small>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Recuerdos guardados</b><button class="info" data-tip="tip-memory" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-memory" hidden>Datos duraderos y resúmenes de conversaciones pasadas que <span class="ob-name">Mika</span> guarda en esta PC.</p>
+                <div id="memory-list" class="memory-list"></div>
+              </div>
+            </div>
+
+            <div class="set-card danger-zone">
+              <div class="card-head">
+                <h3>Reiniciar y borrar datos</h3>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Opciones de reinicio</b><button class="info" data-tip="tip-redo" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-redo" hidden>«Olvidar todo» borra historial y recuerdos conservando tus ajustes. «Repetir la bienvenida» abre el asistente inicial. «Restablecer mis datos» deja la app como recién instalada.</p>
+                <div class="buttons buttons-inline">
+                  <button id="redo-onboarding" class="ghost">Repetir la bienvenida</button>
+                  <button id="forget" class="danger">Olvidar todo</button>
+                  <button id="reset-all" class="danger">Restablecer mis datos</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- TAB 5: Estado del sistema -->
+          <section class="stab-panel" data-stab-panel="estado">
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Estado del sistema</h3>
+                <small class="card-meta">Diagnóstico en vivo de cada módulo</small>
+              </div>
+              <dl id="health"></dl>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   </aside>
 

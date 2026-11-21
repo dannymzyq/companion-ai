@@ -34,8 +34,9 @@ rm -f "$RES/default_app.asar"
 
 # ---------------------------------------------------------------- la parte de escritorio
 mkdir -p "$RES/app"
-for f in mac.js main.js preload.js picker.html picker-preload.js instalando.html instalando-preload.js cargando.html tarjeta-prueba.html; do
-  cp "desktop/$f" "$RES/app/"
+# Todos los .js y .html de desktop/ (con una lista fija, la 0.8.0 se quedaba sin pet.js y main.js no arrancaba).
+for f in desktop/*.js desktop/*.html; do
+  cp "$f" "$RES/app/"
 done
 cat > "$RES/app/package.json" <<EOF
 { "name": "companion", "productName": "Companion", "version": "$VERSION", "main": "mac.js", "private": true }

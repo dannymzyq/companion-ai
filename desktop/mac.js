@@ -31,6 +31,8 @@ if (TEST) {
   if (process.env.COMPANION_TEST_REAL_MEDIA !== '1') app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('remote-debugging-port', process.env.COMPANION_TEST_PORT || '9334');
   app.setPath('userData', path.join(app.getPath('temp'), 'companion-pc-prueba'));
+  // macOS da por tapada una ventana fuera de la pantalla y Chromium la dejaba en 2 cuadros por segundo.
+  for (const s of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) app.commandLine.appendSwitch(s);
 }
 if (!TEST && !app.requestSingleInstanceLock()) {
   app.quit();                 // ya hay una abierta: no se abre otra escuchando el mismo micrófono
@@ -158,12 +160,20 @@ function installed(version) {
 function showUi() {
   if (ui && !ui.isDestroyed()) return ui;
   ui = new BrowserWindow({
-    width: 560, height: 520, ...(TEST ? { x: -4000, y: -4000 } : {}), resizable: false, maximizable: false,
+    width: 560, height: 520, ...(TEST ? { x: -4000, y: -4000, show: false } : {}), resizable: false, maximizable: false,
     fullscreenable: false, backgroundColor: '#0c0b14', title: 'Companion',
     webPreferences: { preload: path.join(__dirname, 'instalando-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   ui.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   ui.webContents.on('will-navigate', (e) => e.preventDefault());
+  if (TEST) {
+    // macOS devuelve a la pantalla una ventana con marco creada fuera de ella: en pruebas, invisible, sin clics y
+    // sin quitarle el foco al usuario (las capturas son de la página).
+    ui.showInactive();
+    ui.setPosition(-4000, -4000);
+    ui.setOpacity(0);
+    ui.setIgnoreMouseEvents(true);
+  }
   ui.loadFile(path.join(__dirname, 'instalando.html'));
   ui.on('closed', () => { ui = null; if (!quitting && !global.companionMainLoaded) app.quit(); });
   return new Promise((resolve) => ui.webContents.once('did-finish-load', () => resolve(ui)));

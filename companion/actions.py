@@ -42,8 +42,9 @@ CATALOG = {
     "temporizador": {"title": "Poner un temporizador", "report": False},
     "multimedia": {"title": "Controlar la música o el vídeo", "report": False},
     "volumen": {"title": "Cambiar el volumen", "report": False},
-    # Ratón y teclado sobre una ventana (companion/control.py). Nunca «permitir siempre»: se aprueba cada tarea.
-    "controlar": {"title": "Usar una aplicación por ti", "report": True, "no_always": True},
+    # Ratón y teclado sobre una ventana (companion/control.py). Desde el 16 nov 2026 también admite «permitir
+    # siempre» (petición del usuario); los pasos delicados que la orden no pedía se siguen confirmando.
+    "controlar": {"title": "Usar una aplicación por ti", "report": True},
 }
 
 
@@ -78,7 +79,11 @@ def config() -> dict:
     c = state.load().get("actions") or {}
     # «ask»: pedir permiso en una tarjeta antes de cada acción. Apagado por defecto desde el 13 nov 2026: la orden
     # del usuario ya es la autorización (lo pidió él). Se puede volver a encender en Ajustes.
-    return {"enabled": c.get("enabled", True) is not False, "ask": bool(c.get("ask", False)),
+    # «full» (acceso total, 16 nov 2026, petición del usuario): ninguna acción del catálogo pide tarjeta, tampoco las
+    # que elige el modelo con la pantalla o la cámara compartidas. Siguen: el catálogo cerrado, que solo cuenten las
+    # de turnos con mensaje suyo y la confirmación de pasos delicados que la orden no pedía (control.task_allows).
+    return {"enabled": c.get("enabled", True) is not False, "ask": bool(c.get("ask", False)) and not c.get("full"),
+            "full": bool(c.get("full", False)),
             "always": [a for a in c.get("always") or [] if a in CATALOG and not CATALOG[a].get("no_always")]}
 
 
@@ -87,8 +92,10 @@ def always() -> list[str]:
 
 
 def save(enabled: bool | None = None, add_always: str | None = None, forget_always: str | None = None,
-         ask: bool | None = None) -> dict:
+         ask: bool | None = None, full: bool | None = None) -> dict:
     c = config()
+    if full is not None:
+        c["full"] = bool(full)
     if enabled is not None:
         c["enabled"] = bool(enabled)
     if ask is not None:
@@ -153,6 +160,26 @@ def _folders() -> dict[str, Path]:
     return {"descargas": h / "Downloads", "documentos": pick("Documents", "Documentos"),
             "escritorio": pick("Desktop", "Escritorio"), "imagenes": pick("Pictures", "Imágenes"),
             "musica": pick("Music", "Música"), "videos": pick("Videos", "Vídeos"), "inicio": h}
+
+
+_NETWORK = re.compile(r"^(\\\\|//|[a-z][a-z0-9+.-]*://)", re.I)
+
+
+def _network_path(text: str) -> bool:
+    """¿Ruta de red o dirección? (\\\\servidor, //servidor, \\\\?\\UNC\\…, smb://, file://…)"""
+    t = text.strip().replace("/", "\\") if sys.platform == "win32" else text.strip()
+    return bool(_NETWORK.match(text.strip()) or t.startswith("\\\\"))
+
+
+def _remote_drive(path: Path) -> bool:
+    """Windows: una letra de unidad conectada a una carpeta de red (Z: → \\\\servidor)."""
+    if sys.platform != "win32" or not path.drive or not path.drive.endswith(":"):
+        return False
+    try:
+        import ctypes
+        return ctypes.windll.kernel32.GetDriveTypeW(path.drive + "\\") == 4      # DRIVE_REMOTE
+    except Exception:  # noqa: BLE001
+        return True
 
 
 _ALIASES = {"descarga": "descargas", "downloads": "descargas", "documento": "documentos", "documents": "documentos",
@@ -269,9 +296,16 @@ def prepare(name: str, args: list[str]) -> Request:
         if key in folders:
             path = folders[key]
         else:
-            path = Path(os.path.expandvars(first)).expanduser()
+            raw = os.path.expandvars(first).strip()
+            # Una ruta de red (\\servidor\carpeta, //servidor, smb://…) no se toca: solo comprobar si existe hace que
+            # Windows se conecte a ese servidor y le entregue una huella de la contraseña, antes de cualquier permiso.
+            if _network_path(raw):
+                raise ActionError("Solo abro carpetas de este equipo, no de la red.")
+            path = Path(raw).expanduser()
             if not path.is_absolute():
                 raise ActionError("Dime una carpeta conocida (descargas, documentos, escritorio, imágenes, música, vídeos) o una ruta completa.")
+            if _network_path(str(path)) or _remote_drive(path):
+                raise ActionError("Solo abro carpetas de este equipo, no de la red.")
         if not path.is_dir():
             raise ActionError(f"La carpeta {path} no existe.")
         return Request(name, args, title, f"Abrir la carpeta {path}", {"path": str(path)})

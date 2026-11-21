@@ -32,7 +32,7 @@ os.environ.update(WATCH_INTERVAL="3", WATCH_GAP="6")     # mirada en vivo: más 
 ROOT = _prueba.ROOT
 API = _prueba.URL
 PORT = 9334
-ELECTRON = ROOT / "desktop" / "electron" / "electron.exe"
+ELECTRON = _prueba.ELECTRON
 TARJETA = "Tarjeta de prueba del companion"      # ventana propia con un texto conocido (desktop/tarjeta-prueba.html)
 
 
@@ -243,7 +243,7 @@ async def main():
             await p.js("document.getElementById('float-btn').click()")     # con la cámara encendida
 
         # ---------------- ventana flotante
-        url, direccion = await pagina("flotante=1")
+        url, direccion = await pagina(API)        # la misma página: al flotar no se recarga (16 nov 2026)
         async with connect(url, max_size=None) as ws:
             p = Pagina(ws)
             await p.cmd("Runtime.enable")
@@ -282,10 +282,7 @@ async def main():
             await p.js("window.desktop.float(false); null")
 
         # ---------------- vuelta a la ventana normal
-        url, direccion = await pagina("auto=1&saludo=0")
-        if "flotante" in direccion:
-            await asyncio.sleep(1)
-            url, direccion = await pagina("/?auto=1&saludo=0")
+        url, direccion = await pagina(API)
         async with connect(url, max_size=None) as ws:
             p = Pagina(ws)
             await p.cmd("Runtime.enable")
@@ -304,7 +301,7 @@ async def main():
             proc.wait(5)
         except subprocess.TimeoutExpired:
             proc.kill()
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        _prueba.cerrar(proc)
 
 
 if __name__ == "__main__":
