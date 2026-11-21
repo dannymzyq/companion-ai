@@ -9,6 +9,7 @@ import * as mood from './mood.js';
 import { MIN_SPEECH_FRAMES, TurnDetector } from './vad.js';
 
 const HISTORY_KEEP = 14, HISTORY_MAX = 28;
+const FRAME_MAX_AGE = 6000;        // una imagen más vieja ya no cuenta como «lo que ve ahora» (como session.py)
 const SUMMARY_MIN = 8, SUMMARY_QUIET = 12_000;
 const SYSTEM_SUMMARIES = 8;
 const FACT = /^\W*dato\s*:\s*(.+)$/i;
@@ -48,6 +49,7 @@ export class Session {
     this.audioBytes = 0;
     this.carryAudio = null;           // lo que dijo antes de una pausa, aún sin transcribir
     this.carryText = '';              // ídem, ya transcrito
+    this.frame = null;                // la última imagen de la cámara {jpeg, at}
     this.prevTs = store.lastTs();     // para «hace días que no hablaban» (solo cuenta en el primer turno)
     this.detector = new TurnDetector({
       start: () => this._speechStarted(),
@@ -131,12 +133,17 @@ export class Session {
     } else if (kind === 'interrupt') {
       await this.interrupt();
       this.setState('idle');
+    } else if (kind === 'frame') {
+      // Cámara: una imagen por segundo (vision.js). Solo la ven los cerebros en la nube.
+      if (data.source === 'camera' && typeof data.jpeg === 'string' && data.jpeg.length < 2_000_000) this.frame = { jpeg: data.jpeg, at: Date.now() };
+    } else if (kind === 'frame_stop' && data.source === 'camera') {
+      this.frame = null;
     } else if (kind === 'playback_end') {
       this.lastTalk = Date.now();
       this.clientPlaying = false;
       if (!this.turn) this.setState('idle');
     }
-    // watch, frame, screen_audio, action_answer…: no existen en el teléfono.
+    // watch, screen_audio, action_answer…: no existen en el teléfono.
   }
 
   _start(text, instruction) {
@@ -169,7 +176,8 @@ export class Session {
     const prof = this.ctx.profile();
     const adult = adultActive(p, { isCloud: llm.isCloud(), userAdult: prof.adult });
     const past = store.summaries(SYSTEM_SUMMARIES).map(([t, ts]) => `${fmtDate(ts)}: ${t}`);
-    return buildSystemPrompt(p, { userName: prof.name, memories: store.memories(), adult, about: prof.about, summaries: past });
+    return buildSystemPrompt(p, { userName: prof.name, memories: store.memories(), adult, about: prof.about, summaries: past,
+      vision: llm.isCloud() });
   }
 
   _messages(instruction) {
@@ -194,6 +202,12 @@ export class Session {
       const gap = mood.sinceLastTalk(this.prevTs);
       this.prevTs = Date.now() / 1000;
       last.content = `${turnContext(localTime(), mood.describe(p.personality), gap)}${done}\n${last.content}`;
+      // Con la cámara activa y el cerebro en la nube, la imagen de ahora va con su mensaje (como _images_openai).
+      const f = this.frame;
+      if (!instruction && f && llm.isCloud() && Date.now() - f.at <= FRAME_MAX_AGE) {
+        last.content = [{ type: 'text', text: '(Imagen de la cámara de su teléfono, ahora mismo)' },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${f.jpeg}` } }, { type: 'text', text: last.content }];
+      }
     }
     return messages;
   }

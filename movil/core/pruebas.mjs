@@ -237,5 +237,34 @@ await prueba('en vivo: el prompt no pide etiquetas [emo:] (usa expresar)', () =>
   assert.doesNotMatch(sys, /Formato obligatorio/);
 });
 
+// ---------------------------------------------------------------- cámara
+await prueba('cámara: en la nube la imagen de ahora va con el mensaje; vieja o en el teléfono, no', async () => {
+  await store.saveSettings({ mode: 'nube' });
+  const { s } = session('nube');
+  await s.onMessage({ type: 'frame', source: 'camera', jpeg: 'QUJD' });
+  store.addMessage('user', '¿qué ves?');
+  const lastUser = () => s._messages(null).filter((x) => x.role === 'user').at(-1);
+  const m = s._messages(null);
+  assert.ok(Array.isArray(lastUser().content) && lastUser().content[1].image_url.url.includes('QUJD'));
+  assert.match(m[0].content, /cámara de su teléfono/);
+  s.frame.at -= 7000;
+  assert.equal(typeof lastUser().content, 'string');
+  await store.saveSettings({ mode: 'telefono' });
+  s.frame.at = Date.now();
+  assert.equal(typeof lastUser().content, 'string', 'el cerebro del teléfono no ve imágenes');
+  await s.onMessage({ type: 'frame_stop', source: 'camera' });
+  assert.equal(s.frame, null);
+  s.close();
+});
+await prueba('cámara en vivo: como mucho una imagen por segundo a Gemini', async () => {
+  await store.saveSettings({ mode: 'vivo' });
+  const { s, sentToGemini } = liveSession();
+  await s.ensure();
+  for (let i = 0; i < 3; i++) await s.onMessage({ type: 'frame', source: 'camera', jpeg: 'QUJD' });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(sentToGemini.filter((m) => m.realtimeInput && m.realtimeInput.video).length, 1);
+  s.close();
+});
+
 console.log(fallos ? `\n${fallos} pruebas fallaron` : '\nTodas bien');
 process.exit(fallos ? 1 : 0);

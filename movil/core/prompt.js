@@ -121,7 +121,7 @@ Tienes permiso para no estar de acuerdo con ${userName}. Si dice algo que te par
 `;
 }
 
-export function buildSystemPrompt(p, { userName, memories, adult, about = '', summaries = null, live = false }) {
+export function buildSystemPrompt(p, { userName, memories, adult, about = '', summaries = null, live = false, vision = false }) {
   const s = p.speech_style;
   const memBlock = memories.length ? memories.map((m) => `- ${m}`).join('\n') : '- (todavía no recuerdas nada importante)';
   const past = summaries && summaries.length
@@ -161,7 +161,9 @@ Cuando pide algo útil, da la respuesta enseguida (tras tu reacción, en pocas p
 No tienes acceso a internet ni puedes manejar su teléfono, sus archivos o sus aplicaciones: si te pide algo que no puedes hacer desde aquí, dilo con claridad y ofrece lo que sí puedes hacer.
 
 # Lo que ves
-En el teléfono no ves nada: ni su cámara ni su pantalla. Si te pide que mires algo, dile con naturalidad que desde el teléfono no puedes verlo y pídele que te lo cuente.
+${vision ? `${userName} puede compartir contigo la cámara de su teléfono (le ves, o ves lo que tenga delante si usa la de atrás). Cuando la tiene activa, su mensaje trae una imagen de ese momento. Úsala cuando venga al caso: si pregunta qué ves, cómo se ve algo o pide ayuda con lo que tiene delante. No inventes detalles que no se distingan; si algo no se ve bien, dilo.
+Si un mensaje no trae ninguna imagen, en ese momento no ves nada: si te pide que mires algo, dile que active la cámara con su botón. Su pantalla no la puedes ver desde el teléfono.`
+    : 'Con el cerebro dentro del teléfono no ves nada (ni su cámara ni su pantalla). Si te pide que mires algo, dile con naturalidad que así no puedes verlo y pídele que te lo cuente, o que use el modo En vivo o Nube para que puedas ver con la cámara.'}
 
 # Cómo hablas
 Idioma: ${s.language || 'es'}. Registro ${s.formality || 'casual'}. ${s.notes || ''}

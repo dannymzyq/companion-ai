@@ -208,6 +208,11 @@ export function init() {
     #start, #loading { padding-top: env(safe-area-inset-top); }
     #modes [data-mode="hybrid"], .row:has(#cloud-only), .row:has(#voice-auto), #voice-auto-note, #ear, .modo-telefono .set:has(#ear), .set:has(#output-select),
     #ob-engine-get, #ob-tts { display: none !important; }
+    #text-send { display: grid !important; place-items: center; flex: 0 0 auto; width: 44px; height: 44px; margin-left: 6px;
+      border-radius: 50%; border: none; background: var(--accent, #a78bfa); color: #14111f; }
+    #text-send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    #text-form:not([hidden]) { display: flex; align-items: center; }
+    #text-form #text-input { flex: 1 1 auto; min-width: 0; }
     .phone-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; margin: 6px 0 10px; }
     .phone-bar i { display: block; height: 100%; background: var(--accent, #a78bfa); transition: width 0.4s; }
     .ob-label { display: block; margin: 14px 0 6px; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }

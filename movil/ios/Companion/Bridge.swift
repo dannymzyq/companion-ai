@@ -147,11 +147,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
     }
 
     /// El micrófono para la propia interfaz (app://companion) se concede sin otra pregunta: iOS ya pide el
-    /// permiso del sistema la primera vez. La cámara no se usa en el teléfono.
+    /// permiso del sistema la primera vez (también para la cámara).
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void) {
-        decisionHandler(origin.protocol == AppScheme.scheme && type == .microphone ? .grant : .deny)
+        decisionHandler(origin.protocol == AppScheme.scheme ? .grant : .deny)   // micrófono y cámara
     }
 
     private func runStream(_ id: Int, _ req: URLRequest) async {

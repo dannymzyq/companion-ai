@@ -60,7 +60,7 @@ targets:
         INFOPLIST_KEY_UIRequiresFullScreen: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Para que tu companion te oiga cuando le hablas."
         # La app no usa la cámara, pero WebKit puede consultarla: sin esta descripción iOS cierra la app.
-        INFOPLIST_KEY_NSCameraUsageDescription: "La app no usa la cámara por ahora."
+        INFOPLIST_KEY_NSCameraUsageDescription: "Para que tu personaje te vea a ti o lo que tengas delante cuando activas la cámara."
         ENABLE_USER_SCRIPT_SANDBOXING: NO
     postCompileScripts:
       - name: Interfaz y núcleo (www)

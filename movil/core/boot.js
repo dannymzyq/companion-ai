@@ -6,8 +6,8 @@
   window.__companionBoot = true;
 
   // Lo que no existe en el teléfono se oculta. La interfaz puede preguntar con window.CAN.
-  window.CAN = { ACTIONS: false, SCREEN: false, FLOAT: false, CLONE: false, CUSTOM_MODELS: true, CAMERA: false };
-  const hide = ['#screen', '#preview-screen', '#screen-sound', '#float-btn', '#dock', '#quit', '#camera', '#preview-camera',
+  window.CAN = { ACTIONS: false, SCREEN: false, FLOAT: false, CLONE: false, CUSTOM_MODELS: true, CAMERA: true };
+  const hide = ['#screen', '#preview-screen', '#screen-sound', '#float-btn', '#dock', '#quit',
     'details[data-group="compartir"]', 'details[data-group="acciones"]',
     '#ob-voice-add', '#ob-voice-form', '#cam-picker', '#cloud-only-note', '#drop'];
   const css = `${hide.join(',')}{display:none!important}
@@ -18,27 +18,8 @@
   style.textContent = css;
   (document.head || document.documentElement).append(style);
 
-  // En el teléfono no hay cámara (window.CAN.CAMERA = false): la interfaz de la PC la pide al listar dispositivos,
-  // al mirar sus permisos y al empezar. Aquí, para la interfaz, la cámara no existe: así iOS nunca llega a pedirla
-  // (sin esto, en el iPhone la app se cerraba al tocar el micrófono o al abrir Ajustes).
-  const md = navigator.mediaDevices;
-  if (md) {
-    const gum = md.getUserMedia && md.getUserMedia.bind(md);
-    if (gum) {
-      md.getUserMedia = (c = {}) => {
-        if (c.video && !c.audio) return Promise.reject(new DOMException('En el teléfono no se usa la cámara', 'NotAllowedError'));
-        return gum({ ...c, video: false });
-      };
-    }
-    const enumerate = md.enumerateDevices && md.enumerateDevices.bind(md);
-    if (enumerate) md.enumerateDevices = async () => (await enumerate()).filter((d) => d.kind !== 'videoinput');
-  }
-  if (navigator.permissions && navigator.permissions.query) {
-    const query = navigator.permissions.query.bind(navigator.permissions);
-    navigator.permissions.query = (d) => (d && d.name === 'camera'
-      ? Promise.resolve({ name: 'camera', state: 'denied', onchange: null, addEventListener() {}, removeEventListener() {} })
-      : query(d));
-  }
+  // Cámara (21 nov 2026): la interfaz la pide como en la PC; iOS pregunta el permiso la primera vez
+  // (NSCameraUsageDescription). Compartir pantalla no existe en el teléfono (#screen oculto).
 
   // La consola de la web va al registro de la app (Xcode, o «simctl launch --console»).
   const nativeLog = (level, args) => {

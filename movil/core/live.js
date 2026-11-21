@@ -139,7 +139,7 @@ export class LiveSession {
     const p = this.ctx.persona(), prof = this.ctx.profile();
     // En vivo es la nube: nunca el bloque +18.
     const past = (this.ctx.summaries ? this.ctx.summaries() : []);
-    return `${buildSystemPrompt(p, { userName: prof.name, memories: store.memories(), adult: false, about: prof.about, summaries: past, live: true })}`
+    return `${buildSystemPrompt(p, { userName: prof.name, memories: store.memories(), adult: false, about: prof.about, summaries: past, live: true, vision: true })}`
       + `\n\n${liveRecap(p, prof.name)}\n\n${turnContext(localTime(), mood.describe(p.personality), mood.sinceLastTalk(store.lastTs()))}`;
   }
 
@@ -200,6 +200,12 @@ export class LiveSession {
         if (this.turnOpen) { this.dropAudio = true; this._endTurn(true); }
         this.clientPlaying = false;
         this.setState('idle');
+      } else if (kind === 'frame') {
+        // Cámara: como mucho una imagen por segundo a Gemini, solo con la conversación ya abierta.
+        if (data.source !== 'camera' || typeof data.jpeg !== 'string' || !this.sock) return;
+        if (Date.now() - (this.frameAt || 0) < 1000) return;
+        this.frameAt = Date.now();
+        this.sock.transport.send(this.sock.id, JSON.stringify({ realtimeInput: { video: { mimeType: 'image/jpeg', data: data.jpeg } } })).catch(() => {});
       } else if (kind === 'playback_end') {
         this.clientPlaying = false;
         if (!this.turnOpen) this.setState('idle');
