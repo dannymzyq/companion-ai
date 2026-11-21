@@ -215,6 +215,17 @@ export function init() {
     .ob-actions { display: flex; gap: 12px; align-items: center; }`;
   document.head.append(style);
 
+  // Si iOS interrumpe el audio de la página (una llamada, Siri, otra app), se reanuda solo al volver: si no, la voz
+  // queda muda hasta reiniciar la app.
+  setInterval(() => {
+    const a = window.companion && window.companion.audio;
+    if (a && a.ctx && a.ctx.state === 'interrupted') a.ctx.resume().catch(() => {});
+  }, 1000);
+  document.addEventListener('visibilitychange', () => {
+    const a = window.companion && window.companion.audio;
+    if (!document.hidden && a && a.ctx && a.ctx.state !== 'running') a.ctx.resume().catch(() => {});
+  });
+
   adaptarNodo(document.body);
   new MutationObserver((muts) => {
     for (const m of muts) {

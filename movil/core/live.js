@@ -164,7 +164,6 @@ export class LiveSession {
     if (!ok) { transport.close(id); throw new Error('Gemini Live no respondió a la configuración'); }
     if (this.closed) { transport.close(id); throw new Error('cerrada'); }
     this.sock = sock;
-    call('audio.mode', { live: true }).catch(() => {});
     console.info('En vivo conectado');
     return sock;
   }
@@ -213,7 +212,8 @@ export class LiveSession {
   }
 
   // Micrófono: PCM de 16 bits a 16 kHz en tramas de 32 ms. Gemini decide cuándo acabó de hablar y si interrumpe
-  // (la cancelación de eco la da la sesión de audio «voiceChat» del teléfono).
+  // (la cancelación de eco la da WebKit: echoCancellation en getUserMedia, audio.js). No se toca la sesión de audio
+  // del teléfono: pasarla a «voiceChat» dejaba la voz de la página en «interrupted» y no se oía (21 nov 2026).
   onAudio(buffer) {
     if (this.closed) return;
     this.pcm.push(new Uint8Array(buffer));
@@ -253,6 +253,8 @@ export class LiveSession {
       if (said) store.addMessage('user', said);
       if (reply) { store.addMessage('assistant', reply, this.emotion); mood.feel(this.emotion, this.ctx.persona().personality); }
     }
+    if (!cut && this.audioBytes) console.info(`En vivo: ${(this.audioBytes / 48000).toFixed(1)} s de voz recibida`);
+    this.audioBytes = 0;
     if (this.turnOpen) {
       this.send({ type: 'sentence_end', id: this.sentenceId });
       this.send({ type: 'reply_end', text: reply });
@@ -304,7 +306,9 @@ export class LiveSession {
       const inline = part && part.inlineData;
       if (inline && inline.data && (!inline.mimeType || String(inline.mimeType).startsWith('audio/pcm')) && !this.dropAudio) {
         this._openSentence();
-        this.sendBytes(unb64(inline.data));       // PCM 24 kHz, como la voz de Edge
+        const pcm = unb64(inline.data);
+        this.audioBytes = (this.audioBytes || 0) + pcm.byteLength;
+        this.sendBytes(pcm);                       // PCM 24 kHz, como la voz de Edge
       }
     }
     if (sc.turnComplete) {
@@ -316,6 +320,5 @@ export class LiveSession {
   close() {
     this.closed = true;
     if (this.sock) { this.sock.transport.close(this.sock.id); this.sock = null; }
-    call('audio.mode', { live: false }).catch(() => {});
   }
 }
