@@ -6,6 +6,21 @@ import WebKit
 final class AppScheme: NSObject, WKURLSchemeHandler {
     static let scheme = "app"
     static let root = Bundle.main.resourceURL?.appendingPathComponent("www", isDirectory: true)
+    static let propios: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("companion/vrm", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var v = dir
+        var r = URLResourceValues(); r.isExcludedFromBackup = false
+        try? v.setResourceValues(r)
+        return dir
+    }()
+
+    /// Nombre de archivo seguro para un VRM propio (el id lo pone el núcleo: a-z, 0-9, - y _).
+    static func propio(_ id: String) throws -> URL {
+        guard id.range(of: "^[a-z0-9_-]{1,60}$", options: .regularExpression) != nil else { throw BridgeError("Identificador no válido") }
+        return propios.appendingPathComponent("\(id).vrm")
+    }
 
     private static let types: [String: String] = [
         "html": "text/html", "js": "text/javascript", "mjs": "text/javascript", "css": "text/css",
@@ -19,9 +34,15 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
         }
         var path = url.path.isEmpty || url.path == "/" ? "/index.html" : url.path
         path = path.removingPercentEncoding ?? path
-        let file = root.appendingPathComponent(String(path.dropFirst())).standardizedFileURL
-        // Nada fuera de www (por ejemplo «../»).
-        guard file.path.hasPrefix(root.standardizedFileURL.path + "/"), let data = try? Data(contentsOf: file) else {
+        // Los VRM propios (Ajustes › Personaje) viven fuera del paquete, en la carpeta de la app.
+        var base = root
+        if path.hasPrefix("/propios/") {
+            base = Self.propios
+            path = String(path.dropFirst("/propios".count))
+        }
+        let file = base.appendingPathComponent(String(path.dropFirst())).standardizedFileURL
+        // Nada fuera de su carpeta (por ejemplo «../»).
+        guard file.path.hasPrefix(base.standardizedFileURL.path + "/"), let data = try? Data(contentsOf: file) else {
             let body = Data("No encontrado".utf8)
             task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1",
                                             headerFields: ["Content-Type": "text/plain"])!)

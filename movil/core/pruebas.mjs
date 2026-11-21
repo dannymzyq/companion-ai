@@ -180,5 +180,62 @@ await prueba('en vivo: si Gemini interrumpe, la interfaz corta la voz', async ()
   s.close();
 });
 
+// ---------------------------------------------------------------- VRM propios, personalidades y ánimo
+const vrmMod = await import('./vrm.js');
+function glb(json) {
+  const j = new TextEncoder().encode(JSON.stringify(json));
+  const pad = (4 - (j.length % 4)) % 4, len = 20 + j.length + pad;
+  const b = new ArrayBuffer(len), v = new DataView(b);
+  new Uint8Array(b).set(new TextEncoder().encode('glTF'), 0);
+  v.setUint32(4, 2, true); v.setUint32(8, len, true); v.setUint32(12, j.length + pad, true); v.setUint32(16, 0x4E4F534A, true);
+  new Uint8Array(b).set(j, 20); new Uint8Array(b).fill(0x20, 20 + j.length);
+  return b;
+}
+await prueba('VRM: lee nombre y versión (1.0 y 0.x) y rechaza lo que no es VRM', async () => {
+  const m1 = vrmMod.extractMeta(vrmMod.readGltfJson(glb({ extensions: { VRMC_vrm: { meta: { name: 'Prueba' } } } })));
+  assert.equal(m1.spec, '1.0'); assert.equal(m1.name, 'Prueba');
+  const m0 = vrmMod.extractMeta(vrmMod.readGltfJson(glb({ extensions: { VRM: { meta: { title: 'Vieja' } } } })));
+  assert.equal(m0.spec, '0.x');
+  assert.throws(() => vrmMod.extractMeta(vrmMod.readGltfJson(glb({ asset: {} }))), /extensión VRM/);
+  assert.throws(() => vrmMod.readGltfJson(new ArrayBuffer(30)), /GLB/);
+});
+await prueba('VRM: se guarda por trozos con un id seguro y no pisa los incluidos', async () => {
+  sent.length = 0;
+  answer = () => ({ value: true });
+  const r = await vrmMod.add('Avatar1.vrm', glb({ extensions: { VRMC_vrm: { meta: { name: 'X' } } } }), ['avatar1']);
+  assert.equal(r.id, 'avatar1-propio');
+  const w = sent.filter((m) => m.cmd === 'vrm.write');
+  assert.ok(w.length >= 1 && w[0].args.first === true && w[0].args.id === 'avatar1-propio');
+});
+
+const pers = await import('./personality.js');
+const moodMod = await import('./mood.js');
+pers.setCatalog(JSON.parse(await readFile(new URL('../../personas/personalidades.json', import.meta.url), 'utf8')));
+await prueba('personalidad: cambia la forma de ser pero nunca el nombre, la edad ni el +18', async () => {
+  const q = pers.all().find((x) => x.id !== pers.DEFAULT);
+  const p = pers.apply(persona, q);
+  assert.equal(p.name, persona.name); assert.equal(p.age, persona.age); assert.deepEqual(p.adult, persona.adult);
+  assert.equal(p.personality.id, q.id);
+  const sys = buildSystemPrompt(p, { userName: 'Prueba', memories: [], adult: false });
+  assert.match(sys, /# Tu forma de ser/); assert.match(sys, /Tienes criterio/);
+});
+await prueba('personalidad propia: limpia corchetes y queda elegida', async () => {
+  await store.saveSettings({ personality: {} });
+  const c = await pers.saveCustom({ name: 'Mía [emo:feliz]', examples: 'hola {x}\nqué tal' });
+  assert.ok(c.id.startsWith('c_')); assert.doesNotMatch(c.name, /[[\]]/); assert.equal(pers.activeId(), c.id);
+  await pers.deleteCustom(c.id); assert.equal(pers.activeId(), pers.DEFAULT);
+});
+await prueba('ánimo: una emoción fuerte se nota y luego se olvida', async () => {
+  moodMod.reset();
+  const q = pers.active(), t0 = 1_000_000;
+  moodMod.feel('triste', q, t0);
+  assert.match(moodMod.describe(q, t0 + 60), /Tu ánimo/);
+  assert.equal(moodMod.describe(q, t0 + 24 * 3600), '');
+});
+await prueba('en vivo: el prompt no pide etiquetas [emo:] (usa expresar)', () => {
+  const sys = buildSystemPrompt(persona, { userName: 'Prueba', memories: [], adult: false, live: true });
+  assert.doesNotMatch(sys, /Formato obligatorio/);
+});
+
 console.log(fallos ? `\n${fallos} pruebas fallaron` : '\nTodas bien');
 process.exit(fallos ? 1 : 0);

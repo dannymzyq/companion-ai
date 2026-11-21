@@ -21,6 +21,9 @@ export function addMessage(role, text, emotion = null) {
   return id;
 }
 
+// Cuándo fue el último mensaje (segundos), para «hace días que no hablaban».
+export const lastTs = () => (db.messages.length ? db.messages[db.messages.length - 1].ts : null);
+
 export function deleteMessage(id) {
   db.messages = db.messages.filter((m) => m.id !== id);
   save();

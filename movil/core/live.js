@@ -4,6 +4,7 @@
 // Habla con la interfaz el mismo protocolo que /ws (sentence, caption_delta, express, user_text, state…).
 import { call, stream } from './platform.js';
 import * as store from './store.js';
+import * as mood from './mood.js';
 import { buildSystemPrompt, EMOTIONS, GESTURES, GREETING, localTime, samplingFor, turnContext } from './prompt.js';
 
 export const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
@@ -138,8 +139,8 @@ export class LiveSession {
     const p = this.ctx.persona(), prof = this.ctx.profile();
     // En vivo es la nube: nunca el bloque +18.
     const past = (this.ctx.summaries ? this.ctx.summaries() : []);
-    return `${buildSystemPrompt(p, { userName: prof.name, memories: store.memories(), adult: false, about: prof.about, summaries: past })}`
-      + `\n\n${liveRecap(p, prof.name)}\n\n${turnContext(localTime())}`;
+    return `${buildSystemPrompt(p, { userName: prof.name, memories: store.memories(), adult: false, about: prof.about, summaries: past, live: true })}`
+      + `\n\n${liveRecap(p, prof.name)}\n\n${turnContext(localTime(), mood.describe(p.personality), mood.sinceLastTalk(store.lastTs()))}`;
   }
 
   async ensure() {
@@ -250,7 +251,7 @@ export class LiveSession {
     const said = this.inBuf.join('').trim();
     if (!cut) {
       if (said) store.addMessage('user', said);
-      if (reply) store.addMessage('assistant', reply, this.emotion);
+      if (reply) { store.addMessage('assistant', reply, this.emotion); mood.feel(this.emotion, this.ctx.persona().personality); }
     }
     if (this.turnOpen) {
       this.send({ type: 'sentence_end', id: this.sentenceId });

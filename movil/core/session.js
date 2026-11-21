@@ -5,6 +5,7 @@ import * as llm from './llm.js';
 import * as store from './store.js';
 import { adultActive, buildSystemPrompt, fill, GENDERS, GREETING, localTime, samplingFor, SUMMARIZE, turnContext } from './prompt.js';
 import { TagStream } from './tags.js';
+import * as mood from './mood.js';
 import { MIN_SPEECH_FRAMES, TurnDetector } from './vad.js';
 
 const HISTORY_KEEP = 14, HISTORY_MAX = 28;
@@ -47,6 +48,7 @@ export class Session {
     this.audioBytes = 0;
     this.carryAudio = null;           // lo que dijo antes de una pausa, aún sin transcribir
     this.carryText = '';              // ídem, ya transcrito
+    this.prevTs = store.lastTs();     // para «hace días que no hablaban» (solo cuenta en el primer turno)
     this.detector = new TurnDetector({
       start: () => this._speechStarted(),
       end: (audio, frames) => this._speechEnded(audio, frames),
@@ -188,7 +190,10 @@ export class Session {
         const old = store.relevantSummaries(last.content, SYSTEM_SUMMARIES, 2, `${prof.name} ${this.persona().name}`);
         done += old.map(([t, ts]) => `\n(Recuerdas de una conversación del ${fmtDate(ts)}: ${t})`).join('');
       }
-      last.content = `${turnContext(localTime())}${done}\n${last.content}`;
+      const p = this.persona();
+      const gap = mood.sinceLastTalk(this.prevTs);
+      this.prevTs = Date.now() / 1000;
+      last.content = `${turnContext(localTime(), mood.describe(p.personality), gap)}${done}\n${last.content}`;
     }
     return messages;
   }
@@ -236,7 +241,7 @@ export class Session {
       return;
     }
     const full = parser.spoken.join(' ');
-    if (full) store.addMessage('assistant', full, this.emotion);
+    if (full) { store.addMessage('assistant', full, this.emotion); mood.feel(this.emotion, (this.persona().personality)); }
     for (const fact of parser.memories) store.addMemory(fact);
     this.send({ type: 'reply_end', text: full });
   }

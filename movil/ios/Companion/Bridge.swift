@@ -116,6 +116,21 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
             }
             try await sock.send(text)
             return true
+        case "vrm.write":
+            // VRM propio por trozos (base64): el primero crea el archivo, los demás lo amplían.
+            let url = try AppScheme.propio(a["id"] as? String ?? "")
+            guard let s = a["data"] as? String, let chunk = Data(base64Encoded: s) else { throw BridgeError("Datos no válidos") }
+            if a["first"] as? Bool ?? false { try chunk.write(to: url) }
+            else {
+                let h = try FileHandle(forWritingTo: url)
+                defer { try? h.close() }
+                try h.seekToEnd()
+                try h.write(contentsOf: chunk)
+            }
+            return true
+        case "vrm.remove":
+            try? FileManager.default.removeItem(at: try AppScheme.propio(a["id"] as? String ?? ""))
+            return true
         case "audio.mode":
             LiveSocket.audioMode(live: a["live"] as? Bool ?? false)
             return true

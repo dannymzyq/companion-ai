@@ -1,5 +1,5 @@
 // Lo que en la PC responde companion/server.py en /api/*, hecho en el teléfono. Mismas formas de respuesta, para
-// que web/js no cambie; lo que no existe aquí (acciones, Ollama, voz completa, VRM propios) responde vacío o 422.
+// que web/js no cambie; lo que no existe aquí (acciones, Ollama, voz completa, voces propias) responde vacío o 422.
 import * as llm from './llm.js';
 import { secrets } from './platform.js';
 import * as store from './store.js';
@@ -7,6 +7,9 @@ import { describeUser } from './session.js';
 import { elegidos } from './local.js';
 import * as modelos from './modelos.js';
 import { DEFAULT_MODEL, VOICES as LIVE_VOICES } from './live.js';
+import * as mood from './mood.js';
+import * as personality from './personality.js';
+import * as vrm from './vrm.js';
 
 const GENDER_IDS = ['mujer', 'hombre', 'no_binario', ''];
 export const BUILTIN = [
@@ -23,6 +26,8 @@ class HttpError extends Error { constructor(status, detail) { super(detail); thi
 
 export function createApi(core) {
   const S = () => store.getSettings();
+  let propios = [];                  // VRM propios (la lista está en kv; se lee al arrancar y tras cada cambio)
+  vrm.list().then((l) => { propios = l; }, () => {});
 
   function profile() {
     const p = S().profile || {};
@@ -41,7 +46,7 @@ export function createApi(core) {
   const character = () => (voice() || { name: core.persona.name }).name;
   // En la nube, todo en la nube (voz de Edge); en el teléfono, nada sale de él (voz ligera Piper).
   const engine = () => (S().mode === 'telefono' ? 'ligera' : 'nube');
-  const modelId = () => (BUILTIN.some((m) => m.id === S().model_id) ? S().model_id : 'avatar1');
+  const modelId = () => ([...BUILTIN, ...propios].some((m) => m.id === S().model_id) ? S().model_id : 'avatar1');
 
   function publicCloud() {
     const c = llm.cloud();
@@ -78,6 +83,7 @@ export function createApi(core) {
       model: true, model_id: modelId(), model_kind: modelId() === 'avatar3' ? 'orb' : 'vrm',
       barge_in: true, actions: { enabled: false, ask: false, always: [], available: false, catalog: {} },
       started: core.started, tts: core.ttsAvailable(eng), gpu: null,
+      personality: (() => { const q = personality.active(); return q ? { id: q.id, name: q.name, temper: personality.temper(q) } : null; })(),
     };
     window.__companionConfig = cfgOut;          // para la capa del teléfono (ui_movil.js)
     return cfgOut;
@@ -224,7 +230,8 @@ export function createApi(core) {
   }
 
   async function models() {
-    return { active: modelId(), builtin: BUILTIN.map(({ id, name, note }) => ({ id, name, note, available: true })), custom: [] };
+    propios = await vrm.list();
+    return { active: modelId(), builtin: BUILTIN.map(({ id, name, note }) => ({ id, name, note, available: true })), custom: propios };
   }
 
   const routes = {
@@ -277,11 +284,33 @@ export function createApi(core) {
     },
     'GET /api/models': () => models(),
     'POST /api/models/select': async (b) => {
-      if (!BUILTIN.some((m) => m.id === b.id)) throw new HttpError(422, 'Ese modelo no existe.');
+      if (![...BUILTIN, ...(await vrm.list())].some((m) => m.id === b.id)) throw new HttpError(422, 'Ese modelo no existe.');
       await store.saveSettings({ model_id: b.id });
       return models();
     },
-    'POST /api/models': () => { throw new HttpError(422, 'En el teléfono solo están los personajes incluidos.'); },
+    // VRM propio: la interfaz manda el archivo tal cual (?filename=…). Queda como modelo activo, como en la PC.
+    'POST /api/models': async (b, url) => {
+      if (!b || typeof b.arrayBuffer !== 'function') throw new HttpError(400, 'Falta el archivo VRM.');
+      let saved;
+      try { saved = await vrm.add(url.searchParams.get('filename') || 'modelo.vrm', await b.arrayBuffer(), BUILTIN.map((m) => m.id)); }
+      catch (e) { throw new HttpError(e instanceof vrm.VRMError ? 400 : 500, e.message); }
+      await store.saveSettings({ model_id: saved.id });
+      return { ...saved, ...(await models()) };
+    },
+    'GET /api/personality': () => ({ ...personality.pub(), mood: mood.pub(personality.active()) }),
+    'POST /api/personality/select': async (b) => {
+      try { await personality.select(String(b.id || '')); } catch (e) { throw new HttpError(400, e.message); }
+      if (core.swap && llm.isLive()) core.swap();      // en vivo, el prompt se fija al conectar
+      return { ...personality.pub(), mood: mood.pub(personality.active()) };
+    },
+    'POST /api/personality/custom': async (b) => {
+      try { await personality.saveCustom(b || {}); } catch (e) { throw new HttpError(400, e.message); }
+      if (core.swap && llm.isLive()) core.swap();
+      return { ...personality.pub(), mood: mood.pub(personality.active()) };
+    },
+    // El teléfono se actualiza reinstalando desde Xcode: no hay aviso de versión nueva.
+    'GET /api/update': () => ({ available: false }),
+    'POST /api/voices/custom': () => { throw new HttpError(422, 'Las voces propias se crean en la app de la PC o del Mac: en el teléfono no se pueden clonar voces.'); },
     'GET /api/memory': () => memory(),
     'DELETE /api/memory': () => { store.forgetAll(); return { ok: true }; },
     'POST /api/memory/forget': (b) => { store.deleteMemory(String(b.fact || '')); return memory(); },
@@ -321,8 +350,21 @@ export function createApi(core) {
   return async function handle(method, url, body, realFetch) {
     const path = url.pathname;
     if (method === 'GET' && path === '/api/model') {
+      const own = propios.find((x) => x.id === modelId());
+      if (own) return realFetch(vrm.url(own.id));
       const m = BUILTIN.find((x) => x.id === modelId());
       return realFetch(m && m.file ? m.file : BUILTIN[0].file);
+    }
+    if (method === 'DELETE' && path.startsWith('/api/models/')) {
+      try { await vrm.remove(decodeURIComponent(path.slice('/api/models/'.length))); } catch (e) { return json(400, { detail: e.message }); }
+      propios = await vrm.list();
+      if (!propios.some((x) => x.id === S().model_id) && !BUILTIN.some((x) => x.id === S().model_id)) await store.saveSettings({ model_id: 'avatar1' });
+      return json(200, await models());
+    }
+    if (method === 'DELETE' && path.startsWith('/api/personality/custom/')) {
+      await personality.deleteCustom(decodeURIComponent(path.slice('/api/personality/custom/'.length)));
+      if (core.swap && llm.isLive()) core.swap();
+      return json(200, { ...personality.pub(), mood: mood.pub(personality.active()) });
     }
     if (method === 'POST' && path === '/api/voices/preview') {
       const id = (body && body.id) || (voice() || {}).id;

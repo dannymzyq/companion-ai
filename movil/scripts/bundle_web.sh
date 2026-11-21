@@ -14,4 +14,5 @@ rsync -a --exclude '*.test.js' --exclude 'pruebas.mjs' "$REPO/movil/core/" "$DES
 cp "$REPO/models/avatar1.vrm" "$REPO/models/avatar2.vrm" "$DEST/models/"
 rsync -a "$REPO/voices/previews/" "$DEST/voices/previews/"
 cp "$REPO/personas/mika.json" "$DEST/data/persona.json"
+cp "$REPO/personas/personalidades.json" "$DEST/data/personalidades.json"
 cp "$REPO/voices.json" "$DEST/data/voices.json"

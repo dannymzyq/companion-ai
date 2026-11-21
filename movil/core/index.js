@@ -10,15 +10,19 @@ import { cloudVoice } from './voice_cloud.js';
 import { elegidos, oir, sileroListo, sileroTrama, vozLocal } from './local.js';
 import { cabe, CATALOGO, estado, necesita, vozLigera } from './modelos.js';
 import * as store from './store.js';
+import * as mood from './mood.js';
+import * as personality from './personality.js';
 
 let open = null;          // la sesión de la conexión abierta (la interfaz abre una sola)
 
 export async function start(realFetch) {
-  const [persona, voicesFile] = await Promise.all([
+  const [persona, voicesFile, catalog] = await Promise.all([
     realFetch('/data/persona.json').then((r) => r.json()),
     realFetch('/data/voices.json').then((r) => r.json()),
+    realFetch('/data/personalidades.json').then((r) => r.json()).catch(() => []),
   ]);
-  await Promise.all([store.load(), store.loadSettings()]);
+  personality.setCatalog(catalog);
+  await Promise.all([store.load(), store.loadSettings(), mood.load()]);
   const info = await call('app.info').catch(() => ({}));
   await llm.init(await secrets.has(llm.KEY).catch(() => false));
 
@@ -91,7 +95,8 @@ export async function start(realFetch) {
   // La ficha común con el nombre y la forma de hablar de la voz elegida (como profile.character).
   const character = () => {
     const v = selectedVoice();
-    return v ? { ...core.persona, name: v.name, speaks: v.speaks === 'm' ? 'm' : 'f' } : core.persona;
+    const base = personality.apply(core.persona);          // con la forma de ser elegida (Ajustes › Personalidad)
+    return v ? { ...base, name: v.name, speaks: v.speaks === 'm' ? 'm' : 'f' } : base;
   };
   const profile = () => describeUser(store.getSettings().profile || {});
 
