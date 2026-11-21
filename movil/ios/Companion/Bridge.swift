@@ -11,6 +11,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
     weak var webView: WKWebView?
     var streams: [Int: Task<Void, Never>] = [:]
     var streamCuts: [Int: Corte] = [:]
+    var sockets: [Int: LiveSocket] = [:]          // modo «En vivo»
     #if DEBUG || PRUEBAS
     var testHook: TestHook?
     #endif
@@ -100,8 +101,27 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
             } catch let f as SocketCollect.Failure {
                 return ["error": f.message, "date": f.serverDate as Any]
             }
+        case "live.open":
+            guard let id = a["stream"] as? Int, let s = a["url"] as? String, let url = URL(string: s) else {
+                throw BridgeError("Falta la dirección")
+            }
+            sockets.removeValue(forKey: id)?.close()
+            let sock = LiveSocket(id: id, bridge: self)
+            try sock.open(url: url, keyName: a["auth"] as? String)
+            sockets[id] = sock
+            return true
+        case "live.send":
+            guard let id = a["id"] as? Int, let text = a["text"] as? String, let sock = sockets[id] else {
+                throw BridgeError("En vivo no está conectado")
+            }
+            try await sock.send(text)
+            return true
+        case "audio.mode":
+            LiveSocket.audioMode(live: a["live"] as? Bool ?? false)
+            return true
         case "stream.cancel":
             if let id = a["id"] as? Int {
+                sockets.removeValue(forKey: id)?.close()
                 streamCuts.removeValue(forKey: id)?.cortar()
                 streams.removeValue(forKey: id)?.cancel()
             }

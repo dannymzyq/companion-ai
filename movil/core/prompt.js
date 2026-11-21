@@ -1,9 +1,8 @@
 // Port de companion/prompt.py para el teléfono. Mismas reglas: personaje adulto, temas +18 solo con el cerebro
 // dentro del teléfono (nunca con la nube), mismos ADULT_HARD_LIMITS. Sin acciones en la PC ni pantalla compartida.
 
-export const EMOTIONS = ['neutral', 'feliz', 'emocionada', 'timida', 'sonrojada', 'triste', 'molesta', 'sorprendida',
-  'pensativa', 'carinosa', 'enamorada', 'nerviosa', 'asustada', 'confundida'];
-export const GESTURES = ['saludar', 'asentir', 'negar', 'pensar', 'encogerse', 'reverencia', 'celebrar', 'aplaudir', 'risita'];
+export const EMOTIONS = ['neutral', 'feliz', 'emocionada', 'timida', 'sonrojada', 'triste', 'molesta', 'sorprendida', 'pensativa', 'carinosa', 'enamorada', 'nerviosa', 'asustada', 'confundida'];
+export const GESTURES = ['saludar', 'asentir', 'negar', 'pensar', 'encogerse', 'reverencia', 'celebrar', 'aplaudir', 'risita', 'pulgar', 'paz', 'bailar', 'saltar', 'girar', 'estirarse', 'hechizo', 'tararear', 'beber', 'ninja', 'zombi', 'llamar', 'boxear', 'concentrarse', 'sensual', 'posar', 'beso', 'melena', 'dormir'];
 
 export const GENDERS = {
   mujer: 'en femenino', hombre: 'en masculino',

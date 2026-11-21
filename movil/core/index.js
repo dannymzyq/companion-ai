@@ -4,6 +4,7 @@ import * as llm from './llm.js';
 import { call, secrets } from './platform.js';
 import { loadPersona } from './prompt.js';
 import { describeUser, Session } from './session.js';
+import { DEFAULT_MODEL, LiveSession, nativeSocket, voiceFor } from './live.js';
 import { transcribe } from './ear_cloud.js';
 import { cloudVoice } from './voice_cloud.js';
 import { elegidos, oir, sileroListo, sileroTrama, vozLocal } from './local.js';
@@ -24,7 +25,7 @@ export async function start(realFetch) {
   const core = {
     persona: loadPersona(persona),
     voices: voicesFile.voices,
-    keys: { groq: await secrets.has('groq_key').catch(() => false) },
+    keys: { groq: await secrets.has('groq_key').catch(() => false), live: await secrets.has('live_key').catch(() => false) },
     can: { LIGHT_VOICE: false, LOCAL_BRAIN: false, ...(info.can || {}) },
     listos: { oido: false, cerebro: false, voz: false, silero: false },
     started: Date.now() / 1000,
@@ -94,31 +95,56 @@ export async function start(realFetch) {
   };
   const profile = () => describeUser(store.getSettings().profile || {});
 
-  return {
-    api,
-    connect(deliver) {
-      if (open) open.close();
-      const cloudMode = () => llm.isCloud();
-      const session = new Session(deliver, { persona: character, profile,
+  // En vivo: la clave propia de Gemini Live o, si no hay, la del cerebro (si el cerebro es Gemini).
+  core.liveKey = () => (core.keys.live ? 'live_key' : (llm.cloud().preset === 'gemini' && llm.keyPresent() ? 'cloud_key' : null));
+  let deliverNow = null;
+  const makeSession = (deliver) => {
+    if (llm.isLive()) {
+      return new LiveSession(deliver, { persona: character, profile,
+        socket: () => {
+          const auth = core.liveKey();
+          if (!auth) throw new Error('falta la clave de Gemini (Ajustes › Cerebro y voz › En vivo)');
+          return nativeSocket(auth);
+        },
+        model: () => (store.getSettings().live || {}).model || DEFAULT_MODEL,
+        voice: () => { const v = selectedVoice(); return voiceFor(v && v.id, v && v.speaks, (store.getSettings().live || {}).voice); },
+        summaries: () => store.summaries(8).map(([t]) => t) });
+    }
+    const cloudMode = () => llm.isCloud();
+    return new Session(deliver, { persona: character, profile,
         get voice() { return cloudMode() ? core.voice : (core.listos.voz ? core.vozLocal : null); },
         get ear() { return cloudMode() ? core.ear : (core.listos.oido ? oir : null); },
         // Silero (si está bajado) en los dos modos; si no, el detector por energía.
         vadProb: () => (core.sileroOk ? sileroTrama : null) });
+  };
+  // Al cambiar de modo (o de voz o proveedor en vivo) la conversación sigue en la misma página con otra sesión.
+  core.swap = () => {
+    if (!open || !deliverNow) return;
+    open.close();
+    open = makeSession(deliverNow);
+  };
+  return {
+    api,
+    connect(deliver) {
+      if (open) open.close();
+      deliverNow = deliver;
+      const session = makeSession(deliver);
       open = session;
       // Como el servidor al abrir /ws: primero «hello» con la configuración.
       api('GET', new URL('/api/config', location.href), null, realFetch).then((r) => r.json())
         .then((cfg) => deliver(JSON.stringify({ type: 'hello', ...cfg })));
       return {
         receive(data) {
+          if (!open) return;
           if (typeof data === 'string') {
             let msg;
             try { msg = JSON.parse(data); } catch { return; }
-            session.onMessage(msg).catch((e) => console.error(e));
+            open.onMessage(msg).catch((e) => console.error(e));
           }
-          else if (data instanceof ArrayBuffer) session.onAudio(data);   // micrófono (audio.js)
-          else if (ArrayBuffer.isView(data)) session.onAudio(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+          else if (data instanceof ArrayBuffer) open.onAudio(data);   // micrófono (audio.js)
+          else if (ArrayBuffer.isView(data)) open.onAudio(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
         },
-        close() { session.close(); if (open === session) open = null; },
+        close() { if (open) open.close(); open = null; deliverNow = null; },
       };
     },
   };

@@ -83,6 +83,30 @@ Medido en el simulador:
 - voz: 0,03–0,54 s por frase;
 - primer audio a los 8,2 s del fin del habla.
 
+## Modo «En vivo» (Gemini Live, 21 nov 2026)
+El modo recomendado en el teléfono: una sola conversación de voz con Gemini Live (te oye, piensa y habla en la nube).
+No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
+- `core/live.js`: port de `companion/gemini_live.py` y de la parte en vivo de `session.py` (`LiveSession`, con la
+  misma forma que `Session`). Prompt de la ficha + `liveRecap` + hora al final (nunca como mensaje aparte), herramienta
+  `expresar` (NON_BLOCKING, respuesta SILENT) y `guessEmotion` mientras llega el texto. Sin `ejecutar_accion`: en el
+  teléfono no hay acciones. Nunca +18 (`llm.isCloud()` es cierto en «vivo»).
+- `ios/Companion/LiveSocket.swift`: el WebSocket lo abre el nativo (`live.open` / `live.send`; se cierra con
+  `stream.cancel`) y pone la clave en la dirección; solo conecta con `generativelanguage.googleapis.com`. La clave es
+  la propia de En vivo (`live_key`) o la del cerebro (`cloud_key`) si el cerebro es Gemini; nunca vuelve al JS.
+- `audio.mode`: al conectar, la sesión de audio pasa a `.playAndRecord` + `.voiceChat` (cancelación de eco).
+- Ajustes › Cerebro y voz: tarjetas En vivo, Nube y Todo en el teléfono (la de «Nube + voz en tu PC» se esconde).
+  Ajustes guardados: `mode` = `vivo` | `nube` | `telefono`.
+- Medido en el simulador con la clave real: primer audio 2,8 s en el primer turno (con la conexión), y 1,0 s después
+  de acabar de hablar en un turno por voz (micrófono simulado con una grabación).
+
+### Probarlo en el iPhone
+1. Instala como siempre (sección siguiente) desde la rama `ios`.
+2. Ajustes › Cerebro y voz › «En vivo». Si el cerebro ya tiene tu clave de Gemini, se activa al momento; si no,
+   pega la clave en «Con quién habla en vivo» y pulsa «Guardar y activar».
+3. Habla con el altavoz (sin auriculares): comprueba que no se interrumpe sola con su propia voz (eco) y que puedes
+   cortarla hablando encima.
+4. Prueba también escribirle, y cambiar a «Nube» y volver: la conversación sigue sin recargar.
+
 ## Instalarla en tu iPhone (Apple ID gratuito, sin TestFlight)
 Hace falta:
 - un Mac con Xcode 27 (y el Metal Toolchain);

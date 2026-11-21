@@ -29,6 +29,10 @@ const TEXTOS = [
   ['en esta PC', 'en este teléfono'], ['de esta PC', 'de este teléfono'], ['esta PC', 'este teléfono'],
   ['en tu PC', 'en tu teléfono'], ['de tu PC', 'de tu teléfono'], ['tu PC', 'tu teléfono'],
   ['la PC', 'el teléfono'], ['su PC', 'su teléfono'],
+  ['; la GPU del Mac queda libre', '; no descarga nada en el teléfono'], ['; tu tarjeta gráfica queda libre', '; no descarga nada en el teléfono'],
+  ['nada se carga en la GPU del Mac', 'nada se descarga'], ['la GPU del Mac', 'el teléfono'],
+  ['Tu tarjeta queda libre', 'Sin descargas'], ['nada se carga en tu tarjeta', 'nada se descarga'],
+  ['En vivo no se carga nada en tu tarjeta: ni el oído (Whisper) ni la voz completa.', 'En vivo no se descarga ni se carga ningún modelo en el teléfono.'],
 ];
 const MOTOR_NUBE = 'Habla con las voces neuronales de Microsoft: necesita internet.';
 const MOTOR_TEL = 'Habla con la voz ligera, dentro del teléfono: sin internet.';
@@ -202,7 +206,7 @@ export function init() {
     #settings > * { padding-top: calc(env(safe-area-inset-top) + 12px); }
     #onboard { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
     #start, #loading { padding-top: env(safe-area-inset-top); }
-    .row:has(#cloud-only), .row:has(#voice-auto), #voice-auto-note, #ear, .modo-telefono .set:has(#ear), .set:has(#output-select),
+    #modes [data-mode="hybrid"], .row:has(#cloud-only), .row:has(#voice-auto), #voice-auto-note, #ear, .modo-telefono .set:has(#ear), .set:has(#output-select),
     #ob-engine-get, #ob-tts { display: none !important; }
     .phone-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; margin: 6px 0 10px; }
     .phone-bar i { display: block; height: 100%; background: var(--accent, #a78bfa); transition: width 0.4s; }
@@ -219,6 +223,33 @@ export function init() {
     }
     notas(window.__companionConfig);
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
+
+  // Selector de modo (0.9.1) en el teléfono: En vivo (recomendado), Solo nube y Todo en el teléfono.
+  const card = (m, title, tag, text, tags) => {
+    const b = document.querySelector(`#modes [data-mode="${m}"]`);
+    if (!b) return;
+    b.querySelector('.mode-top').replaceChildren(el('b', null, title), ...(tag ? [el('i', 'tag good', tag)] : []));
+    b.querySelector('small').textContent = text;
+    b.querySelector('.mode-tags').replaceChildren(...tags.map((t) => el('i', null, t)));
+  };
+  card('live', 'En vivo', 'Recomendado', 'Como una llamada: te oye, piensa y responde con su voz al instante, con Gemini Live.',
+    ['Sin descargas', 'Necesita internet y una clave']);
+  card('cloud', 'Nube', null, 'Piensa con Gemini y habla con las voces de Microsoft, por turnos.', ['Sin descargas', 'Necesita internet']);
+  card('local', 'Todo en el teléfono', null, 'Nada sale del teléfono y funciona sin internet. Más lento y gasta más batería.',
+    ['Máxima privacidad', 'Descarga unos 2,5 GB']);
+  const hybrid = document.querySelector('#modes [data-mode="hybrid"]');
+  if (hybrid) hybrid.hidden = true;
+  const localCard = document.querySelector('#modes [data-mode="local"]');
+  if (localCard) {
+    localCard.addEventListener('click', async (e) => {
+      if (window.__companionConfig && window.__companionConfig.mode === 'telefono') return;
+      const s = await refrescar().catch(() => null);
+      if (s && s.missing_bytes === 0) return;                 // ya están: cambia como en la PC
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      document.querySelector('[data-edit="local"]').click();  // primero, las descargas
+    }, true);
+  }
 
   // «Teléfono» en Ajustes › Cerebro: si faltan los modelos, se abre el paso de descargas en vez de cambiar.
   const local = document.querySelector('#provider [data-value="local"]');

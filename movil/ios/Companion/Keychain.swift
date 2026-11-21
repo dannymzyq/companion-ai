@@ -5,7 +5,7 @@ import Security
 /// dice si existen, y las peticiones HTTP las ponen en la cabecera aquí, en el lado nativo.
 enum Keychain {
     private static let service = "companion.claves"
-    static let allowed: Set<String> = ["cloud_key", "groq_key"]
+    static let allowed: Set<String> = ["cloud_key", "groq_key", "live_key"]
 
     static func get(_ name: String) -> String? {
         var query = base(name)

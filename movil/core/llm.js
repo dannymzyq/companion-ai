@@ -87,7 +87,9 @@ export function geminiModels(background = false) {
   return chain;
 }
 
-export const isCloud = () => (getSettings().mode || 'nube') === 'nube';
+// «vivo» (Gemini Live) también es la nube: nunca +18 ni modelos del teléfono.
+export const isCloud = () => (getSettings().mode || 'nube') !== 'telefono';
+export const isLive = () => getSettings().mode === 'vivo';
 
 export function status() {
   if (isCloud()) {

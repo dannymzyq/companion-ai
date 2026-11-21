@@ -114,5 +114,71 @@ await prueba('modo nube: un modelo lento dos turnos seguidos cede el primer pues
   assert.ok(llm.popNotices().some((n) => /va lento/.test(n)));
 });
 
+// ---------------------------------------------------------------- En vivo (Gemini Live), con un socket de mentira
+const live = await import('./live.js');
+function liveSession() {
+  const out = [], sentToGemini = [];
+  let server = null;
+  const socket = { open: async (onMsg) => { server = onMsg; return 7; },
+    send: async (id, text) => { const m = JSON.parse(text); sentToGemini.push(m); if (m.setup) setTimeout(() => server('{"setupComplete":{}}'), 1); },
+    close: () => {} };
+  const s = new live.LiveSession((d) => out.push(typeof d === 'string' ? JSON.parse(d) : d), {
+    persona: () => persona, profile: () => adulto, socket: () => socket, model: () => live.DEFAULT_MODEL, voice: () => 'Aoede' });
+  return { s, out, sentToGemini, server: (o) => server(JSON.stringify(o)) };
+}
+
+await prueba('en vivo: el prompt nunca lleva el bloque +18 (adulto y ficha que lo permite)', async () => {
+  await store.saveSettings({ mode: 'vivo' });
+  const { s, sentToGemini } = liveSession();
+  await s.onMessage({ type: 'text', text: 'hola' });
+  const sys = sentToGemini[0].setup.systemInstruction.parts[0].text;
+  assert.doesNotMatch(sys, /Temas \+18/);
+  assert.match(sys, /Modo en vivo/);
+  assert.ok(!/ejecutar_accion/.test(JSON.stringify(sentToGemini[0])), 'en el teléfono no hay acciones');
+  assert.equal(llm.isCloud(), true);
+  s.close();
+});
+
+await prueba('en vivo: texto, voz, subtítulos, expresar (silencioso) y fin de turno', async () => {
+  await store.saveSettings({ mode: 'vivo' });
+  const { s, out, sentToGemini, server } = liveSession();
+  const antes = store.since(0).length;
+  await s.onMessage({ type: 'text', text: '¿qué tal?' });
+  assert.deepEqual(sentToGemini[1].clientContent.turns[0].parts, [{ text: '¿qué tal?' }]);
+  server({ toolCall: { functionCalls: [{ id: 'a1', name: 'expresar', args: { emocion: 'feliz', gesto: 'saludar' } }] } });
+  server({ serverContent: { outputTranscription: { text: '¡Muy bien, gracias!' } } });
+  server({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: Buffer.alloc(480).toString('base64') } }] } } });
+  server({ serverContent: { turnComplete: true } });
+  const tool = sentToGemini.find((m) => m.toolResponse);
+  assert.equal(tool.toolResponse.functionResponses[0].response.scheduling, 'SILENT');
+  const types = out.filter((m) => !(m instanceof ArrayBuffer)).map((m) => m.type);
+  for (const t of ['user_text', 'express', 'sentence', 'caption_delta', 'sentence_end', 'reply_end']) assert.ok(types.includes(t), `falta ${t}`);
+  assert.equal(out.filter((m) => m instanceof ArrayBuffer).length, 1);
+  assert.equal(out.find((m) => m.type === 'express').gestures[0], 'saludar');
+  assert.equal(store.since(0).length, antes + 2, 'guarda lo dicho y la respuesta');
+  s.close();
+});
+
+await prueba('en vivo: el micrófono va a Gemini a 16 kHz en trozos de ~96 ms', async () => {
+  const { s, sentToGemini } = liveSession();
+  await s.ensure();
+  for (let i = 0; i < 3; i++) s.onAudio(new ArrayBuffer(1024));
+  await new Promise((r) => setTimeout(r, 5));
+  const audio = sentToGemini.filter((m) => m.realtimeInput);
+  assert.equal(audio.length, 1);
+  assert.equal(audio[0].realtimeInput.audio.mimeType, 'audio/pcm;rate=16000');
+  assert.equal(Buffer.from(audio[0].realtimeInput.audio.data, 'base64').length, 3072);
+  s.close();
+});
+
+await prueba('en vivo: si Gemini interrumpe, la interfaz corta la voz', async () => {
+  const { s, out, server } = liveSession();
+  await s.ensure();
+  server({ serverContent: { outputTranscription: { text: 'Te iba a contar que' } } });
+  server({ serverContent: { interrupted: true } });
+  assert.ok(out.some((m) => m.type === 'interrupt'));
+  s.close();
+});
+
 console.log(fallos ? `\n${fallos} pruebas fallaron` : '\nTodas bien');
 process.exit(fallos ? 1 : 0);

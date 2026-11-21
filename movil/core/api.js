@@ -6,6 +6,7 @@ import * as store from './store.js';
 import { describeUser } from './session.js';
 import { elegidos } from './local.js';
 import * as modelos from './modelos.js';
+import { DEFAULT_MODEL, VOICES as LIVE_VOICES } from './live.js';
 
 const GENDER_IDS = ['mujer', 'hombre', 'no_binario', ''];
 export const BUILTIN = [
@@ -45,15 +46,26 @@ export function createApi(core) {
   function publicCloud() {
     const c = llm.cloud();
     return { preset: c.preset, name: llm.PRESETS[c.preset].name, base: c.base, model: c.model,
-      has_key: llm.keyPresent(), key_hint: llm.keyPresent() ? 'guardada' : '' };   // la clave nunca vuelve a la interfaz
+      has_key: llm.keyPresent() };   // la clave nunca vuelve a la interfaz (ni un trozo)
   }
+
+  // En vivo en el teléfono: solo Gemini Live (los demás proveedores de la PC no están probados aquí).
+  function publicLive() {
+    const lv = S().live || {};
+    return { provider: 'gemini', name: 'Google Gemini Live', model: lv.model || DEFAULT_MODEL, voice: lv.voice || '', url: '',
+      has_key: !!core.liveKey(), own_key: !!core.keys.live,
+      providers: [{ id: 'gemini', name: 'Google Gemini Live', free: 'gratis con límite diario', keys: 'https://aistudio.google.com/apikey',
+        models: [DEFAULT_MODEL], voices: LIVE_VOICES,
+        note: 'Tiene capa gratuita (con límite diario). Usa la clave de Gemini del cerebro si no pones otra. En el teléfono no descarga nada.' }] };
+  }
+  const mode = () => S().mode || 'nube';
 
   function config() {
     const user = describeUser(profile());
     const cloudMode = llm.isCloud();
     const eng = engine();
     const cfgOut = {
-      name: character(), user: profile().name, llm: llm.status(),
+      name: character(), user: profile().name, llm: { ...llm.status(), provider: mode() === 'telefono' ? 'local' : 'gemini' },
       adult: { active: !cloudMode && user.adult && !!(core.persona.adult || {}).enabled },
       onboarded: !!S().onboarded, profile: profile(), cloud: publicCloud(),
       voice: (voice() || {}).name || '', local_model: llm.isCloud() ? elegidos().cerebro.nombre : llm.status().model,
@@ -61,7 +73,8 @@ export function createApi(core) {
       watch: { interval: 7, model: '' },
       stt: { ready: true, device: cloudMode ? 'nube' : 'telefono', model: cloudMode ? 'nube' : 'whisper', error: null,
         engine: cloudMode ? 'nube' : 'local', cloud: { groq: !!core.keys.groq, gemini: llm.keyPresent(), last: null }, restart_frees: false },
-      cloud_only: cloudMode, mode: cloudMode ? 'nube' : 'telefono',
+      cloud_only: mode() === 'nube', mode: mode(),
+      gemini_live: mode() === 'vivo', gemini_live_model: publicLive().model, gemini_live_voice: publicLive().voice, live: publicLive(),
       model: true, model_id: modelId(), model_kind: modelId() === 'avatar3' ? 'orb' : 'vrm',
       barge_in: true, actions: { enabled: false, ask: false, always: [], available: false, catalog: {} },
       started: core.started, tts: core.ttsAvailable(eng), gpu: null,
@@ -78,11 +91,12 @@ export function createApi(core) {
       voice_engine: { selected: eng, in_use: eng, reason: '', auto: false, recommended: llm.isCloud() ? 'nube' : 'ligera', node: false,
         fits_now: false, light_installed: true, light_size_mb: 0, light_progress: null },
       ear: { engine: llm.isCloud() ? 'nube' : 'local', groq: !!core.keys.groq, gemini: llm.keyPresent(), last: null },
-      cloud_only: llm.isCloud(), onboarded: !!S().onboarded, character: character(), year: new Date().getFullYear(),
+      cloud_only: mode() === 'nube', gemini_live: mode() === 'vivo', gemini_live_model: publicLive().model, live: publicLive(),
+      onboarded: !!S().onboarded, character: character(), year: new Date().getFullYear(),
       profile: profile(), suggested_name: profile().name, provider: llm.isCloud() ? 'gemini' : 'local', cloud: publicCloud(),
       presets: Object.entries(llm.PRESETS).map(([id, v]) => ({ id, name: v.name, base: v.base, keys: v.keys, note: v.note })),
       local: { gpu: null, ollama: false, recommended: '', selected: S().local_model || '', in_use: '', models: [], others: [] },
-      voices: voices(), tts: core.ttsAvailable(eng), mode: llm.isCloud() ? 'nube' : 'telefono',
+      voices: voices(), tts: core.ttsAvailable(eng), mode: mode(),
     };
   }
 
@@ -135,9 +149,26 @@ export function createApi(core) {
       }
       changes.phone_models = pm;
     }
-    if (body.mode != null || body.provider != null) {
-      const mode = body.mode || (body.provider === 'local' ? 'telefono' : 'nube');
-      if (!['nube', 'telefono'].includes(mode)) throw new HttpError(422, 'Modo no reconocido.');
+    if (body.live) {
+      if ((body.live.provider || 'gemini') !== 'gemini') throw new HttpError(422, 'En el teléfono, «En vivo» solo funciona con Gemini Live.');
+      const key = String(body.live.key || '').trim();
+      if (key) { await secrets.set('live_key', key); core.keys.live = true; }
+      const model = String(body.live.model || '').trim().slice(0, 120);
+      const voice = String(body.live.voice || '');
+      if (voice && !LIVE_VOICES.includes(voice)) throw new HttpError(422, 'Voz no reconocida.');
+      changes.live = { model: model || DEFAULT_MODEL, voice };
+    }
+    // Modo pedido por la interfaz 0.9.1: gemini_live / cloud_only / provider (como chooseMode en main.js).
+    let wanted = body.mode || null;
+    if (!wanted && body.gemini_live === true) wanted = 'vivo';
+    else if (!wanted && body.provider === 'local') wanted = 'telefono';
+    else if (!wanted && (body.gemini_live === false || body.cloud_only != null || body.provider != null)) {
+      wanted = body.cloud_only === false && body.provider == null && mode() === 'telefono' ? 'telefono' : 'nube';
+    }
+    if (wanted) {
+      const mode = wanted;
+      if (!['vivo', 'nube', 'telefono'].includes(mode)) throw new HttpError(422, 'Modo no reconocido.');
+      if (mode === 'vivo' && !core.liveKey()) throw new HttpError(422, 'Falta la clave de Gemini para «En vivo».');
       if (mode === 'telefono' && S().mode !== 'telefono') {
         await core.revisar().catch(() => {});
         const brainOk = core.listos.cerebro || (core.can.simulator && !core.can.LOCAL_BRAIN);
@@ -148,8 +179,10 @@ export function createApi(core) {
       changes.mode = mode;
     }
     if (body.onboarded != null) changes.onboarded = !!body.onboarded;
+    const before = mode();
     await store.saveSettings(changes);
     if (changes.mode || changes.phone_models || changes.voice) await core.revisar().catch(() => {});
+    if (core.swap && (changes.mode || changes.live || (changes.voice && before === 'vivo'))) core.swap();
     // En el modo teléfono, cada voz necesita su voz ligera: si falta, se baja sola (unos 80 MB).
     if ((S().mode === 'telefono') && changes.voice && !core.listos.voz) {
       const m = piezas().voz;
@@ -204,6 +237,8 @@ export function createApi(core) {
         await store.clearSettings();
         store.forgetAll();
         await secrets.remove(llm.KEY).catch(() => {});
+        await secrets.remove('live_key').catch(() => {});
+        core.keys.live = false;
         llm.setHasKey(false);
         llm.resetCloud();
       } else {
@@ -225,6 +260,10 @@ export function createApi(core) {
       const cloudMode = llm.isCloud();
       const st = llm.status();
       const ok = (x) => (x ? 'listo' : 'error');
+      if (mode() === 'vivo') {
+        return { items: [{ id: 'vivo', label: 'La conversación en vivo', state: ok(core.liveKey()),
+          detail: core.liveKey() ? 'Gemini Live, sin descargas' : 'falta la clave de Gemini' }], busy: false };
+      }
       const items = cloudMode ? [
         { id: 'oido', label: 'El oído', state: 'listo', detail: 'en la nube' },
         { id: 'voz', label: 'La voz en la nube', state: 'listo', detail: '' },
