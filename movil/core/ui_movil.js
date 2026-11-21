@@ -415,8 +415,8 @@ export function init() {
       } finally { girar.disabled = false; marcarFrontal(); figCam.dispatchEvent(new Event('camara-lista')); }
     }, true);
     figCam.append(girar);
-    // Zoom de la cámara trasera: pellizcar la vista previa (o tocarla: 1×, 2×, 5× y vuelta). Con la triple, 1 es
-    // la gran angular (0,5×) y 2 la normal.
+    // Zoom: pellizcar la vista previa, o tocarla para pasar por 0,5× (gran angular), 1×, 2× y 5×. WebKit ya da el
+    // zoom como la app Cámara (medido: la triple va de 0,5 a 10, la frontal de 1 a 10).
     const zoomTxt = document.createElement('span');
     zoomTxt.className = 'zoom-txt';
     figCam.append(zoomTxt);
@@ -427,7 +427,7 @@ export function init() {
       z = Math.min(Math.max(z, c.min), Math.min(c.max, 10));
       t.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
       figCam.dataset.zoom = z;
-      zoomTxt.textContent = `${(z / (c.min < 1.5 && /triple|dual wide/i.test(t.label) ? 2 : 1)).toFixed(1).replace('.0', '')}×`;
+      zoomTxt.textContent = `${z.toFixed(1).replace('.0', '')}×`;
       return true;
     };
     let pellizco = null;
@@ -447,15 +447,14 @@ export function init() {
     figCam.querySelector('video').addEventListener('click', () => {
       const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
       if (!c) return;
-      const base = c.min < 1.5 && /triple|dual wide/i.test(t.label) ? 2 : 1;
-      const pasos = [base * 0.5, base, base * 2, base * 5].filter((z) => z >= c.min && z <= c.max);
-      const ahora = Number(figCam.dataset.zoom) || base;
+      const pasos = [0.5, 1, 2, 5].filter((z) => z >= c.min && z <= c.max);
+      const ahora = Number(figCam.dataset.zoom) || 1;
       ponerZoom(pasos[(pasos.findIndex((z) => z > ahora + 0.01) + pasos.length) % pasos.length] ?? pasos[0]);
     });
     figCam.addEventListener('camara-lista', () => {
       const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
       zoomTxt.hidden = !c;
-      if (c) ponerZoom(c.min < 1.5 && /triple|dual wide/i.test(t.label) ? 2 : c.min);
+      if (c) ponerZoom(Math.max(1, c.min));
     });
     new MutationObserver(() => { marcarFrontal(); if (!figCam.hidden) setTimeout(() => figCam.dispatchEvent(new Event('camara-lista')), 300); }).observe(figCam, { attributes: true, attributeFilter: ['hidden'] });
   }
