@@ -27,7 +27,9 @@ class HttpError extends Error { constructor(status, detail) { super(detail); thi
 export function createApi(core) {
   const S = () => store.getSettings();
   let propios = [];                  // VRM propios (la lista está en kv; se lee al arrancar y tras cada cambio)
-  vrm.list().then((l) => { propios = l; }, () => {});
+  // Hay que esperarla: si la interfaz pregunta antes, el modelo elegido (si es propio) no existe y cae al de
+  // fábrica, y parecía que no se guardaba el último modelo.
+  const propiosListos = vrm.list().then((l) => { propios = l; }, () => {});
 
   function profile() {
     const p = S().profile || {};
@@ -348,6 +350,7 @@ export function createApi(core) {
 
   // fetch(/api/…) de la interfaz → Response
   return async function handle(method, url, body, realFetch) {
+    await propiosListos;
     const path = url.pathname;
     if (method === 'GET' && path === '/api/model') {
       const own = propios.find((x) => x.id === modelId());

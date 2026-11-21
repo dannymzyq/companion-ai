@@ -435,7 +435,9 @@ function applyConfig(cfg) {
     loading.watch();
   }
   loadKey = key;
-  document.querySelector('#start .fine').textContent = (cfg.stt.engine === 'nube'
+  document.querySelector('#start .fine').textContent = cfg.gemini_live
+    ? `En vivo, tu voz, lo que escribes y las imágenes que compartas van a ${(cfg.live && cfg.live.name) || 'Gemini Live'}, que te oye y responde con su voz.`
+    : (cfg.stt.engine === 'nube'
     ? 'Tu voz se transcribe en la nube (Groq o Gemini).' : 'Tu voz se transcribe en esta PC.')
     + (cfg.llm.provider === 'gemini' ? ' Con el cerebro en la nube, el texto de la conversación y las imágenes que compartas van al proveedor que elegiste.' : '');
   // Primera vez: la bienvenida (perfil, cerebro, voz, modelo). Lo último, micrófono y cámara, es la tarjeta de inicio.

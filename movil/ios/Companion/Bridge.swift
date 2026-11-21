@@ -139,7 +139,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
         case "pip.open":
             guard let web = webView else { throw BridgeError("Sin vista") }
             try flotante.abrir(en: web, ancho: a["width"] as? Int ?? 360, alto: a["height"] as? Int ?? 480)
-            flotante.empezar = true                    // se abre con el primer cuadro
+            // No se abre aquí: se abre sola al salir de la app (iOS no deja que la app se mande a segundo plano).
             return true
         case "pip.frame":
             guard let s = a["jpeg"] as? String, let data = Data(base64Encoded: s) else { throw BridgeError("Cuadro no válido") }

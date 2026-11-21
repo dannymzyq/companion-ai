@@ -65,7 +65,12 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         if capa.status == .failed { capa.flush() }
         capa.enqueue(muestra)
         #if PRUEBAS
-        if empezar, let pip { Registro.anotar("Ventana flotante: posible=\(pip.isPictureInPicturePossible) activa=\(pip.isPictureInPictureActive) audio=\(AVAudioSession.sharedInstance().category.rawValue)") }
+        cuenta += 1
+        if Date().timeIntervalSince(desde) >= 5 {
+            let fondo = UIApplication.shared.applicationState == .background ? "en segundo plano" : "delante"
+            Registro.anotar("Ventana flotante: \(cuenta) cuadros en 5 s, app \(fondo), ventana \(activa ? "abierta" : "cerrada")")
+            cuenta = 0; desde = Date()
+        }
         #endif
         if let pip, !pip.isPictureInPictureActive, pip.isPictureInPicturePossible, empezar {
             empezar = false
@@ -73,6 +78,8 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         }
     }
     var empezar = false
+    private var cuenta = 0
+    private var desde = Date()
 
     func cerrar() {
         empezar = false
