@@ -13,6 +13,13 @@ struct CompanionView: UIViewRepresentable {
         config.allowsPictureInPictureMediaPlayback = true      // ventana flotante (ui_movil.js)
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Con la ventana flotante, la página sigue animando en segundo plano: sin frenar sus temporizadores al estar
+        // oculta (ajuste interno de WebKit; si no existe, no pasa nada).
+        let frenar = NSSelectorFromString("_setHiddenPageDOMTimerThrottlingEnabled:")
+        if config.preferences.responds(to: frenar) {
+            typealias Fn = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(config.preferences.method(for: frenar), to: Fn.self)(config.preferences, frenar, false)
+        }
 
         let content = config.userContentController
         content.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "native")

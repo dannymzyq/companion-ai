@@ -213,7 +213,10 @@ function pipCopy() {
   const sw = src.width, sh = src.height, want = W / H;
   let cw = sw, ch = sw / want;
   if (ch > sh) { ch = sh; cw = sh * want; }
-  g.drawImage(src, (sw - cw) / 2, sh * 0.04, cw, Math.min(ch, sh * 0.96), 0, 0, W, H);
+  // Centrado en la franja del personaje (entre el nombre y los botones), en vertical 9:16.
+  const z = av.closeUp && av.closeUp.top ? av.closeUp : { top: 0.13, bottom: 0.85 };
+  const sy = Math.min(Math.max(((z.top + z.bottom) / 2) * sh - ch / 2, 0), Math.max(0, sh - ch));
+  g.drawImage(src, (sw - cw) / 2, sy, cw, ch, 0, 0, W, H);
 }
 
 // Un cuadro para la ventanita. Con la app delante, main.js dibuja en cada requestAnimationFrame y la copia se
@@ -222,7 +225,11 @@ function pipCopy() {
 function pipFrame() {
   const av = window.companion && window.companion.avatar, a = window.companion && window.companion.audio;
   if (!av || !pip.canvas) return Promise.resolve();
-  if (!document.hidden) return new Promise((r) => requestAnimationFrame(() => { pipCopy(); r(); }));
+  // Si la app pasa a segundo plano mientras espera, requestAnimationFrame ya no llega: a los 150 ms se sigue sin él.
+  if (!document.hidden) return new Promise((r) => {
+    const t = setTimeout(r, 150);
+    requestAnimationFrame(() => { clearTimeout(t); pipCopy(); r(); });
+  });
   try { av.setVoice(a ? a.analyse() : { vol: 0 }); av.update(); } catch { /* el siguiente cuadro */ }
   pipCopy();
   return Promise.resolve();
@@ -234,7 +241,7 @@ async function abrirFlotante(callado = false) {
   const av = window.companion && window.companion.avatar;
   if (!av || !av.renderer) throw new Error('El personaje todavía está cargando.');
   if (!pip.canvas) {
-    pip.canvas = Object.assign(document.createElement('canvas'), { width: 360, height: 480 });
+    pip.canvas = Object.assign(document.createElement('canvas'), { width: 360, height: 640 });
     on('pip', (open) => { if (!open && pip.on) console.info('Ventana flotante cerrada'); });
   }
   await call('pip.open', { width: pip.canvas.width, height: pip.canvas.height });
@@ -244,20 +251,47 @@ async function abrirFlotante(callado = false) {
   if (!pip.watch) { pip.watch = av._frameWatch; av._frameWatch = () => {}; }
   let enviando = false;
   const tick = async () => {
-    if (enviando || !pip.on) return;              // si el puente va lento, se salta un cuadro
+    if (enviando || !pip.on) return;
+    if (!pip.latido) latido();                     // el audio de la página se crea con el primer toque              // si el puente va lento, se salta un cuadro
     enviando = true;
     try {
       await pipFrame();
       await call('pip.frame', { jpeg: pip.canvas.toDataURL('image/jpeg', 0.75).split(',')[1] });
     } catch { /* el siguiente */ } finally { enviando = false; }
   };
+  pip.tick = tick;
+  latido();
   tick();
   clearInterval(pip.timer);
   pip.timer = setInterval(tick, 66);              // ~15 cuadros por segundo
   if (!callado) aviso('Ventana flotante encendida: al salir de la app te acompaña en una ventanita.');
 }
 
+// En segundo plano iOS duerme la página (y con ella sus temporizadores y requestAnimationFrame) salvo que esté
+// sonando audio. Este nodo suena un ruido muy por debajo de lo audible (WebKit trata el silencio absoluto como «no
+// suena») y, además, su reloj de audio no se frena con la app fuera: cada ~43 ms se mueve y se dibuja al personaje y
+// se manda el cuadro a la ventanita, igual que con la app delante.
+function latido() {
+  const a = window.companion && window.companion.audio;
+  const ctx = a && a.ctx;
+  if (!ctx || pip.latido) return;
+  try {
+    const n = ctx.createScriptProcessor(2048, 1, 1);
+    let ultimo = 0;
+    n.onaudioprocess = (e) => {
+      const out = e.outputBuffer.getChannelData(0);
+      for (let i = 0; i < out.length; i++) out[i] = (Math.random() - 0.5) * 2e-4;
+      const now = performance.now();
+      if (pip.on && document.hidden && pip.tick && now - ultimo > 60) { ultimo = now; pip.tick(); }
+    };
+    n.connect(ctx.destination);
+    pip.latido = n;
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  } catch (err) { console.warn('Ventana flotante: sin latido de audio', err); }
+}
+
 function cerrarFlotante() {
+  if (pip.latido) { try { pip.latido.disconnect(); } catch { /* ya */ } pip.latido = null; }
   clearInterval(pip.timer); pip.timer = null; pip.on = false;
   const av = window.companion && window.companion.avatar;
   if (av && pip.watch) { av._frameWatch = pip.watch; pip.watch = null; }
@@ -271,8 +305,8 @@ function aviso(text) {
   clearTimeout(aviso.timer);
   aviso.timer = setTimeout(() => { t.hidden = true; }, 4500);
 }
-function pipApagada() { try { return localStorage.getItem('pip_apagada') === '1'; } catch { return false; } }
-function guardarPip(encendida) { try { localStorage.setItem('pip_apagada', encendida ? '0' : '1'); } catch { /* sin guardar */ } }
+function pipApagada() { try { return localStorage.getItem('pip_flotante') === 'no'; } catch { return false; } }
+function guardarPip(encendida) { try { localStorage.setItem('pip_flotante', encendida ? 'si' : 'no'); } catch { /* sin guardar */ } }
 window.companionPip = { abrir: abrirFlotante, cerrar: cerrarFlotante, estado: () => pip.on };
 
 window.companionPhone = { fill, save, refresh: refrescar };
@@ -331,33 +365,36 @@ export function init() {
     document.body.classList.toggle('con-teclado', alto > 0);
   };
 
-  // El botón de flotar (en la PC, la ventana flotante) abre aquí la ventana de picture in picture.
+  // Ventana flotante: encendida de serie (como las apps de vídeo), en Ajustes › Dispositivos se apaga y se recuerda.
+  // El botón de flotar de la barra no se usa en el teléfono.
   const flotar = $('float-btn');
-  if (flotar) {
-    flotar.title = 'Ventana flotante: sigue contigo en las demás apps';
-    flotar.setAttribute('aria-label', 'Ventana flotante');
-    flotar.addEventListener('click', (e) => {
-      e.stopImmediatePropagation(); e.preventDefault();
-      if (pip.on) {
-        cerrarFlotante(); flotar.classList.remove('on'); guardarPip(false);
-        aviso('Ventana flotante apagada: al salir de la app ya no se abre.'); return;
-      }
-      guardarPip(true);
-      abrirFlotante().then(() => flotar.classList.add('on'), (err) => {
-        console.warn('Ventana flotante', err);
-        aviso(`No pude preparar la ventana flotante: ${err.message}`);
-      });
-    }, true);
-    // Encendida de serie (como las apps de vídeo): en cuanto el personaje carga, al salir de la app se abre sola.
-    // El botón la apaga y se recuerda.
-    const armar = setInterval(() => {
-      const av = window.companion && window.companion.avatar;
-      if (!av || !av.renderer || !av.vrm) return;
-      clearInterval(armar);
-      if (pipApagada() || pip.on) return;
-      abrirFlotante(true).then(() => flotar.classList.add('on'), (err) => console.warn('Ventana flotante', err));
-    }, 1000);
-  }
+  if (flotar) flotar.remove();
+  style.textContent += ' #float-btn { display: none !important; }';
+  const tarjeta = document.createElement('div');
+  tarjeta.className = 'set-card';
+  tarjeta.innerHTML = `<div class="card-head"><h3>Ventana flotante</h3></div>
+    <label class="row set"><span><b>Al salir de la app, seguir en una ventanita</b>
+      <small>Tu personaje te acompaña encima de las demás apps, como un vídeo flotante.</small></span>
+      <input type="checkbox" id="pip-on" class="switch"></label>`;
+  const micCard = $('mic-select-2') && $('mic-select-2').closest('.set-card');
+  if (micCard) micCard.after(tarjeta);
+  const interruptor = tarjeta.querySelector('#pip-on');
+  interruptor.checked = !pipApagada();
+  interruptor.addEventListener('change', () => {
+    guardarPip(interruptor.checked);
+    if (!interruptor.checked) { if (pip.on) cerrarFlotante(); return; }
+    if (!pip.on) abrirFlotante(true).catch((err) => {
+      interruptor.checked = false; guardarPip(false);
+      aviso(`No pude preparar la ventana flotante: ${err.message}`);
+    });
+  });
+  const armar = setInterval(() => {
+    const av = window.companion && window.companion.avatar;
+    if (!av || !av.renderer || !av.vrm) return;
+    clearInterval(armar);
+    if (pipApagada() || pip.on) return;
+    abrirFlotante(true).catch((err) => console.warn('Ventana flotante', err));
+  }, 1000);
 
   // La pestaña «Acciones y memoria» aquí solo tiene la memoria.
   const pestana = document.querySelector('[data-stab="memoria"] b');

@@ -15,8 +15,12 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
 
     static var disponible: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
 
+    private weak var padre: UIView?
+
     func abrir(en padre: UIView, ancho: Int, alto: Int) throws {
         guard Self.disponible else { throw BridgeError("Este iPhone no admite ventanas flotantes") }
+        self.padre = padre
+        if let w = vista.superview, w !== padre { vista.removeFromSuperview() }
         if vista.superview == nil {
             // La capa tiene que estar en pantalla (casi invisible) para que iOS la pueda sacar a la ventanita.
             vista.frame = CGRect(x: 0, y: 0, width: CGFloat(ancho) / 20, height: CGFloat(alto) / 20)
@@ -35,6 +39,7 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
             c.canStartPictureInPictureAutomaticallyFromInline = true   // al salir de la app, se abre sola
             pip = c
         }
+        pip?.canStartPictureInPictureAutomaticallyFromInline = true
         // iOS necesita una sesión de audio de reproducción para abrir la ventana. Si ya está en «playAndRecord»
         // (micrófono abierto por la página) no se toca: cambiarla interrumpe la voz de la página.
         let s = AVAudioSession.sharedInstance()
@@ -127,7 +132,9 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
     }
 
     private func despierta(_ on: Bool) {
-        if !on { motor?.stop(); motor = nil; return }
+        // De vuelta en la app, la ventanita se cierra (si no, se queda encima de la propia app).
+        if !on { motor?.stop(); motor = nil; if activa { pip?.stopPictureInPicture() }; return }
+        mantenerPagina()
         guard reloj != nil, motor == nil else { return }
         let s = AVAudioSession.sharedInstance()
         if s.category != .playAndRecord && s.category != .playback {
@@ -149,8 +156,21 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
         }
     }
 
+    /// WebKit duerme la página unos 5 s después de salir de la app aunque suene audio (medido en el iPhone): sin
+    /// página no hay animación ni conversación. `_setThrottleStateForTesting:` (método interno de WKWebView; 2 =
+    /// primer plano) le pide que la mantenga despierta. Si una versión de iOS lo quita, se queda el bucle nativo.
+    private func mantenerPagina() {
+        let sel = NSSelectorFromString("_setThrottleStateForTesting:")
+        guard let web = padre as? NSObject, web.responds(to: sel) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector, Int32) -> Void
+        let f = unsafeBitCast(web.method(for: sel), to: Fn.self)
+        f(web, sel, 2)
+    }
+
     func cerrar() {
         empezar = false
+        pip?.canStartPictureInPictureAutomaticallyFromInline = false
+        capa.flush()
         despierta(false)
         reloj?.invalidate(); reloj = nil; bucle.removeAll()
         pip?.stopPictureInPicture()
