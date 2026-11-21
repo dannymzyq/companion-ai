@@ -10,6 +10,7 @@ struct CompanionView: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(AppScheme(), forURLScheme: AppScheme.scheme)
         config.allowsInlineMediaPlayback = true
+        config.allowsPictureInPictureMediaPlayback = true      // ventana flotante (ui_movil.js)
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
@@ -31,6 +32,7 @@ struct CompanionView: UIViewRepresentable {
         context.coordinator.testHook = TestHook(webView: web)
         #endif
         context.coordinator.webView = web
+        context.coordinator.watchKeyboard(web)
         web.uiDelegate = context.coordinator
         web.load(URLRequest(url: URL(string: "\(AppScheme.scheme)://companion/index.html")!))
         return web

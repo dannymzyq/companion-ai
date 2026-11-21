@@ -2,6 +2,8 @@
 // descargas, textos adaptados al teléfono, márgenes de la barra de estado y lo que aquí no existe, oculto.
 // La carga boot.js; onboarding.js le pasa el paso «local» (window.companionPhone).
 
+import { call, on } from './platform.js';
+
 const $ = (id) => document.getElementById(id);
 const api = async (path, body) => {
   const r = await fetch(path, body === undefined ? undefined
@@ -192,6 +194,59 @@ async function save() {
   await api('/api/setup', { mode: 'telefono' });
 }
 
+// ---------------------------------------------------------------- ventana flotante (picture in picture)
+// Como las apps de vídeo: el personaje sigue en una ventanita encima de las demás apps. Se copia el dibujo 3D a un
+// lienzo con fondo (de la cintura a la cabeza) y cada cuadro va al nativo (VentanaFlotante.swift), que lo pone en
+// la ventana flotante de iOS (WebKit no deja hacer picture in picture de un lienzo). Con la app en segundo plano la página no recibe cuadros (requestAnimationFrame se para): un
+// temporizador sigue moviendo al personaje mientras la ventana está abierta.
+const pip = { canvas: null, timer: null, on: false };
+
+function pipFrame() {
+  const av = window.companion && window.companion.avatar, a = window.companion && window.companion.audio;
+  if (!av || !pip.canvas) return;
+  if (document.hidden) {                        // en segundo plano main.js no dibuja: se hace aquí
+    try { av.setVoice(a ? a.analyse() : { vol: 0 }); av.update(); } catch { /* el siguiente cuadro */ }
+  }
+  const src = av.renderer.domElement, g = pip.canvas.getContext('2d');
+  const W = pip.canvas.width, H = pip.canvas.height;
+  const grad = g.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#1d1830'); grad.addColorStop(1, '#0c0b14');
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  // Recorte con la proporción de la ventanita, centrado arriba (donde está la cabeza con el primer plano).
+  const sw = src.width, sh = src.height, want = W / H;
+  let cw = sw, ch = sw / want;
+  if (ch > sh) { ch = sh; cw = sh * want; }
+  g.drawImage(src, (sw - cw) / 2, sh * 0.04, cw, Math.min(ch, sh * 0.96), 0, 0, W, H);
+}
+
+async function abrirFlotante() {
+  const av = window.companion && window.companion.avatar;
+  if (!av || !av.renderer) throw new Error('El personaje todavía está cargando.');
+  if (!pip.canvas) {
+    pip.canvas = Object.assign(document.createElement('canvas'), { width: 360, height: 480 });
+    on('pip', (open) => { if (!open) cerrarFlotante(true); });
+  }
+  await call('pip.open', { width: pip.canvas.width, height: pip.canvas.height });
+  pip.on = true;
+  let enviando = false;
+  const tick = () => {
+    if (enviando) return;                         // si el puente va lento, se salta un cuadro
+    pipFrame();
+    enviando = true;
+    call('pip.frame', { jpeg: pip.canvas.toDataURL('image/jpeg', 0.75).split(',')[1] })
+      .catch(() => {}).finally(() => { enviando = false; });
+  };
+  tick();
+  clearInterval(pip.timer);
+  pip.timer = setInterval(tick, 66);              // ~15 cuadros por segundo
+}
+
+function cerrarFlotante(yaCerrada = false) {
+  clearInterval(pip.timer); pip.timer = null; pip.on = false;
+  if (!yaCerrada) call('pip.close').catch(() => {});
+}
+window.companionPip = { abrir: abrirFlotante, cerrar: cerrarFlotante, estado: () => pip.on };
+
 window.companionPhone = { fill, save, refresh: refrescar };
 
 // ---------------------------------------------------------------- arranque
@@ -213,6 +268,12 @@ export function init() {
     #text-send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
     #text-form:not([hidden]) { display: flex; align-items: center; }
     #text-form #text-input { flex: 1 1 auto; min-width: 0; }
+    #float-btn[hidden] { display: inline-grid !important; }
+    /* Con el teclado, el margen de abajo del iPhone ya no cuenta (lo tapa el teclado): se sube su alto entero. */
+    footer { transform: translateY(calc(-1 * var(--teclado, 0px)));
+      transition: transform var(--teclado-t, 0.25s) ease-out; }
+    .con-teclado footer { padding-bottom: 10px !important; }
+    .con-teclado footer > .controls { display: none !important; }
     .phone-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; margin: 6px 0 10px; }
     .phone-bar i { display: block; height: 100%; background: var(--accent, #a78bfa); transition: width 0.4s; }
     .ob-label { display: block; margin: 14px 0 6px; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
@@ -230,6 +291,45 @@ export function init() {
     const a = window.companion && window.companion.audio;
     if (!document.hidden && a && a.ctx && a.ctx.state !== 'running') a.ctx.resume().catch(() => {});
   });
+
+  // Teclado (lo mide el nativo, Bridge.watchKeyboard): solo la barra de abajo sube por encima; el personaje no se
+  // mueve. Al cerrarlo, todo vuelve a su sitio.
+  window.__teclado = (alto, dur) => {
+    const root = document.documentElement.style;
+    root.setProperty('--teclado', `${alto}px`);
+    root.setProperty('--teclado-t', `${Math.max(0.1, dur || 0.25)}s`);
+    document.body.classList.toggle('con-teclado', alto > 0);
+  };
+
+  // El botón de flotar (en la PC, la ventana flotante) abre aquí la ventana de picture in picture.
+  const flotar = $('float-btn');
+  if (flotar) {
+    flotar.title = 'Ventana flotante: sigue contigo en las demás apps';
+    flotar.setAttribute('aria-label', 'Ventana flotante');
+    flotar.addEventListener('click', (e) => {
+      e.stopImmediatePropagation(); e.preventDefault();
+      (pip.on ? Promise.resolve(cerrarFlotante()) : abrirFlotante()).catch((err) => {
+        console.warn('Ventana flotante', err);
+        const t = document.getElementById('toast');
+        if (t) { t.textContent = `No pude abrir la ventana flotante: ${err.message}`; t.hidden = false; setTimeout(() => { t.hidden = true; }, 4000); }
+      });
+    }, true);
+  }
+
+  // Tocar fuera del chat cierra el teclado (en iOS no se cierra solo).
+  document.addEventListener('pointerdown', (e) => {
+    const input = $('text-input');
+    if (document.body.classList.contains('con-teclado') && input && !e.target.closest('#text-form')) input.blur();
+  }, true);
+
+  // Primer plano del personaje (de la cintura a la cabeza): en vertical, el encuadre de la PC lo dejaba lejos.
+  const cerca = setInterval(() => {
+    const av = window.companion && window.companion.avatar;
+    if (!av) return;
+    clearInterval(cerca);
+    av.closeUp = true;
+    if (!av.userMoved && av.frame) av.frame();
+  }, 200);
 
   adaptarNodo(document.body);
   new MutationObserver((muts) => {
@@ -270,7 +370,8 @@ export function init() {
   // «Teléfono» en Ajustes › Cerebro: si faltan los modelos, se abre el paso de descargas en vez de cambiar.
   const local = document.querySelector('#provider [data-value="local"]');
   if (local) {
-    local.querySelector('b').textContent = 'Teléfono';
+    const b = local.querySelector('b');
+    if (b) b.textContent = 'Teléfono';
     local.addEventListener('click', async (e) => {
       if (window.__companionConfig && window.__companionConfig.mode === 'telefono') return;
       e.stopImmediatePropagation();

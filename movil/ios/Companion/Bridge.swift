@@ -12,6 +12,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
     var streams: [Int: Task<Void, Never>] = [:]
     var streamCuts: [Int: Corte] = [:]
     var sockets: [Int: LiveSocket] = [:]          // modo «En vivo»
+    lazy var flotante: VentanaFlotante = {
+        let v = VentanaFlotante()
+        v.alCerrar = { [weak self] in self?.webView?.evaluateJavaScript("window.__native.emit('pip', false)", completionHandler: nil) }
+        return v
+    }()
     #if DEBUG || PRUEBAS
     var testHook: TestHook?
     #endif
@@ -131,6 +136,18 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
         case "vrm.remove":
             try? FileManager.default.removeItem(at: try AppScheme.propio(a["id"] as? String ?? ""))
             return true
+        case "pip.open":
+            guard let web = webView else { throw BridgeError("Sin vista") }
+            try flotante.abrir(en: web, ancho: a["width"] as? Int ?? 360, alto: a["height"] as? Int ?? 480)
+            flotante.empezar = true                    // se abre con el primer cuadro
+            return true
+        case "pip.frame":
+            guard let s = a["jpeg"] as? String, let data = Data(base64Encoded: s) else { throw BridgeError("Cuadro no válido") }
+            flotante.cuadro(data)
+            return flotante.activa
+        case "pip.close":
+            flotante.cerrar()
+            return true
         case "audio.mode":
             LiveSocket.audioMode(live: a["live"] as? Bool ?? false)
             return true
@@ -178,6 +195,54 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
             webLog.log("flujo \(id): error a los \(Date().timeIntervalSince(t0), format: .fixed(precision: 2)) s: \((error as NSError).code)")
             emit(id, "error", "Sin conexión (\((error as NSError).code))")
         }
+    }
+
+    // ---------------------------------------------------------------- teclado
+    private var pin: NSKeyValueObservation?
+    private var keyboardObservers: [NSObjectProtocol] = []
+
+    /// El teclado se pone ENCIMA de la app: WKWebView desplazaba toda la página para enseñar el campo de texto (el
+    /// personaje subía con él). La página queda fija y solo la barra de abajo sube lo que ocupa el teclado
+    /// (--teclado en ui_movil.js).
+    func watchKeyboard(_ web: WKWebView) {
+        Self.sinBarraDelTeclado(web)
+        pin = web.scrollView.observe(\.contentOffset, options: [.new]) { sv, _ in
+            if sv.contentOffset != .zero { DispatchQueue.main.async { sv.contentOffset = .zero } }
+        }
+        let nc = NotificationCenter.default
+        let send: (Notification) -> Void = { [weak self, weak web] n in
+            guard let web, let end = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let local = web.convert(end, from: nil)
+            let alto = max(0, web.bounds.maxY - local.minY)
+            let dur = (n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+            MainActor.assumeIsolated {
+                self?.webView?.evaluateJavaScript(
+                    "window.__teclado && window.__teclado(\(Int(alto)), \(dur))", completionHandler: nil)
+            }
+        }
+        keyboardObservers = [
+            nc.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main, using: send),
+            nc.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main, using: send),
+        ]
+    }
+
+    /// Quita la barra «^ v ✓» que WKWebView pone encima del teclado (tapaba el chat, que es un solo campo):
+    /// la vista interna de WebKit pasa a una subclase hecha en el momento cuyo inputAccessoryView es nil.
+    private static func sinBarraDelTeclado(_ web: WKWebView) {
+        guard let content = web.scrollView.subviews.first(where: { String(describing: type(of: $0)).hasPrefix("WKContent") }),
+              let base: AnyClass = object_getClass(content) else { return }
+        let name = "\(NSStringFromClass(base))_SinBarra"
+        var sub: AnyClass? = NSClassFromString(name)
+        if sub == nil, let c = objc_allocateClassPair(base, name, 0) {
+            let block: @convention(block) (AnyObject) -> UIView? = { _ in nil }
+            let sel = #selector(getter: UIResponder.inputAccessoryView)
+            if let m = class_getInstanceMethod(UIView.self, sel) {
+                class_addMethod(c, sel, imp_implementationWithBlock(block), method_getTypeEncoding(m))
+            }
+            objc_registerClassPair(c)
+            sub = c
+        }
+        if let sub { object_setClass(content, sub) }
     }
 
     func emit(_ id: Int, _ kind: String, _ data: Any) {

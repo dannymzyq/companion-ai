@@ -1637,6 +1637,18 @@ export class Avatar {
       this.controls.update();
       return;
     }
+    // Primer plano (21 nov 2026, la app del teléfono lo enciende con `closeUp`): en una pantalla vertical, encuadrar
+    // por el ancho dejaba el personaje lejos. Aquí se encuadra por el alto: de la cintura a algo por encima de la
+    // cabeza, con la cabeza en el tercio de arriba (abajo quedan la barra y los subtítulos).
+    if (this.closeUp && !this.orb && !this.floating) {
+      const h = 0.95;                                      // metros visibles de arriba abajo
+      const d = clamp(h / (2 * tan), 0.9, 4.2);
+      const cy = this.headY - 0.22;
+      this.controls.target.set(0, cy, 0);
+      this.camera.position.set(0, cy + 0.02, d);
+      this.controls.update();
+      return;
+    }
     // Flotando, la esfera sube a la parte de arriba de la ventana para dejar sitio a la barra de botones.
     const y = this.orb ? ORB_Y - 0.03 - (this.floating ? 0.2 * visible : 0) : this.headY + 0.24 - 0.4 * visible;
     this.controls.target.set(0, y, 0);
