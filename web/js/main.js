@@ -255,6 +255,9 @@ function handle(ev) {
       sentences = [];
       break;
     case 'sentence': audio.beginSentence(ev); break;
+    case 'caption_delta':
+      if (ev.text) $('mika-line').textContent = ev.text;
+      break;
     case 'sentence_end': audio.endSentence(); break;
     case 'reply_end': audio.markReplyDone(); break;
     case 'interrupt': audio.flush(); document.body.classList.remove('talking'); break;
@@ -434,34 +437,47 @@ function applyConfig(cfg) {
   const engineName = (id) => ({ ligera: 'voz ligera', nube: 'voz en la nube' }[id] || 'voz completa');
   const earCloud = cfg.stt.engine === 'nube';
   $('cloud-only').checked = !!cfg.cloud_only;
+  if ($('gemini-live')) $('gemini-live').checked = !!cfg.gemini_live;
   for (const b of $('ear').children) b.classList.toggle('on', b.dataset.value === cfg.stt.engine);
   $('ear-cloud-name').textContent = cfg.stt.cloud.groq ? 'Groq, y Gemini de respaldo' : (cfg.stt.cloud.gemini ? 'Gemini (sin clave de Groq)' : 'Falta una clave');
   $('groq-state').textContent = (cfg.stt.cloud.groq ? 'Clave de Groq guardada.' : 'Sin clave de Groq: el oído en la nube usa Gemini.')
     + (cfg.stt.restart_frees ? ' Reinicia el companion para devolver del todo la memoria que usaba Whisper.' : '');
-  const switched = cfg.voice_engine !== cfg.voice_engine_pref;
-  $('voice-line').textContent = `${cfg.voice || 'Sin voz'} · ${engineName(cfg.voice_engine_pref)}${switched ? ` (ahora, ${engineName(cfg.voice_engine)})` : ''}`;
+  const live = !!cfg.gemini_live;
+  const switched = !live && cfg.voice_engine !== cfg.voice_engine_pref;
+  $('voice-line').textContent = live
+    ? `${cfg.voice || 'Sin voz'} · Gemini Live (${cfg.gemini_live_voice || 'Aoede'})`
+    : `${cfg.voice || 'Sin voz'} · ${engineName(cfg.voice_engine_pref)}${switched ? ` (ahora, ${engineName(cfg.voice_engine)})` : ''}`;
   $('voice-auto').checked = cfg.voice_auto;
-  $('voice-auto').disabled = cfg.voice_engine_pref !== 'completa';
-  $('voice-auto').closest('.row').classList.toggle('disabled', cfg.voice_engine_pref !== 'completa');
-  $('voice-auto-note').textContent = (cfg.voice_engine_pref !== 'completa'
-    ? 'Solo sirve con la voz completa elegida (en «Voz › Cambiar»). '
-    : '')
+  $('voice-auto').disabled = live || cfg.voice_engine_pref !== 'completa';
+  $('voice-auto').closest('.row').classList.toggle('disabled', live || cfg.voice_engine_pref !== 'completa');
+  $('voice-auto-note').textContent = (live
+    ? 'Con Gemini Live activo la voz la genera directamente Gemini en la nube. '
+    : (cfg.voice_engine_pref !== 'completa' ? 'Solo sirve con la voz completa elegida (en «Voz › Cambiar»). ' : ''))
     + 'Encendido: suena la voz completa y, si a la tarjeta gráfica le falta memoria de vídeo (un modelo local grande, un juego abierto), pasa sola a la ligera, que corre en el procesador. Al volver a haber sitio (por ejemplo, con el cerebro en la nube) vuelve la completa.'
     + (switched && cfg.voice_reason ? ` Ahora usa la ligera porque ${cfg.voice_reason}.` : '');
   $('sum-tu').textContent = cfg.profile.name ? `${cfg.profile.name} · ${cfg.name}` : cfg.name;
-  $('sum-cerebro').textContent = `${cloud ? 'Nube' : 'Local'} · ${cfg.llm.model}`;
-  $('sum-voz').textContent = `${cfg.voice || 'Sin voz'} · ${engineName(cfg.voice_engine)} · ${Math.round(savedVolume() * 100)} %`;
+  $('sum-cerebro').textContent = live ? `Gemini Live · ${cfg.gemini_live_model || 'en vivo'}` : `${cloud ? 'Nube' : 'Local'} · ${cfg.llm.model}`;
+  if (live) $('brain').textContent = 'Gemini Live';
+  if ($('quick-modes')) {
+    const activePreset = live ? 'live' : (!cloud ? 'local' : 'hybrid');
+    for (const b of $('quick-modes').querySelectorAll('[data-qmode]')) {
+      b.classList.toggle('on', b.dataset.qmode === activePreset);
+    }
+  }
+  $('sum-voz').textContent = live
+    ? `Gemini Live (${cfg.gemini_live_voice || 'Aoede'}) · ${Math.round(savedVolume() * 100)} %`
+    : `${cfg.voice || 'Sin voz'} · ${engineName(cfg.voice_engine)} · ${Math.round(savedVolume() * 100)} %`;
   $('sum-compartir').textContent = `Mirada en vivo ${$('watch').checked ? 'encendida' : 'apagada'}`;
   $('local-line').textContent = cfg.local_model + (!cloud && cfg.llm.model !== cfg.local_model ? ` (ahora en uso: ${cfg.llm.model})` : '');
 
   let banner = '';
   if (!cfg.llm.ready) {
     banner = 'Falta la clave del cerebro en la nube. Ponla en Ajustes › Cerebro › «Proveedor y clave», o usa el cerebro local.';
-  } else if (cfg.stt.error) {
+  } else if (!live && cfg.stt.error) {
     banner = 'El oído (Whisper) no pudo cargar. Puedes escribirle con el teclado.';
-  } else if (!cfg.stt.ready) {
+  } else if (!live && !cfg.stt.ready) {
     banner = 'Preparando el oído (Whisper)… unos segundos.';
-  } else if (!cfg.tts) {
+  } else if (!live && !cfg.tts) {
     banner = cfg.voice_engine === 'ligera'
       ? `La voz ligera no está instalada: descárgala en Ajustes › Voz. ${cfg.name} responderá solo con texto.`
       : `La voz completa no está disponible (su servidor no responde; mira data\\voz.log). ${cfg.name} responderá solo con texto; en Ajustes › Voz puedes pasar a la voz ligera.`;
@@ -470,20 +486,24 @@ function applyConfig(cfg) {
   $('banner').hidden = !banner;
 
   for (const b of $('provider').children) b.classList.toggle('on', b.dataset.value === cfg.llm.provider);
-  $('brain-note').textContent = cloud
-    ? `${earCloud || cfg.voice_engine === 'nube' ? 'El' : 'Solo el'} texto de la conversación (y las imágenes de cámara o pantalla, si las compartes) viaja a ${cfg.cloud.name}.`
-      + (earCloud || cfg.voice_engine === 'nube'
-        ? `${earCloud ? ' Tu voz se transcribe en la nube.' : ' Tu voz se transcribe en esta PC.'}${cfg.voice_engine === 'nube' ? ` La voz de ${cfg.name} se genera en la nube.` : ` La voz de ${cfg.name} se genera en esta PC.`}`
-        : ` Tu voz y la de ${cfg.name} se procesan en esta PC.`)
-    : `Todo se procesa en esta PC${cfg.adult.active ? ', sin filtro para temas +18 si tú los propones' : ''}. El modelo comparte la memoria de vídeo con la voz: si no cabe (por ejemplo, con un juego abierto),${cfg.name} pasa primero a la voz ligera y, si aún falta, a un modelo más pequeño. Pulsa «Local» otra vez para que vuelva a elegir.`;
+  $('brain-note').textContent = live
+    ? `Gemini Live está activo (${cfg.gemini_live_model || 'gemini-3.1-flash-live-preview'}): el micrófono, el sonido de pantalla, la cámara/pantalla y la voz de ${cfg.name} van en directo por WebSocket a Google Gemini sin cargar modelos en tu PC.`
+    : cloud
+      ? `${earCloud || cfg.voice_engine === 'nube' ? 'El' : 'Solo el'} texto de la conversación (y las imágenes de cámara o pantalla, si las compartes) viaja a ${cfg.cloud.name}.`
+        + (earCloud || cfg.voice_engine === 'nube'
+          ? `${earCloud ? ' Tu voz se transcribe en la nube.' : ' Tu voz se transcribe en esta PC.'}${cfg.voice_engine === 'nube' ? ` La voz de ${cfg.name} se genera en la nube.` : ` La voz de ${cfg.name} se genera en esta PC.`}`
+          : ` Tu voz y la de ${cfg.name} se procesan en esta PC.`)
+      : `Todo se procesa en esta PC${cfg.adult.active ? ', sin filtro para temas +18 si tú los propones' : ''}. El modelo comparte la memoria de vídeo con la voz: si no cabe (por ejemplo, con un juego abierto),${cfg.name} pasa primero a la voz ligera y, si aún falta, a un modelo más pequeño. Pulsa «Local» otra vez para que vuelva a elegir.`;
   $('watch-note').textContent = `Mientras compartes la cámara o la pantalla, ${cfg.name} mira cada pocos segundos y comenta por su cuenta lo que le llama la atención.`
-    + (cloud ? ` Con la nube esas imágenes van a ${cfg.cloud.name} (modelo ${cfg.watch.model}).` : ' Con el cerebro local no salen de esta PC.');
+    + (live ? ' En modo Gemini Live ve las imágenes y escucha la pantalla en tiempo real.' : (cloud ? ` Con la nube esas imágenes van a ${cfg.cloud.name} (modelo ${cfg.watch.model}).` : ' Con el cerebro local no salen de esta PC.'));
 
   const health = [
-    ['Cerebro', `${cloud ? cfg.cloud.name : 'Ollama'} · ${cfg.llm.model}`, cfg.llm.ready],
-    ['Oído', earCloud ? `Nube · ${cfg.stt.cloud.last ? `${cfg.stt.cloud.last.provider} (${String(cfg.stt.cloud.last.seconds).replace('.', ',')} s)` : (cfg.stt.cloud.groq ? 'Groq' : 'Gemini')}`
-      : cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${{ cuda: 'GPU', mps: 'GPU del Mac' }[cfg.stt.device] || 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), !cfg.stt.error],
-    ['Voz', cfg.tts ? `${engineName(cfg.voice_engine)} · ${{ ligera: 'procesador', nube: 'internet' }[cfg.voice_engine] || 'GPU'}` : 'No disponible', cfg.tts],
+    ['Cerebro', live ? `Gemini Live · ${cfg.gemini_live_model || 'en vivo'}` : `${cloud ? cfg.cloud.name : 'Ollama'} · ${cfg.llm.model}`, cfg.llm.ready],
+    ['Oído', live ? 'Gemini Live · tiempo real (16 kHz)'
+      : earCloud ? `Nube · ${cfg.stt.cloud.last ? `${cfg.stt.cloud.last.provider} (${String(cfg.stt.cloud.last.seconds).replace('.', ',')} s)` : (cfg.stt.cloud.groq ? 'Groq' : 'Gemini')}`
+      : cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${{ cuda: 'GPU', mps: 'GPU del Mac' }[cfg.stt.device] || 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), live ? cfg.llm.ready : !cfg.stt.error],
+    ['Voz', live ? `Gemini Live · ${cfg.gemini_live_voice || 'Aoede'} (24 kHz)`
+      : cfg.tts ? `${engineName(cfg.voice_engine)} · ${{ ligera: 'procesador', nube: 'internet' }[cfg.voice_engine] || 'GPU'}` : 'No disponible', live ? cfg.llm.ready : cfg.tts],
     ['Modelo 3D', cfg.model ? (/^avatar\d$/.test(cfg.model_id) ? `Avatar ${cfg.model_id.slice(-1)} (incluido)` : 'Modelo propio') : 'Falta el .vrm', cfg.model],
   ];
   if (cfg.llm.detail) health[0][1] += ` · ${cfg.llm.detail}`;
@@ -969,9 +989,24 @@ $('text-form').onsubmit = async (e) => {
 
 const personalityUI = initPersonality({ toast, onChange: () => refreshConfig() });
 
-const openSettings = (open) => {
+const selectSettingsTab = (tab) => {
+  for (const b of document.querySelectorAll('.snav[data-stab]')) {
+    const on = b.dataset.stab === tab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+  for (const p of document.querySelectorAll('.stab-panel[data-stab-panel]')) {
+    p.classList.toggle('active', p.dataset.stabPanel === tab);
+  }
+};
+for (const b of document.querySelectorAll('.snav[data-stab]')) {
+  b.onclick = () => selectSettingsTab(b.dataset.stab);
+}
+
+const openSettings = (open, tab = null) => {
   $('settings').hidden = !open;
   if (!open) return;
+  if (tab) selectSettingsTab(tab);
   refreshConfig();
   refreshActions();
   refreshModels();
@@ -986,10 +1021,29 @@ const openSettings = (open) => {
   $('mic-allow-2').hidden = audio.hasMic;
 };
 $('open-settings').onclick = () => openSettings(true);
-$('brain').onclick = () => openSettings(true);
+$('brain').onclick = () => openSettings(true, 'cerebro');
 $('close-settings').onclick = () => openSettings(false);
 $('settings').onclick = (e) => { if (e.target === $('settings')) openSettings(false); };
 addEventListener('keydown', (e) => { if (e.key === 'Escape') openSettings(false); });
+
+if ($('quick-modes')) {
+  for (const b of $('quick-modes').querySelectorAll('[data-qmode]')) {
+    b.onclick = async () => {
+      const m = b.dataset.qmode;
+      if (m === 'live') {
+        if (await postSetup({ gemini_live: true })) { toast('Gemini Live activado.'); restartHint(); }
+      } else if (m === 'hybrid') {
+        if (await postSetup({ gemini_live: false, cloud_only: false, provider: 'gemini', voice_engine: 'completa', ear: { engine: 'local' } })) {
+          toast('Modo Nube + tu voz activado.');
+        }
+      } else if (m === 'local') {
+        if (await postSetup({ gemini_live: false, cloud_only: false, provider: 'local', ear: { engine: 'local' } })) {
+          toast('Modo 100 % Local activado.');
+        }
+      }
+    };
+  }
+}
 
 for (const b of $('provider').children) b.onclick = () => postConfig({ provider: b.dataset.value });
 
@@ -1017,6 +1071,7 @@ async function postSetup(body, fail = 'No se pudo guardar.') {
 }
 const restartHint = () => { if (config.stt.restart_frees) toast('Listo. Para devolver toda la memoria que usaba el oído local, reinicia el companion.'); };
 $('cloud-only').onchange = async () => { if (await postSetup({ cloud_only: $('cloud-only').checked })) restartHint(); };
+if ($('gemini-live')) $('gemini-live').onchange = async () => { if (await postSetup({ gemini_live: $('gemini-live').checked })) restartHint(); };
 for (const b of $('ear').children) b.onclick = async () => { if (await postSetup({ ear: { engine: b.dataset.value } })) restartHint(); };
 $('groq-save').onclick = async () => {
   const key = $('groq-key').value.trim();

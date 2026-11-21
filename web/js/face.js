@@ -198,7 +198,7 @@ export class Micro {
     }
     if (!this.cur && t > this.next) {
       const pool = MICRO.filter((m) => (!m.only || m.only.includes(emotion)) && (!m.not || !m.not.includes(emotion))
-        && (!m.idleOnly || speaking < 0.3) && (parts.length ? Object.keys(m.parts).every((k) => parts.includes(k)) : true));
+        && (!m.idleOnly || speaking < 0.3) && (parts.length ? Object.keys(m.parts).every((k) => parts.includes(k)) : !!MICRO_PRESET[m.name]));
       let total = pool.reduce((s, m) => s + (speaking > 0.5 ? m.speaking || m.weight : m.weight), 0);
       let r = Math.random() * total;
       for (const m of pool) {
@@ -213,7 +213,7 @@ export class Micro {
       if (u >= 1) { this.cur = null; return out; }
       const env = Math.sin(Math.PI * Math.min(1, u * 1.15)) ** 0.7;          // sube rápido, baja algo más despacio
       const src = parts.length ? c.m.parts : MICRO_PRESET[c.m.name];
-      for (const [k, v] of Object.entries(src)) out[k] = (out[k] || 0) + v * c.amp * env;
+      if (src) for (const [k, v] of Object.entries(src)) out[k] = (out[k] || 0) + v * c.amp * env;
     }
     return out;
   }

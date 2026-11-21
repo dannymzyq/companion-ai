@@ -943,13 +943,13 @@ function pointerWork(p, t, w, a) {
 export class Avatar {
   constructor(canvas) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.quality = { maxTex: 4096, ratio: 2 };         // setQuality la baja en tarjetas pequeñas
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Si la tarjeta gráfica pierde el contexto (driver reiniciado, memoria de vídeo llena con un juego o el modelo
     // local), three.js lo recupera; al volver se recarga el modelo para que no se quede la imagen parada.
-    canvas.addEventListener('webglcontextlost', () => console.error('La tarjeta gráfica perdió el contexto de dibujo (WebGL)'));
+    canvas.addEventListener('webglcontextlost', () => { this._probePbo = this._probeSync = null; console.error('La tarjeta gráfica perdió el contexto de dibujo (WebGL)'); });
     canvas.addEventListener('webglcontextrestored', () => { console.warn('Contexto de dibujo recuperado'); this.onContextRestored?.(); });
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 30);
@@ -1576,19 +1576,47 @@ export class Avatar {
 
   // ¿Hay avatar bajo ese punto de la ventana, o es fondo transparente? Se lee del último cuadro dibujado.
   _readProbe(force = false) {
-    // readPixels hace esperar a la tarjeta gráfica a que acabe el cuadro: en cada cuadro, al flotar, daba tirones
-    // (19 nov 2026). Se lee solo si el ratón se movió o cada 150 ms (el resultado vale hasta entonces).
+    const gl = this.renderer.getContext();
+    // Si hay una lectura asíncrona pendiente (WebGL2 PBO), recogemos el píxel sin frenar la GPU.
+    if (this._probeSync && gl.PIXEL_PACK_BUFFER) {
+      const status = gl.clientWaitSync(this._probeSync, 0, 0);
+      if (status === gl.ALREADY_SIGNALED || status === gl.CONDITION_SATISFIED) {
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._probePbo);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this._px);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        gl.deleteSync(this._probeSync);
+        this._probeSync = null;
+        this.probeHit = this._px[3] > 24;
+      } else if (status === gl.WAIT_FAILED) {
+        gl.deleteSync(this._probeSync);
+        this._probeSync = null;
+      } else if (!force) {
+        return;                                   // la GPU aún está terminando ese cuadro: no sobrescribimos el PBO
+      }
+    }
     const now = performance.now(), pr = this.probe;
     if (!force && pr && this._probeLast && pr.x === this._probeLast.x && pr.y === this._probeLast.y && now - this._probeAt < 150) return;
     if (!force && now - (this._probeAt || 0) < 50) return;
     this._probeAt = now;
     this._probeLast = pr ? { x: pr.x, y: pr.y } : null;
-    this.probeHit = false;
-    if (!this.probe) return;
+    if (!this.probe) { this.probeHit = false; return; }
     const dpr = this.renderer.getPixelRatio();
     const x = Math.round(this.probe.x * dpr), y = Math.round(this.canvas.height - this.probe.y * dpr);
-    if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return;
-    const gl = this.renderer.getContext();
+    if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) { this.probeHit = false; return; }
+    if (!force && !this._probeSync && gl.PIXEL_PACK_BUFFER && typeof gl.fenceSync === 'function') {
+      if (!this._probePbo) {
+        this._probePbo = gl.createBuffer();
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._probePbo);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ);
+      } else {
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._probePbo);
+      }
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      this._probeSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      gl.flush();
+      return;
+    }
     gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this._px);
     this.probeHit = this._px[3] > 24;
   }
@@ -1655,6 +1683,8 @@ export class Avatar {
   resize() {
     const el = this.canvas.parentElement;
     const w = el.clientWidth || 1, h = el.clientHeight || 1;
+    this._viewW = w;
+    this._viewH = h;
     // A pantalla completa con escalado (150-200 %) se dibujaban 6-8 millones de píxeles con suavizado de bordes en cada
     // cuadro: tirones (19 nov 2026). Como mucho MAX_PIXELS (~ 1440p), y menos si el cuadro va lento (_frameWatch).
     const cap = Math.min(window.devicePixelRatio, this.quality?.ratio ?? 2, Math.sqrt(MAX_PIXELS / (w * h)), this._slowCap ?? 9);
@@ -2038,9 +2068,9 @@ export class Avatar {
     return { zone, level, n: tc.n };
   }
   _project(x, y, z) {
-    const r = this.canvas.getBoundingClientRect();
+    const w = this._viewW || this.canvas.clientWidth || 1, h = this._viewH || this.canvas.clientHeight || 1;
     this._v.set(x, y, z).project(this.camera);
-    return { x: (this._v.x + 1) / 2 * r.width, y: (1 - this._v.y) / 2 * r.height };
+    return { x: (this._v.x + 1) / 2 * w, y: (1 - this._v.y) / 2 * h };
   }
   // Puntos del personaje en px de la ventana: los pies (suelo), dónde se sienta y la cabeza. Para colocar la ventana
   // flotante sobre la barra de tareas o encima de otra ventana (desktop/pet.js).
@@ -2048,7 +2078,7 @@ export class Avatar {
     if (!this.vrm && !this.orb) return null;
     const top = this.orb ? ORB_Y + 0.25 : this.headY + 0.16;
     const feet = this.orb ? ORB_Y - 0.33 : 0;
-    const r = this.canvas.getBoundingClientRect();
+    const r = { width: this._viewW || this.canvas.clientWidth || 1, height: this._viewH || this.canvas.clientHeight || 1 };
     // La punta del índice derecho (la «mano de puntero» al trabajar), suavizada para que el golpecito de tocar no
     // haga temblar la ventana que la sigue.
     let hand;
@@ -2212,18 +2242,18 @@ export class Avatar {
   }
 
   // ---------------------------------------------------------------- cuadro a cuadro
-  // Si los cuadros van lentos de forma seguida (menos de ~40 por segundo durante 3 s), se dibuja a menos resolución,
-  // un 20 % cada vez y como mucho hasta 1× (19 nov 2026). Los cuadros muy largos (ventana escondida) no cuentan.
+  // Si los cuadros bajan de ~52 fps durante 2 s seguidos, se reduce la resolución en pasos del 15 % (hasta 0,75×)
+  // para sostener 60 fps constantes. Los cuadros muy largos (ventana escondida) no cuentan.
   _frameWatch(raw) {
     if (raw <= 0 || raw > 0.25) return;
     const fw = this._fw || (this._fw = { sum: 0, n: 0 });
     fw.sum += raw; fw.n++;
-    if (fw.sum < 3) return;
+    if (fw.sum < 2) return;
     const avg = fw.sum / fw.n;
     fw.sum = fw.n = 0;
     const pr = this.renderer.getPixelRatio();
-    if (avg > 0.025 && pr > 1.01) {
-      this._slowCap = Math.max(1, pr * 0.8);
+    if (avg > 0.019 && pr > 0.76) {
+      this._slowCap = Math.max(0.75, pr * 0.85);
       console.warn(`Cuadros lentos (${Math.round(1 / avg)} por segundo): dibujo a ${this._slowCap.toFixed(2)}×`);
       this.resize();
     }
@@ -2242,7 +2272,7 @@ export class Avatar {
       this._gaze(t, dt);
       this._inertia();
       this.vrm.update(dt);
-      this.vrm.scene.updateMatrixWorld(true);
+      this.vrm.scene.updateMatrixWorld(false);
       this._placeDevice(t);
       this.effects.update(dt, this._headNow());
     } else if (this.orb) {
@@ -2273,7 +2303,7 @@ export class Avatar {
     const x = window.screenX, y = window.screenY, last = this._win;
     this._win = { x, y };
     if (!last || (x === last.x && y === last.y)) return;
-    const h = this.canvas.getBoundingClientRect().height || 1;
+    const h = this._viewH || this.canvas.clientHeight || 1;
     const mpp = (2 * this.camera.position.distanceTo(this.controls.target) * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / h;
     const right = this._v.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
     const up = (this._e6 || (this._e6 = new THREE.Vector3())).set(0, 1, 0).applyQuaternion(this.camera.quaternion);
@@ -2558,8 +2588,8 @@ export class Avatar {
   }
 
   _cursorWorld(out) {
-    const r = this.canvas.getBoundingClientRect();
-    out.set((this.cursor.x / r.width) * 2 - 1, -(this.cursor.y / r.height) * 2 + 1, 0.5).unproject(this.camera)
+    const rw = this._viewW || this.canvas.clientWidth || 1, rh = this._viewH || this.canvas.clientHeight || 1;
+    out.set((this.cursor.x / rw) * 2 - 1, -(this.cursor.y / rh) * 2 + 1, 0.5).unproject(this.camera)
       .sub(this.camera.position).normalize();
     const d = this.camera.position.distanceTo((this._e4 || (this._e4 = new THREE.Vector3())).set(0, this.headY, 0)) * 0.8;
     return out.multiplyScalar(d).add(this.camera.position);
@@ -2664,7 +2694,10 @@ export class Avatar {
     // La cara de un pasatiempo (bostezo, sonrisa al bailar): partes o expresiones completas, según el modelo.
     const fx = this.faceX;
     this.faceX = null;
-    if (fx) for (const [k, v] of Object.entries(parts.length ? fx.parts : fx.preset)) micro[k] = (micro[k] || 0) + v * fx.w;
+    if (fx) {
+      const fsrc = parts.length ? fx.parts : fx.preset;
+      if (fsrc) for (const [k, v] of Object.entries(fsrc)) micro[k] = (micro[k] || 0) + v * fx.w;
+    }
     if (parts.length) {
       // Cara por partes (modelos de VRoid): cejas, ojos y boca por separado. Al hablar, la boca cede a las vocales.
       const want = EMO_PARTS[this.emotion] || {};

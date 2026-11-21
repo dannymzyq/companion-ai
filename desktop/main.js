@@ -26,15 +26,15 @@ const TEST = process.env.COMPANION_TEST === '1';
 const FLOAT_MIN = 220, FLOAT_MAX = 900, FLOAT_RATIO = 1.55;
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');   // la voz suena sin un clic previo
+// Evita que Chromium frene requestAnimationFrame (bajones de fps o pausas) cuando otra ventana tiene el foco.
+for (const s of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) {
+  app.commandLine.appendSwitch(s);
+}
 if (TEST) {
   // Micrófono y cámara simulados, salvo en la prueba de dispositivos reales (scripts/prueba_dispositivos.py).
   if (process.env.COMPANION_TEST_REAL_MEDIA !== '1') app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('remote-debugging-port', process.env.COMPANION_TEST_PORT || '9334');
   app.setPath('userData', path.join(app.getPath('temp'), 'companion-pc-prueba'));   // perfil aparte del real
-  if (process.platform === 'darwin') {
-    // macOS da por tapada una ventana fuera de la pantalla y Chromium la dejaba en 2 cuadros por segundo.
-    for (const s of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) app.commandLine.appendSwitch(s);
-  }
 } else if (process.env.COMPANION_BOOTED === '1') {
   app.on('second-instance', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });   // el candado es de mac.js
 } else if (!app.requestSingleInstanceLock()) {

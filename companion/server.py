@@ -154,6 +154,8 @@ def public_config() -> dict:
                 # cargadas en este proceso hasta reiniciar el companion.
                 "restart_frees": transcriber.engine == "nube" and transcriber.used_cuda},
         "cloud_only": profile.cloud_only(),
+        "gemini_live": profile.gemini_live(), "gemini_live_model": settings.gemini_live_model,
+        "gemini_live_voice": _live_voice_name(),
         "model": model_path() is not None or models.kind(persona["name"]) == "orb",
         "model_id": models.active_id(persona["name"]), "model_kind": models.kind(persona["name"]),
         "barge_in": settings.barge_in, "actions": _actions_state(),
@@ -161,6 +163,12 @@ def public_config() -> dict:
                         "temper": personality.temper(personality.active())},
         "started": STARTED,               # iniciar.ps1 lo compara con la fecha del código para saber si reiniciar
     }
+
+
+def _live_voice_name() -> str:
+    from . import gemini_live
+    v = profile.voice()
+    return gemini_live.voice_for(v["id"] if v else None, (v or {}).get("speaks", "f"))
 
 
 def _ear_public() -> dict:
@@ -191,7 +199,15 @@ async def set_config(body: ConfigIn):
             raise HTTPException(422, "provider debe ser gemini o local")
         changed = body.provider != settings.llm_provider
         settings.llm_provider = body.provider
-        state.save(provider=body.provider)            # se recuerda para la próxima sesión
+        if body.provider == "local" and profile.gemini_live():
+            state.save(provider=body.provider, gemini_live=False)
+            profile.apply()
+            from .session import _open
+            for s in list(_open):
+                if hasattr(s, "reset_live"):
+                    await s.reset_live()
+        else:
+            state.save(provider=body.provider)            # se recuerda para la próxima sesión
         if changed:                       # local: se carga ya, para no esperar en el primer turno · nube: se libera la GPU
             _background(llm.warm_local() if body.provider == "local" else llm.unload_local())
         elif body.provider == "local":    # volver a pulsar «Local» repite la elección del modelo que cabe
@@ -278,6 +294,8 @@ async def _personality_ready():
     «Ajustando…» mientras tanto), para que la primera respuesta no tarde. Como mucho 20 s: si no, sigue igual."""
     from .session import _open
     for s in list(_open)[-1:]:
+        if hasattr(s, "reset_live"):
+            await s.reset_live()
         try:
             await asyncio.wait_for(s.prime(), 20)
         except Exception:  # noqa: BLE001 (incluye el tiempo agotado: solo era para adelantar trabajo)
@@ -333,6 +351,7 @@ async def get_setup():
                          "light_installed": tts_light.installed(), "light_size_mb": tts_light.SIZE_MB,
                          "light_progress": tts_light.progress or None},
         "ear": {"engine": profile.ear_engine(), **_ear_public()}, "cloud_only": profile.cloud_only(),
+        "gemini_live": profile.gemini_live(), "gemini_live_model": settings.gemini_live_model,
         "onboarded": bool(state.load().get("onboarded")), "character": character_name(), "year": time.localtime().tm_year,
         "profile": profile.get(), "suggested_name": settings.user_name,
         "provider": settings.llm_provider, "cloud": profile.public_cloud(),
@@ -352,6 +371,7 @@ class SetupIn(BaseModel):
     voice_engine: str | None = None       # completa | ligera | nube
     ear: dict | None = None               # {engine: local|nube, groq_key, remove_groq_key}; sin groq_key se conserva
     cloud_only: bool | None = None        # cerebro, oído y voz en la nube (al apagarlo vuelve lo de antes)
+    gemini_live: bool | None = None       # conexión directa WebSocket a Gemini Live API (oído, cerebro, visión y voz)
     voice_auto: bool | None = None        # pasar sola a la ligera cuando la completa no cabe en la tarjeta
     onboarded: bool | None = None
 
@@ -432,6 +452,8 @@ async def set_setup(body: SetupIn):
             changes["onboarded"] = bool(body.onboarded)
         if body.cloud_only is not None:
             changes.update(_cloud_only_changes(bool(body.cloud_only), changes))
+        if body.gemini_live is not None:
+            changes.update(_gemini_live_changes(bool(body.gemini_live), changes))
     except ValueError as e:
         raise HTTPException(422, str(e))
     state.save(**changes)
@@ -446,6 +468,11 @@ async def set_setup(body: SetupIn):
         await asyncio.to_thread(voz_proc.sync)
     if "cloud" in changes:
         llm.reset_cloud()
+    if any(k in changes for k in ("gemini_live", "cloud", "voice", "profile", "provider")):
+        from .session import _open
+        for s in list(_open):
+            if hasattr(s, "reset_live"):
+                await s.reset_live()
     if settings.llm_provider != before or "local_model" in changes:
         _background(llm.warm_local() if not settings.is_cloud else llm.unload_local())
     return await full_config()
@@ -474,7 +501,46 @@ def _cloud_only_changes(on: bool, changes: dict) -> dict:
     before = {"provider": s.get("provider", settings.llm_provider), "ear": ear.get("engine", "local"),
               "voice_engine": s.get("voice_engine", profile.voice_engine())}
     ear["engine"] = "nube"
-    return {"cloud_only": True, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
+    return {"cloud_only": True, "gemini_live": False, "before_cloud_only": before, "provider": "gemini", "ear": ear, "voice_engine": "nube"}
+
+
+def _gemini_live_changes(on: bool, changes: dict) -> dict:
+    """«Gemini Live»: conecta la interfaz directamente a la Gemini Live API (oído, cerebro, visión y voz en tiempo real).
+    Guarda los ajustes previos para restaurarlos al apagarlo."""
+    s = {**state.load(), **changes}
+    if on == bool(s.get("gemini_live")):
+        return {}
+    ear = dict(s.get("ear") or {})
+    if not on:
+        before = s.get("before_gemini_live") or {}
+        ear["engine"] = before.get("ear", "local")
+        return {
+            "gemini_live": False,
+            "provider": before.get("provider", "gemini"),
+            "ear": ear,
+            "voice_engine": before.get("voice_engine", profile.voice_engine()),
+            "cloud_only": bool(before.get("cloud_only", False)),
+        }
+    cloud = s.get("cloud") or {}
+    preset = cloud.get("preset", profile.cloud()["preset"])
+    key = cloud.get("key") or profile.cloud()["key"]
+    if preset != "gemini" or not key:
+        raise ValueError("Para usar Gemini Live hace falta configurar una clave de Google Gemini (Cerebro › Proveedor y clave).")
+    before = {
+        "provider": s.get("provider", settings.llm_provider),
+        "ear": ear.get("engine", "local"),
+        "voice_engine": s.get("voice_engine", profile.voice_engine()),
+        "cloud_only": bool(s.get("cloud_only", False)),
+    }
+    ear["engine"] = "nube"
+    return {
+        "gemini_live": True,
+        "before_gemini_live": before,
+        "cloud_only": False,
+        "provider": "gemini",
+        "ear": ear,
+        "voice_engine": "nube",
+    }
 
 
 @app.get("/api/desktop/scene")

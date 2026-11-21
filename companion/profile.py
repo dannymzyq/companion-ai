@@ -130,6 +130,14 @@ def cloud_only() -> bool:
     return bool(state.load().get("cloud_only"))
 
 
+def gemini_live() -> bool:
+    """Modo «Gemini Live»: conexión WebSocket directa a Gemini Live API (oído, cerebro, visión y voz en tiempo real)."""
+    saved = state.load().get("gemini_live")
+    if saved is not None:
+        return bool(saved)
+    return os.getenv("GEMINI_LIVE", "").strip().lower() in ("1", "true", "si", "sí", "yes", "on")
+
+
 def voice_auto() -> bool:
     """¿Pasar sola a la voz ligera cuando la completa no cabe en la tarjeta? (encendido por defecto)"""
     return state.load().get("voice_auto") is not False
@@ -347,8 +355,11 @@ def apply():
     if s.get("cloud_only") and (s.get("provider", "gemini") != "gemini" or ear_engine() != "nube"
                                 or voice_engine() != "nube"):
         s = state.save(cloud_only=False)
-    # En «solo nube» no se carga el modelo local ni como respaldo cuando se acaba la cuota (ocuparía RAM o vídeo).
-    settings.local_fallback = _ENV_LOCAL_FALLBACK and not cloud_only()
+    # «Gemini Live» requiere cerebro en la nube con Gemini; si se cambia a local u otro proveedor, se apaga solo.
+    if s.get("gemini_live") and (s.get("provider", "gemini") != "gemini" or c["preset"] != "gemini"):
+        s = state.save(gemini_live=False)
+    # En «solo nube» o «Gemini Live» no se carga el modelo local ni como respaldo (ocuparía RAM o vídeo).
+    settings.local_fallback = _ENV_LOCAL_FALLBACK and not cloud_only() and not gemini_live()
     settings.voice_engine, settings.voice_reason = engine_now()
     v = voice()
     settings.tts_voice = v["tts_voice"] if v else _ENV_VOICE

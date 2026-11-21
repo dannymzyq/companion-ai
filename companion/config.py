@@ -48,6 +48,8 @@ class Settings:
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "gemini").strip().lower())
     gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", "").strip())
     gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip())
+    gemini_live_model: str = field(default_factory=lambda: os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview").strip())
+    gemini_live_voice: str = field(default_factory=lambda: os.getenv("GEMINI_LIVE_VOICE", "").strip())
     gemini_reasoning: str = field(default_factory=lambda: os.getenv("GEMINI_REASONING", "minimal").strip())
     # La capa gratuita limita las peticiones diarias POR MODELO (20 al día en gemini-3.6-flash, medido el
     # 11 nov 2026). Cuando un modelo se agota se pasa al siguiente de esta lista y, al final, al modelo local.

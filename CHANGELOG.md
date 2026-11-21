@@ -4,6 +4,25 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.9.0 — 2026-11-20
+
+- **Modo Gemini Live (directo)**: nueva integración oficial por WebSocket con la **Gemini Live API**
+  (`gemini-3.1-flash-live-preview`). Con un solo interruptor en *Ajustes › Cerebro y voz*, Gemini se encarga en
+  tiempo real del oído (16 kHz), el cerebro, la visión (cámara y pantalla compartida, incluido el sonido de la
+  pantalla), la voz nativa (24 kHz) y las acciones en tu PC mediante Function Calling (con auto-apertura de apps como
+  Apple Music antes de controlarlas), sin cargar modelos en tu GPU. Incluye soporte de personalidad, toques, mirada en
+  vivo, gestos a petición y comandos rápidos por voz («sí», «no», «para»).
+- **Sin congelamientos en el modelo 3D (60 fps fluidos)**: corregido un error en los microgestos faciales
+  (`web/js/face.js`) que paralizaba el renderizado 1–2 s en modelos sin blendshapes ARKit; lectura de píxel
+  asíncrona con WebGL2 PBO en modo flotante, eliminación de reflows por cuadro (`getBoundingClientRect`), prioridad de
+  GPU dedicada y flags de Electron para evitar bajones de fps en segundo plano.
+- **Nueva interfaz de Configuración y HUD principal**: los 10 acordeones laterales se reorganizaron en un modal
+  espacioso con 5 pestañas (*Personaje*, *Cerebro y voz*, *Dispositivos*, *Acciones y memoria*, *Estado*) y 3 perfiles
+  rápidos en un clic (*Gemini Live*, *Nube + tu voz*, *100 % Local*). Barra inferior rediseñada en cápsula flotante y
+  subtítulos con mejor legibilidad.
+- **Página web de presentación**: nueva landing page interactiva en `docs/` con simulador de estados, explorador de
+  personalidades y reproductor de muestras de voz.
+
 ## 0.8.9 — 2026-11-19
 
 - **Más fluido, en ventana y flotando**: se quitaron tres causas de tirones. Flotando, para saber si el ratón está
