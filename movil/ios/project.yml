@@ -21,7 +21,7 @@ packages:
     exactVersion: 1.13.8
 settings:
   base:
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
     # Para instalarla en el iPhone: el equipo del Apple ID del usuario (Xcode › Signing & Capabilities).
     DEVELOPMENT_TEAM: ""

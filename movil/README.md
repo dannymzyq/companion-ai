@@ -93,7 +93,8 @@ No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
 - `ios/Companion/LiveSocket.swift`: el WebSocket lo abre el nativo (`live.open` / `live.send`; se cierra con
   `stream.cancel`) y pone la clave en la dirección; solo conecta con `generativelanguage.googleapis.com`. La clave es
   la propia de En vivo (`live_key`) o la del cerebro (`cloud_key`) si el cerebro es Gemini; nunca vuelve al JS.
-- `audio.mode`: al conectar, la sesión de audio pasa a `.playAndRecord` + `.voiceChat` (cancelación de eco).
+- La sesión de audio no se toca al conectar: pasarla a `.voiceChat` dejaba la voz de la página en «interrupted»
+  (la cancelación de eco la da WebKit con `echoCancellation`).
 - Ajustes › Cerebro y voz: tarjetas En vivo, Nube y Todo en el teléfono (la de «Nube + voz en tu PC» se esconde).
   Ajustes guardados: `mode` = `vivo` | `nube` | `telefono`.
 - Medido en el simulador con la clave real: primer audio 2,8 s en el primer turno (con la conexión), y 1,0 s después
@@ -106,6 +107,23 @@ No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
 3. Habla con el altavoz (sin auriculares): comprueba que no se interrumpe sola con su propia voz (eco) y que puedes
    cortarla hablando encima.
 4. Prueba también escribirle, y cambiar a «Nube» y volver: la conversación sigue sin recargar.
+
+## Cámara, pantalla compartida y ventana flotante (0.2.0, 22 nov 2026)
+- **Cámara:** apagada al abrir la app. Vista previa vertical (sin pedir ancho ni alto: con ellos WebKit da 1280×720
+  en horizontal; sin ellos, 480×640 en vertical, medido en un iPhone 16 Pro). Solo dos cámaras: la frontal y la
+  trasera virtual (triple o doble), con zoom de 0,5× a 10× (pellizcar o tocar la vista previa). `ui_movil.js`.
+- **Compartir pantalla:** extensión de transmisión de ReplayKit (`ios/Pantalla/SampleHandler.swift`, objetivo
+  `Pantalla`). Manda una imagen cada ~0,8 s (JPEG, 1280 px como mucho) a la app por 127.0.0.1:47621
+  (`ReceptorPantalla.swift`, sin App Groups, que un Apple ID gratuito no siempre puede firmar); la página la pasa a
+  la conversación como la pantalla compartida de la PC (`frame` con `source: 'screen'`: En vivo a Gemini, en Nube con
+  el mensaje). El simulador no tiene transmisión de pantalla: solo se prueba en el iPhone.
+- **Ventana flotante (picture in picture):** encendida de serie, se abre sola al salir de la app y se cierra al
+  volver (`VentanaFlotante.swift`, 9:16). Interruptor en Ajustes › Dispositivos. Para que la página siga animando y
+  hablando fuera de la app: audio en silencio desde el nativo (si no, iOS suspende la app) y
+  `_setThrottleStateForTesting:` de WKWebView (método interno; sin él WebKit duerme la página a los ~5 s). Si una
+  versión de iOS lo quita, la ventana repite los últimos 4 s en bucle.
+- **Micrófono y salida:** siempre los que el iPhone usa en ese momento; si cambian (auriculares), se reabre el
+  micrófono predeterminado. Con el permiso de iOS ya dado, la app empieza sin la tarjeta «Permitir micrófono».
 
 ## Instalarla en tu iPhone (Apple ID gratuito, sin TestFlight)
 Hace falta:
@@ -123,6 +141,8 @@ Hace falta:
 3. En el proyecto: objetivo **Companion** › Signing & Capabilities.
    - **Team**: «(tu nombre) (Personal Team)».
    - Si Xcode dice que el identificador ya está en uso, cambia **Bundle Identifier** por uno tuyo, por ejemplo `com.tunombre.companion`.
+   - Lo mismo en el objetivo **Pantalla** (compartir pantalla), con el mismo Team. Su identificador tiene que ser el
+     de la app seguido de `.pantalla`.
 4. En el iPhone: conéctalo con el cable y pulsa «Confiar» en este ordenador.
 5. Ajustes › Privacidad y seguridad › **Modo de desarrollador** › activar. El iPhone se reinicia; al volver, confirma.
 6. En Xcode, Product › Scheme › Edit Scheme › Run › Build Configuration: **Release**. En Debug, MLX va muchas veces más lento.
