@@ -1,4 +1,7 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod actions;
+mod assets;
 mod config;
 mod desktop;
 mod desktop_scene;

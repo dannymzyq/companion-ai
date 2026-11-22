@@ -1,4 +1,5 @@
 use crate::actions;
+use crate::assets;
 use crate::config::{provider_meta, AppConfig};
 use crate::desktop_scene;
 use crate::models;
@@ -8,7 +9,7 @@ use crate::session;
 use crate::store::MemoryStore;
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, Query, State, WebSocketUpgrade};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -18,7 +19,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tower_http::services::ServeDir;
 
 pub struct AppState {
     pub config: AppConfig,
@@ -148,8 +148,6 @@ fn check_origin(headers: &HeaderMap, state: &AppState) -> Result<(), (StatusCode
 }
 
 pub fn build_router(state: Arc<AppState>) -> Router {
-    let web_dir = state.config.web_dir.clone();
-
     Router::new()
         .route("/api/config", get(get_config).post(set_config))
         .route("/api/setup", get(get_setup).post(set_setup))
@@ -172,9 +170,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/owner", post(register_owner))
         .route("/api/shutdown", post(shutdown))
         .route("/ws", get(ws_handler))
+        .fallback(serve_static)
         .layer(DefaultBodyLimit::max(models::MAX_MB * 1024 * 1024))
-        .fallback_service(ServeDir::new(web_dir))
         .with_state(state)
+}
+
+async fn serve_static(State(state): State<Arc<AppState>>, uri: Uri) -> Response {
+    let dir = if state.config.web_dir.is_dir() {
+        Some(state.config.web_dir.as_path())
+    } else {
+        None
+    };
+    assets::serve_web_asset(uri, dir).await
 }
 
 async fn get_config(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -249,7 +256,43 @@ async fn get_setup(State(state): State<Arc<AppState>>) -> Json<Value> {
             "model": lv.model,
             "has_key": !lv.key.is_empty(),
         },
-        "presets": [],
+        "presets": [
+            {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+                "keys": "https://aistudio.google.com/apikey",
+                "note": "Tiene capa gratuita. Recomendado para Live API."
+            },
+            {
+                "id": "openai",
+                "name": "OpenAI",
+                "base": "https://api.openai.com/v1",
+                "keys": "https://platform.openai.com/api-keys",
+                "note": "De pago (OpenAI Realtime)."
+            },
+            {
+                "id": "xai",
+                "name": "xAI (Grok)",
+                "base": "https://api.x.ai/v1",
+                "keys": "https://console.x.ai",
+                "note": "De pago (Grok Voice)."
+            },
+            {
+                "id": "qwen",
+                "name": "Qwen (Alibaba)",
+                "base": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "keys": "https://modelstudio.console.alibabacloud.com",
+                "note": "Cuota gratuita inicial."
+            },
+            {
+                "id": "custom",
+                "name": "Otro (compatible)",
+                "base": "",
+                "keys": "",
+                "note": "URL personalizada."
+            }
+        ],
         "local": {"gpu": null, "ollama": false, "recommended": "", "selected": "", "in_use": "", "models": [], "others": []},
         "voices": [],
         "tts": true,
@@ -535,9 +578,8 @@ async fn get_desktop_scene() -> Json<Value> {
 
 async fn get_loading() -> Json<Value> {
     Json(json!({
-        "ready": true,
-        "steps": [
-            {"id": "live", "label": "Motor Rust Live listo", "done": true}
+        "items": [
+            {"id": "live", "label": "Motor Rust Live", "state": "listo", "detail": "listo"}
         ]
     }))
 }

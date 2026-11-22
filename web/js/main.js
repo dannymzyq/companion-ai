@@ -437,9 +437,11 @@ function applyConfig(cfg) {
   // Pantalla de carga: al abrir (si ya pasó la bienvenida) y cada vez que un ajuste cambia el oído, la voz o el cerebro.
   const key = [cfg.stt.engine, cfg.voice_engine, cfg.llm.provider, cfg.local_model, cfg.llm.model].join('|');
   if (loadKey === null) {
-    if (cfg.onboarded && !floating && !autoStart) loading.start(cfg.name);
+    // En la edición Rust Live sin 3D (o con orbe) todo está listo al instante: no mostramos pantalla de carga.
+    const instant = !!cfg.rust_live && (!avatar || cfg.model_kind === 'orb');
+    if (cfg.onboarded && !floating && !autoStart && !instant) loading.start(cfg.name);
   } else if (key !== loadKey) {
-    loading.watch();
+    if (!cfg.rust_live) loading.watch();
   }
   loadKey = key;
   document.querySelector('#start .fine').textContent = (cfg.stt.engine === 'nube'

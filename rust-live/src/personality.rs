@@ -146,6 +146,7 @@ pub fn catalog(cfg: &AppConfig) -> Vec<Value> {
     let path = cfg.personas_dir.join("personalidades.json");
     let raw: Vec<Value> = fs::read_to_string(&path)
         .ok()
+        .or_else(|| crate::assets::embedded_persona_file("personalidades.json"))
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let mut out = Vec::new();

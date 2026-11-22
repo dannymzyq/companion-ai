@@ -167,6 +167,7 @@ impl AppConfig {
         };
         let persona_base = fs::read_to_string(&p_path)
             .ok()
+            .or_else(|| crate::assets::embedded_persona_file("mika.json"))
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .unwrap_or_else(|| {
                 json!({
@@ -478,12 +479,25 @@ pub fn find_root(override_root: Option<PathBuf>) -> PathBuf {
         let mut cur = exe.parent();
         for _ in 0..5 {
             if let Some(dir) = cur {
-                if dir.join("web").is_dir() {
+                if dir.join("web").is_dir() && dir.join("personas").is_dir() {
                     return dir.to_path_buf();
                 }
                 cur = dir.parent();
             }
         }
+        // Portable standalone mode: store data/ right next to the executable (or %LOCALAPPDATA%\CompanionLive)
+        if let Some(exe_dir) = exe.parent() {
+            let probe = exe_dir.join(".companion_write_test");
+            if fs::write(&probe, b"").is_ok() {
+                let _ = fs::remove_file(&probe);
+                return exe_dir.to_path_buf();
+            }
+        }
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let p = PathBuf::from(local).join("CompanionLive");
+        let _ = fs::create_dir_all(&p);
+        return p;
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }

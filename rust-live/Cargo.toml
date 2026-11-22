@@ -2,12 +2,11 @@
 name = "companion-live"
 version = "0.9.0-rust"
 edition = "2021"
-description = "Companion PC — Edición ultra-ligera en Rust para modo Live API (Gemini Live / OpenAI Realtime / xAI / Qwen)"
+description = "Companion PC — Ejecutable portable ultra-ligero en Rust para modo Live API"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "fs", "process"] }
 axum = { version = "0.8", features = ["ws", "json"] }
-tower-http = { version = "0.6", features = ["fs"] }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
@@ -17,6 +16,8 @@ base64 = "0.22"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 uuid = { version = "1", features = ["v4"] }
+rust-embed = "8"
+mime_guess = "2"
 tao = "0.33"
 wry = "0.51"
 tracing = "0.1"
