@@ -125,6 +125,35 @@ No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
 - **Micrófono y salida:** siempre los que el iPhone usa en ese momento; si cambian (auriculares), se reabre el
   micrófono predeterminado. Con el permiso de iOS ya dado, la app empieza sin la tarjeta «Permitir micrófono».
 
+## Android (0.2.0, 22 nov 2026)
+`movil/android`: la misma interfaz (web/) y el mismo núcleo (movil/core) en un WebView, con un puente nativo que tiene
+los mismos comandos que el de iOS (`Bridge.kt` ↔ `Bridge.swift`). Lo que cambia:
+- **Archivos:** `assets/www` (lo copia `bundle_web.sh` antes de cada compilación) servido en
+  `https://appassets.androidplatform.net` con `WebViewAssetLoader`; los VRM propios en `/propios/`.
+- **Puente:** `addWebMessageListener` (solo ese origen) + `window.companionNative.post` (el shim de `Bridge.SHIM`);
+  `boot.js` va con `addDocumentStartJavaScript`. Hace falta un «Android System WebView» actual.
+- **Claves:** cifradas con el almacén de Android (Keystore, `Secretos.kt`); la página nunca las ve.
+- **En vivo y Nube:** OkHttp (`LiveSocket.kt`, `SocketCollect.kt`, flujos en `Bridge.kt`).
+- **Ventana flotante:** el picture in picture de Android es la propia app en pequeño (9:16, se abre sola al salir con
+  la ventana encendida): el personaje sigue en directo sin mandar cuadros. `body.en-pip` deja solo el personaje.
+- **Compartir pantalla:** MediaProjection en un servicio de primer plano (`ServicioPantalla.kt`), una imagen cada
+  ~0,8 s a la página (los mismos avisos `pantalla`/`pantallaEstado` que en iOS).
+- **Teclado:** `adjustNothing` + el alto del teclado a `window.__teclado` (como en iOS).
+- **Todavía no:** el modo «Todo en el teléfono» (MLX, WhisperKit y Piper son de Apple); su tarjeta se esconde.
+
+Probado en el emulador (Android 17, API 37): bienvenida, Nube (primera frase 3,8 s y voz de Edge), En vivo, cámara
+vertical con frontal y trasera, ventana flotante y pantalla compartida.
+
+### Compilar e instalar
+Hace falta Android Studio (trae el JDK y el SDK). En el Mac:
+```
+cd movil/android
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleRelease
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
+O abre `movil/android` en Android Studio y pulsa ▶ con el teléfono conectado (depuración USB activada). La versión
+«release» se firma con la clave de depuración: sirve para instalarla tú, no para Play Store.
+
 ## Instalarla en tu iPhone (Apple ID gratuito, sin TestFlight)
 Hace falta:
 - un Mac con Xcode 27 (y el Metal Toolchain);

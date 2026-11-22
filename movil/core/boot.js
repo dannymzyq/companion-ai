@@ -21,11 +21,13 @@
   // Cámara (21 nov 2026): la interfaz la pide como en la PC; iOS pregunta el permiso la primera vez
   // (NSCameraUsageDescription). Compartir pantalla (22 nov 2026): la extensión de transmisión de iOS (ui_movil.js, ReceptorPantalla.swift).
 
-  // La consola de la web va al registro de la app (Xcode, o «simctl launch --console»).
+  // La consola de la web va al registro de la app (Xcode, o «simctl launch --console»; en Android, logcat).
   const nativeLog = (level, args) => {
     try {
       const text = args.map((a) => (a instanceof Error ? `${a.message}\n${a.stack}` : typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
-      window.webkit.messageHandlers.native.postMessage({ cmd: 'log', args: { level, text: text.slice(0, 2000) } });
+      const msg = { cmd: 'log', args: { level, text: text.slice(0, 2000) } };
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native) window.webkit.messageHandlers.native.postMessage(msg);
+      else if (window.companionNative) window.companionNative.post(msg);
     } catch { /* sin puente */ }
   };
   for (const level of ['error', 'warn', 'info']) {

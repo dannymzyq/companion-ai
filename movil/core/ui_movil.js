@@ -200,6 +200,8 @@ async function save() {
 // la ventana flotante de iOS (WebKit no deja hacer picture in picture de un lienzo). Con la app en segundo plano la página no recibe cuadros (requestAnimationFrame se para): un
 // temporizador sigue moviendo al personaje mientras la ventana está abierta.
 const pip = { canvas: null, timer: null, on: false };
+// Android: la ventana flotante es la propia app en pequeño (MainActivity), en directo: sin cuadros ni latido.
+const ANDROID = !!(window.companionNative && window.companionNative.platform === 'android');
 
 function pipCopy() {
   const av = window.companion && window.companion.avatar;
@@ -238,6 +240,12 @@ function pipFrame() {
 // El botón ARMA la ventana: iOS no deja que una app se mande sola a segundo plano, así que (como las apps de
 // vídeo) la ventanita se abre al salir de la app (VentanaFlotante: canStartPictureInPictureAutomaticallyFromInline).
 async function abrirFlotante(callado = false) {
+  if (ANDROID) {
+    await call('pip.open');
+    pip.on = true;
+    if (!callado) aviso('Ventana flotante encendida: al salir de la app te acompaña en una ventanita.');
+    return;
+  }
   const av = window.companion && window.companion.avatar;
   if (!av || !av.renderer) throw new Error('El personaje todavía está cargando.');
   if (!pip.canvas) {
@@ -291,6 +299,7 @@ function latido() {
 }
 
 function cerrarFlotante() {
+  if (ANDROID) { pip.on = false; call('pip.close').catch(() => {}); return; }
   if (pip.latido) { try { pip.latido.disconnect(); } catch { /* ya */ } pip.latido = null; }
   clearInterval(pip.timer); pip.timer = null; pip.on = false;
   const av = window.companion && window.companion.avatar;
@@ -344,6 +353,26 @@ export function init() {
     .ob-check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; margin: 6px 0 12px; }
     .ob-actions { display: flex; gap: 12px; align-items: center; }`;
   document.head.append(style);
+
+  if (ANDROID) {
+    // Márgenes de las barras de Android (los pone MainActivity en --sat/--sab: WebView no siempre da env()).
+    style.textContent += `
+      header { padding-top: calc(max(env(safe-area-inset-top), var(--sat, 0px)) + 8px) !important; }
+      footer { padding-bottom: calc(max(env(safe-area-inset-bottom), var(--sab, 0px)) + 6px) !important; }
+      #banner { margin-top: max(env(safe-area-inset-top), var(--sat, 0px)); }
+      #settings > * { padding-top: calc(max(env(safe-area-inset-top), var(--sat, 0px)) + 12px); }
+      #onboard, #start, #loading { padding-top: max(env(safe-area-inset-top), var(--sat, 0px)); }
+      #previews { top: calc(max(env(safe-area-inset-top), var(--sat, 0px)) + 64px) !important; }
+      /* Todo dentro del teléfono (MLX, WhisperKit) aún no existe en Android. */
+      #modes [data-mode="local"], #ob-go-local { display: none !important; }
+      /* En la ventana flotante solo el personaje, de cuerpo a cabeza. */
+      .en-pip header, .en-pip footer, .en-pip #previews, .en-pip #toast, .en-pip #banner, .en-pip #settings,
+      .en-pip #start, .en-pip #captions, .en-pip #subtitle { display: none !important; }`;
+    on('pipModo', (enPip) => {
+      document.body.classList.toggle('en-pip', !!enPip);
+      setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 150);
+    });
+  }
 
   // Si iOS interrumpe el audio de la página (una llamada, Siri, otra app), se reanuda solo al volver: si no, la voz
   // queda muda hasta reiniciar la app.
@@ -465,7 +494,7 @@ export function init() {
   // Solo dos cámaras: la frontal y UNA trasera, la virtual que junta las lentes (triple o doble), que pasa de
   // gran angular a teleobjetivo con el zoom (pellizcando la vista previa). iOS lista hasta 7 (medido en un iPhone
   // 16 Pro); el nombre que da WebKit va en inglés y aquí se traduce.
-  const TRASERAS = [/triple/i, /dual wide/i, /dual/i, /^back camera$|^cámara trasera$/i];
+  const TRASERAS = [/triple/i, /dual wide/i, /dual/i, /^back camera$|^cámara trasera$/i, /facing back|back|trasera/i];   // la última: Android («camera2 0, facing back»)
   const listaCompleta = { fn: null };
   const filtrarCamaras = () => {
     const v = window.companion && window.companion.vision;
@@ -618,7 +647,7 @@ export function init() {
   const encuadrar = () => {
     const av = window.companion && window.companion.avatar;
     if (!av || document.body.classList.contains('con-teclado')) return false;
-    av.closeUp = franja();
+    av.closeUp = document.body.classList.contains('en-pip') ? { top: 0.04, bottom: 0.98 } : franja();
     if (!av.userMoved && av.frame) av.frame();
     return true;
   };
