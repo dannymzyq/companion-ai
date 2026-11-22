@@ -806,7 +806,8 @@ async function withBusy(button, job) {
   try { return await job(); } finally { button.disabled = false; }
 }
 
-$('mic-allow').onclick = () => withBusy($('mic-allow'), async () => { if (await useMic(savedMic())) await allowCam(); });
+// En el teléfono la cámara empieza apagada y pide su permiso al encenderla (CAN.CAMERA_ON_DEMAND, boot.js).
+$('mic-allow').onclick = () => withBusy($('mic-allow'), async () => { if (await useMic(savedMic()) && !window.CAN?.CAMERA_ON_DEMAND) await allowCam(); });
 $('mic-allow-2').onclick = () => withBusy($('mic-allow-2'), () => useMic(savedMic()));
 $('mic-select').onchange = (e) => useMic(e.target.value);
 $('mic-select-2').onchange = (e) => useMic(e.target.value);

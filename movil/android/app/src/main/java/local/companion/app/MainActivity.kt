@@ -61,6 +61,13 @@ class MainActivity : ComponentActivity() {
         if (dados.isEmpty()) p.deny() else p.grant(dados.toTypedArray())
     }
 
+    // Elegir un archivo (VRM propio) desde la página: Android solo abre el selector si la app lo hace.
+    private var archivoPendiente: android.webkit.ValueCallback<Array<android.net.Uri>>? = null
+    private val elegirArchivo = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        archivoPendiente?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
+        archivoPendiente = null
+    }
+
     val pedirPantalla = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         bridge.pantallaPermitida(r.resultCode, r.data)
     }
@@ -131,6 +138,16 @@ class MainActivity : ComponentActivity() {
                 if (falta.isEmpty()) { request.grant(request.resources); return }
                 permisoPendiente = request
                 pedirPermisos.launch(falta.toTypedArray())
+            }
+
+            override fun onShowFileChooser(view: WebView, callback: android.webkit.ValueCallback<Array<android.net.Uri>>,
+                                           params: FileChooserParams): Boolean {
+                archivoPendiente?.onReceiveValue(null)
+                archivoPendiente = callback
+                // «.vrm» no tiene tipo MIME conocido en Android: se deja elegir cualquier archivo y la página lo valida.
+                val i = Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                return try { elegirArchivo.launch(Intent.createChooser(i, "Elegir un archivo")); true }
+                catch (e: Exception) { archivoPendiente = null; false }
             }
         }
 

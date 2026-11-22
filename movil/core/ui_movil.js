@@ -17,11 +17,14 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 
 // ---------------------------------------------------------------- textos de la PC → del teléfono
 const TEXTOS = [
-  ['Permitir micrófono y cámara', 'Permitir micrófono'], ['Micrófono y cámara', 'Micrófono'],
+  ['Permitir micrófono y cámara', 'Permitir micrófono'],
+  ['Último paso: elige tu micrófono y tu cámara.', 'Último paso: comprueba tu micrófono.'],
+  [' y, con la mirada en vivo, también cada pocos segundos por su cuenta', ''],   // la mirada en vivo es de la PC ['Micrófono y cámara', 'Micrófono'],
   ['Sin micrófono · sin cámara', 'Sin micrófono'], [' · sin cámara', ''],
   ['Local · ', 'Teléfono · '],
   ['No quiero usar una clave: usar un modelo en esta PC', 'Prefiero todo dentro del teléfono, sin internet'],
-  ['La clave se guarda solo en esta PC.', 'La clave se guarda solo en el llavero de este teléfono.'],
+  ['La clave se guarda solo en esta PC.', window.companionNative && window.companionNative.platform === 'android'
+    ? 'La clave se guarda solo en el almacén seguro de este teléfono.' : 'La clave se guarda solo en el llavero de este teléfono.'],
   [': responde mejor y no ocupa tu tarjeta gráfica.', ': responde mejor y gasta menos batería.'],
   ['Recomendada para tu PC', 'Recomendada'],
   ['Ollama en esta PC', 'Todo en el teléfono'],
@@ -392,7 +395,16 @@ export function init() {
     root.setProperty('--teclado', `${alto}px`);
     root.setProperty('--teclado-t', `${Math.max(0.1, dur || 0.25)}s`);
     document.body.classList.toggle('con-teclado', alto > 0);
+    // Fuera del chat (bienvenida, Ajustes): el campo con el cursor sube por encima del teclado.
+    const el = document.activeElement;
+    if (alto > 0 && el && el.matches('input, textarea, select') && el.id !== 'text-input') {
+      setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80);
+    }
   };
+  style.textContent += `
+    .con-teclado #onboard { padding-bottom: var(--teclado) !important; transition: padding var(--teclado-t, 0.25s); }
+    .con-teclado #onboard > .card, .con-teclado #onboard .card { max-height: calc(100vh - var(--teclado) - 24px); overflow-y: auto; }
+    .con-teclado #settings > * { padding-bottom: calc(var(--teclado) + 16px) !important; }`;
 
   // Cámara en el teléfono: vista previa vertical (9:16), espejo solo con la frontal y un botón para pasar por las
   // cámaras del iPhone (frontal, trasera, gran angular…). La elegida se recuerda (companion.cam, como en main.js).

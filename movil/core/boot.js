@@ -6,7 +6,7 @@
   window.__companionBoot = true;
 
   // Lo que no existe en el teléfono se oculta. La interfaz puede preguntar con window.CAN.
-  window.CAN = { ACTIONS: false, SCREEN: true, FLOAT: true, CLONE: false, CUSTOM_MODELS: true, CAMERA: true };
+  window.CAN = { ACTIONS: false, SCREEN: true, FLOAT: true, CLONE: false, CUSTOM_MODELS: true, CAMERA: true, CAMERA_ON_DEMAND: true };
   const hide = ['#screen-sound', '#dock', '#quit',
     'details[data-group="compartir"]', 'details[data-group="acciones"]',
     '#ob-voice-add', '#ob-voice-form', '#cam-picker', '#cloud-only-note', '#drop'];
