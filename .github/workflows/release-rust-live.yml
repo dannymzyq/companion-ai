@@ -1,0 +1,79 @@
+# Publica un Release portable de Companion Live (Rust) al subir una etiqueta rust-live-vX.Y.Z:
+# compila con MSVC (enlazando WebView2LoaderStatic.lib estáticamente: 1 solo .exe sin DLLs externos)
+# y embebe web/ (incluyendo three y three-vrm) + personas/ dentro del binario.
+#   git tag rust-live-v0.1.0 && git push origin rust-live-v0.1.0
+name: Release Rust Live (Portable)
+
+on:
+  push:
+    tags: ["rust-live-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar librerías 3D (web/vendor) para embeberlas en el ejecutable
+        shell: powershell
+        run: |
+          $three = "0.180.0"
+          $vrm = "3.5.5"
+          $cdn = "https://cdn.jsdelivr.net/npm"
+          $files = @(
+            @{ url = "$cdn/three@$three/build/three.module.min.js";                 dst = "web/vendor/three/build/three.module.min.js" },
+            @{ url = "$cdn/three@$three/build/three.core.min.js";                   dst = "web/vendor/three/build/three.core.min.js" },
+            @{ url = "$cdn/three@$three/examples/jsm/loaders/GLTFLoader.js";        dst = "web/vendor/three/examples/jsm/loaders/GLTFLoader.js" },
+            @{ url = "$cdn/three@$three/examples/jsm/utils/BufferGeometryUtils.js"; dst = "web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js" },
+            @{ url = "$cdn/three@$three/examples/jsm/controls/OrbitControls.js";    dst = "web/vendor/three/examples/jsm/controls/OrbitControls.js" },
+            @{ url = "$cdn/@pixiv/three-vrm@$vrm/lib/three-vrm.module.min.js";      dst = "web/vendor/three-vrm/three-vrm.module.min.js" }
+          )
+          foreach ($f in $files) {
+            New-Item -ItemType Directory -Force (Split-Path -Parent $f.dst) | Out-Null
+            Invoke-WebRequest -Uri $f.url -OutFile $f.dst -UseBasicParsing
+          }
+
+      - name: Instalar toolchain Rust estable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Pruebas unitarias en Rust
+        working-directory: rust-live
+        run: cargo test
+
+      - name: Compilar ejecutable portable único (MSVC + LTO + strip)
+        working-directory: rust-live
+        run: cargo build --release
+
+      - name: Preparar artefacto portable
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item rust-live/target/release/companion-live.exe dist/Companion-Live-Windows-x64.exe -Force
+          Get-Item dist/Companion-Live-Windows-x64.exe | Select-Object Name, @{N='SizeMB';E={[math]::Round($_.Length/1MB,2)}}
+
+      - name: Publicar Release en GitHub
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notas = @"
+          ### Companion Live (Rust) — Edición Portable Ultra-Ligera ($tag)
+
+          Ejecutable **único y 100 % portable** para el modo **Live API** (Gemini Live, OpenAI Realtime, xAI Grok Voice, Qwen Omni Realtime y proveedores compatibles), diseñado para equipos de **muy pocos recursos** (sin Python, sin Electron, sin PyTorch, sin Whisper local, sin Ollama y sin DLLs externos).
+
+          #### Qué incluye dentro del `.exe`
+          - **Interfaz `web/` completa y 8 personalidades embebidas en memoria** (arranque en < 200 ms, ~2–17 MB de RAM del motor Rust).
+          - **Ventana nativa WebView2** sin consola negra, con cambio en caliente entre ventana normal y **modo flotante transparente** sin cortar la llamada.
+          - **Modo ultra-ligero (`--lite`)**: desactiva Three.js/WebGL y usa el orbe CSS reactivo al sonido (0 % GPU).
+          - **Modo navegador (`--browser`)**: abre en tu navegador sin abrir WebView2.
+          - **Personalidades**, **ánimo persistente**, **memoria** (herramienta `recordar`), **gestos por voz**, **modelos VRM 0.x/1.0** y **acciones seguras en la PC**.
+
+          #### Cómo usarlo
+          Descarga **`Companion-Live-Windows-x64.exe`** y haz doble clic. Guarda tus datos en una carpeta `data/` al lado del ejecutable.
+          "@
+          [IO.File]::WriteAllText("notas-rust-live.md", $notas, (New-Object Text.UTF8Encoding $false))
+          gh release create "$tag" "dist/Companion-Live-Windows-x64.exe" --title "Companion Live Portable ($tag)" --notes-file notas-rust-live.md --prerelease
