@@ -4,6 +4,12 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.9.2 — 2026-11-21
+
+- **Icono nuevo**: la esfera con ojos, más grande y sin estrella, dibujada aparte para cada tamaño (nítida también en
+  16 px). Mismo icono en el escritorio, la barra de tareas, las ventanas, el instalador, la app del Mac, la pestaña y la web.
+- **La barra de tareas agrupa la ventana con el acceso «Companion»**: anclarla ancla el companion, no Electron.
+
 ## 0.9.1 — 2026-11-21
 
 - **Conversación en vivo con más proveedores**: además de Gemini Live (gratis con límite diario), OpenAI Realtime,

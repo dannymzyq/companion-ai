@@ -179,6 +179,36 @@ if ($AccesosDirectos) {
     $ps = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
     $icono = "$raiz\desktop\icono.ico,0"
     $shell = New-Object -ComObject WScript.Shell
+    # El acceso lleva el AppUserModelID de la ventana (desktop\main.js, APP_ID): Windows los agrupa en la barra de
+    # tareas con el icono del companion, y anclar la ventana ancla este acceso (no electron.exe).
+    if (-not ("CompanionIdApp" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+public static class CompanionIdApp {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)] public struct PropertyKey { public Guid fmtid; public uint pid; }
+    [StructLayout(LayoutKind.Explicit)] public struct PropVariant {
+        [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public IntPtr p; }
+    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPropertyStore {
+        void GetCount(out uint c); void GetAt(uint i, out PropertyKey k); void GetValue(ref PropertyKey k, out PropVariant v);
+        void SetValue(ref PropertyKey k, ref PropVariant v); void Commit(); }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    static extern void SHGetPropertyStoreFromParsingName(string path, IntPtr bc, int flags, ref Guid iid,
+        [MarshalAs(UnmanagedType.Interface)] out IPropertyStore store);
+    public static void Set(string lnk, string id) {
+        Guid iid = typeof(IPropertyStore).GUID; IPropertyStore st;
+        SHGetPropertyStoreFromParsingName(lnk, IntPtr.Zero, 2, ref iid, out st);   // GPS_READWRITE
+        var key = new PropertyKey { fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };
+        var v = new PropVariant { vt = 31, p = Marshal.StringToCoTaskMemUni(id) };  // VT_LPWSTR
+        try { st.SetValue(ref key, ref v); st.Commit(); }
+        finally { Marshal.FreeCoTaskMem(v.p); Marshal.ReleaseComObject(st); }
+    }
+}
+"@
+    }
+    function Fijar-IdApp($ruta) {
+        try { [CompanionIdApp]::Set($ruta, "Companion.Desktop") } catch { Write-Host "Aviso: el acceso no lleva el id de la app ($($_.Exception.Message))" }
+    }
     function Acceso($ruta, $script, $descripcion) {
         $l = $shell.CreateShortcut($ruta)
         $l.TargetPath = $ps
@@ -188,6 +218,7 @@ if ($AccesosDirectos) {
         $l.WindowStyle = 7
         $l.Description = $descripcion
         $l.Save()
+        if ($script -eq "iniciar.ps1") { Fijar-IdApp $ruta }
     }
     Acceso (Join-Path $escritorio "Companion.lnk") "iniciar.ps1" "Abrir el companion"
     Acceso (Join-Path $menu "Companion.lnk") "iniciar.ps1" "Abrir el companion"

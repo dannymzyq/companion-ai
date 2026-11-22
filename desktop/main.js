@@ -22,6 +22,11 @@ const fs = require('fs');
 
 const URL_BASE = (process.env.COMPANION_URL || 'http://127.0.0.1:8200').replace(/\/$/, '');
 const ORIGIN = new URL(URL_BASE).origin;
+// Icono de las ventanas y de la barra de tareas (scripts/crear_icono.py). En Windows, el mismo AppUserModelID que
+// lleva el acceso directo (instalar.ps1): así la ventana se agrupa con él y anclarla ancla el companion, no Electron.
+const ICON = path.join(__dirname, process.platform === 'win32' ? 'icono.ico' : 'icono.png');
+const APP_ID = 'Companion.Desktop';
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 const TEST = process.env.COMPANION_TEST === '1';
 const FLOAT_MIN = 220, FLOAT_MAX = 900, FLOAT_RATIO = 1.55;
 
@@ -198,7 +203,7 @@ function fit(w) {
 function createMain() {
   const w = new BaseWindow({
     ...place(mainBounds || { width: 520, height: 880 }), minWidth: 380, minHeight: 560, backgroundColor: '#0c0b14',
-    autoHideMenuBar: true, title: 'Companion', show: false,
+    autoHideMenuBar: true, icon: ICON, title: 'Companion', show: false,
   });
   w.setMenuBarVisibility(false);
   w.on('resize', () => fit(w));
@@ -214,7 +219,7 @@ function createFloat() {
   const bounds = floatBounds || { width, height, x: area.x + area.width - width - 28, y: area.y + area.height - height - 12 };
   const w = new BaseWindow({
     ...place(bounds), transparent: true, frame: false, resizable: false, maximizable: false, fullscreenable: false,
-    hasShadow: false, backgroundColor: '#00000000', title: 'Companion', show: false,
+    hasShadow: false, backgroundColor: '#00000000', icon: ICON, title: 'Companion', show: false,
   });
   w.setAlwaysOnTop(true, 'screen-saver');           // por encima también de las ventanas a pantalla completa sin borde
   w.setVisibleOnAllWorkspaces(true);
@@ -349,7 +354,7 @@ async function pickSource(audio) {
   const width = Math.min(820, area.width - 40), height = Math.min(640, area.height - 40);
   const w = new BrowserWindow({
     ...place({ width, height, x: Math.round(area.x + (area.width - width) / 2), y: Math.round(area.y + (area.height - height) / 2) }),
-    minWidth: 420, minHeight: 360, backgroundColor: '#0c0b14', autoHideMenuBar: true, title: 'Compartir pantalla',
+    minWidth: 420, minHeight: 360, backgroundColor: '#0c0b14', autoHideMenuBar: true, icon: ICON, title: 'Compartir pantalla',
     minimizable: false, maximizable: false, fullscreenable: false,
     webPreferences: { preload: path.join(__dirname, 'picker-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });

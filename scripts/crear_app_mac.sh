@@ -35,7 +35,7 @@ rm -f "$RES/default_app.asar"
 # ---------------------------------------------------------------- la parte de escritorio
 mkdir -p "$RES/app"
 # Todos los .js y .html de desktop/ (con una lista fija, la 0.8.0 se quedaba sin pet.js y main.js no arrancaba).
-for f in desktop/*.js desktop/*.html; do
+for f in desktop/*.js desktop/*.html desktop/icono.png; do
   cp "$f" "$RES/app/"
 done
 cat > "$RES/app/package.json" <<EOF
@@ -69,7 +69,7 @@ print(f"manifest.json: {len(files)} archivos")
 EOF
 
 # ---------------------------------------------------------------- icono, nombre y permisos
-if sips -s format png desktop/icono.ico --out "$TMP/icono.png" >/dev/null 2>&1; then
+if cp desktop/icono.png "$TMP/icono.png" 2>/dev/null; then   # 1024 px (scripts/crear_icono.py)
   mkdir "$TMP/icono.iconset"
   for s in 16 32 128 256 512; do
     sips -z $s $s "$TMP/icono.png" --out "$TMP/icono.iconset/icon_${s}x${s}.png" >/dev/null

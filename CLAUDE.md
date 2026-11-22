@@ -323,6 +323,12 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   En vivo, Dispositivos › Oído se ve bloqueado con el motivo; con las acciones apagadas, sus otros dos interruptores.
   Con otro proveedor elegido en la lista sin guardar, la tarjeta «En vivo» también queda pendiente. `public_cloud`
   ya no da `key_hint` (enseñaba los 4 últimos caracteres de la clave): la interfaz dice «clave guardada».
+- Icono (21 nov 2026): `scripts\crear_icono.py` dibuja la esfera con ojos, sin estrella y algo más grande (`STYLE`, elegido
+  por el usuario tras varias pruebas), sobre un cuadrado redondeado (cada tamaño
+  aparte; en 16-24 px sin brillo) → `desktop\icono.ico` (accesos, instalador, ventanas WPF),
+  `desktop\icono.png` (1024 px: .icns del Mac) y `web\`/`docs\icono.png` (pestaña). Las ventanas de Electron llevan
+  `icon: ICON` y `app.setAppUserModelId('Companion.Desktop')`; `instalar.ps1` pone el mismo id en el acceso
+  «Companion» (`Fijar-IdApp`), así la barra de tareas los agrupa y anclar la ventana ancla el companion, no Electron.
 - Ajustes (15 nov 2026): secciones `<details name="ajustes">` (una abierta a la vez) con resumen en la cabecera
   (`sum-…`) y una «i» por opción (`.info[data-tip]` abre su `.tip`; dentro de un interruptor no lo cambia). El
   botón de flotar está en la barra de abajo, junto a compartir pantalla.
