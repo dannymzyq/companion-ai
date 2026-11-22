@@ -125,6 +125,11 @@ No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
 - **Micrófono y salida:** siempre los que el iPhone usa en ese momento; si cambian (auriculares), se reabre el
   micrófono predeterminado. Con el permiso de iOS ya dado, la app empieza sin la tarjeta «Permitir micrófono».
 
+## iOS 0.9.2 (22 nov 2026)
+Misma versión que la PC. El icono pasa al nuevo de la 0.9.2 (`scripts/crear_icono.py`, dibujado a sangre: sin
+esquinas redondeadas ni transparencia, que iOS recorta solo). Incluye los arreglos compartidos con Android: la cámara
+pide permiso solo al encenderla, el teclado no tapa la bienvenida y textos del teléfono.
+
 ## Android (0.2.0, 22 nov 2026)
 `movil/android`: la misma interfaz (web/) y el mismo núcleo (movil/core) en un WebView, con un puente nativo que tiene
 los mismos comandos que el de iOS (`Bridge.kt` ↔ `Bridge.swift`). Lo que cambia:
