@@ -37,25 +37,32 @@ let talkTimer = 0;
 let autoTried = false;
 
 // ---------------------------------------------------------------- avatar y audio
+const liteMode = params.has('lite') || localStorage.getItem('companion.lite') === '1';
+document.body.classList.toggle('lite', liteMode);
 let avatar = null;
-try {
-  avatar = new Avatar($('canvas'));
-  if (floating) avatar.setFloating(true);
-  avatar.setFullBody(!fadeOn());
-  avatar.hobbyOn = hobbyOn();                                       // pasatiempos (Ajustes › Tú y tu personaje)
-  avatar.onContextRestored = () => { if (config && config.model) loadModel(); };
-  // Dormida (cabeceando o en la siesta): la mascota no pasea ni salta; al despertar, vuelve a lo de antes.
-  avatar.onSleep = (on, mode) => {
-    if (on) showKeyboard(false);                                     // se va a dormir: el chat se cierra
-    if (!desktop || !desktop.pet) return;
-    desktop.pet.state(on ? 'sleep' : state);
-    document.body.classList.toggle('sleeping', !!on);                  // sin degradado de pies: está tumbada
-    if (desktop.pet.rest) desktop.pet.rest(on && mode === 'lean');   // recostada: primero va a una esquina
-  };
-  avatar.restWait = !!(desktop && desktop.pet && desktop.pet.rest);   // flotando, espera a llegar a la esquina
-  avatar.onView = (kind) => voiceReact({ type: 'look', kind });     // cómo la miras con la cámara libre
-} catch (err) {
-  console.warn('Sin WebGL: se usa el orbe', err);
+if (!liteMode) {
+  try {
+    avatar = new Avatar($('canvas'));
+    if (floating) avatar.setFloating(true);
+    avatar.setFullBody(!fadeOn());
+    avatar.hobbyOn = hobbyOn();                                       // pasatiempos (Ajustes › Tú y tu personaje)
+    avatar.onContextRestored = () => { if (config && config.model) loadModel(); };
+    // Dormida (cabeceando o en la siesta): la mascota no pasea ni salta; al despertar, vuelve a lo de antes.
+    avatar.onSleep = (on, mode) => {
+      if (on) showKeyboard(false);                                     // se va a dormir: el chat se cierra
+      if (!desktop || !desktop.pet) return;
+      desktop.pet.state(on ? 'sleep' : state);
+      document.body.classList.toggle('sleeping', !!on);                  // sin degradado de pies: está tumbada
+      if (desktop.pet.rest) desktop.pet.rest(on && mode === 'lean');   // recostada: primero va a una esquina
+    };
+    avatar.restWait = !!(desktop && desktop.pet && desktop.pet.rest);   // flotando, espera a llegar a la esquina
+    avatar.onView = (kind) => voiceReact({ type: 'look', kind });     // cómo la miras con la cámara libre
+  } catch (err) {
+    console.warn('Sin WebGL: se usa el orbe', err);
+  }
+} else {
+  const c = $('canvas');
+  if (c) c.hidden = true;
 }
 
 const audio = new AudioIO({
