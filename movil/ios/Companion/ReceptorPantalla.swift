@@ -13,6 +13,7 @@ final class ReceptorPantalla {
     var alCuadro: ((Data) -> Void)?
     var alCambiar: ((Bool) -> Void)?
     private(set) var activa = false
+    private var cuenta = 0
 
     func escuchar() throws {
         guard listener == nil else { return }
@@ -20,6 +21,11 @@ final class ReceptorPantalla {
         p.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: Self.puerto)
         p.allowLocalEndpointReuse = true
         let l = try NWListener(using: p)
+        l.stateUpdateHandler = { estado in
+            #if PRUEBAS
+            if case .failed(let e) = estado { Task { @MainActor in Registro.anotar("Pantalla compartida: no pude escuchar: \(e)") } }
+            #endif
+        }
         l.newConnectionHandler = { [weak self] c in
             Task { @MainActor in self?.aceptar(c) }
         }
@@ -35,7 +41,11 @@ final class ReceptorPantalla {
             Task { @MainActor in
                 guard let self, self.conexion === c else { return }
                 switch estado {
-                case .ready: self.activa = true; self.alCambiar?(true); self.leer(c)
+                case .ready:
+                    self.activa = true; self.alCambiar?(true); self.leer(c)
+                    #if PRUEBAS
+                    Registro.anotar("Pantalla compartida: conectada")
+                    #endif
                 case .failed, .cancelled: self.terminar(c)
                 default: break
                 }
@@ -62,6 +72,10 @@ final class ReceptorPantalla {
             let jpeg = buffer.subdata(in: buffer.startIndex + 4 ..< buffer.startIndex + 4 + largo)
             buffer.removeSubrange(buffer.startIndex ..< buffer.startIndex + 4 + largo)
             alCuadro?(jpeg)
+            #if PRUEBAS
+            cuenta += 1
+            if cuenta % 15 == 1 { Registro.anotar("Pantalla compartida: \(cuenta) imágenes (\(jpeg.count / 1024) KB la última)") }
+            #endif
         }
     }
 
@@ -70,6 +84,10 @@ final class ReceptorPantalla {
         conexion = nil
         buffer.removeAll()
         if activa { activa = false; alCambiar?(false) }
+        #if PRUEBAS
+        Registro.anotar("Pantalla compartida: terminada tras \(cuenta) imágenes")
+        #endif
+        cuenta = 0
     }
 
     /// «Dejar de compartir» desde Companion: la extensión termina la transmisión.
