@@ -125,7 +125,7 @@ No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
 - **Micrófono y salida:** siempre los que el iPhone usa en ese momento; si cambian (auriculares), se reabre el
   micrófono predeterminado. Con el permiso de iOS ya dado, la app empieza sin la tarjeta «Permitir micrófono».
 
-## Android (0.2.0, 22 nov 2026)
+## Android (0.9.2, 22 nov 2026)
 `movil/android`: la misma interfaz (web/) y el mismo núcleo (movil/core) en un WebView, con un puente nativo que tiene
 los mismos comandos que el de iOS (`Bridge.kt` ↔ `Bridge.swift`). Lo que cambia:
 - **Archivos:** `assets/www` (lo copia `bundle_web.sh` antes de cada compilación) servido en
