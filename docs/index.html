@@ -3,119 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Companion PC — Tu asistente personal 3D con voz en tu escritorio</title>
+  <title>Companion — Tu asistente personal 3D</title>
   <link rel="icon" type="image/png" href="icono.png">
-  <meta name="description" content="Habla con tu asistente personal en 3D como en una llamada. Voz natural, avatar VRM flotante en tu escritorio, acciones en tu PC y privacidad local-first para Windows y macOS.">
+  <meta name="description" content="Habla con tu asistente personal en 3D como en una llamada. Voz natural, avatar VRM flotante en tu escritorio, modo en vivo, acciones en tu PC y privacidad local-first para Windows y macOS.">
+  <meta name="theme-color" content="#000000">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Companion — Tu asistente personal 3D">
+  <meta property="og:description" content="Voz natural en tiempo real, avatar 3D flotante sobre tus ventanas, modo en vivo sin VRAM y privacidad local-first para Windows 11 y macOS Apple Silicon.">
+  <meta property="og:image" content="https://dannymzyq.github.io/companion-ai/icono.png">
+  <meta property="og:url" content="https://dannymzyq.github.io/companion-ai/">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Companion — Tu asistente personal 3D">
+  <meta name="twitter:description" content="Habla con tu asistente 3D en tiempo real. Voz natural, avatar VRM flotante y privacidad local-first.">
+  <meta name="twitter:image" content="https://dannymzyq.github.io/companion-ai/icono.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-state="idle">
-  <div class="backdrop" aria-hidden="true"></div>
-  <div class="grid-overlay" aria-hidden="true"></div>
 
-  <!-- Navegación -->
-  <header class="navbar">
-    <div class="container nav-inner">
-      <a href="#inicio" class="brand" aria-label="Companion PC inicio">
-        <span class="brand-orb" aria-hidden="true"></span>
-        <span class="brand-text">Companion <span class="brand-tag">PC</span></span>
+  <!-- Barra de navegación estilo Apple -->
+  <header class="navbar" id="navbar">
+    <div class="nav-inner">
+      <a href="#inicio" class="brand" aria-label="Companion inicio">
+        <img src="icono.png" alt="" class="brand-icon" width="22" height="22">
+        <span class="brand-name">Companion</span>
       </a>
+
       <nav class="nav-links" aria-label="Navegación principal">
-        <a href="#como-funciona">Cómo funciona</a>
-        <a href="#capacidades">Capacidades</a>
-        <a href="#personalidades">Personalidades y voces</a>
+        <a href="#destacados">Visión general</a>
+        <a href="#modos">Modos</a>
+        <a href="#personalidades">Voces</a>
         <a href="#rendimiento">Rendimiento</a>
-        <a href="#descargar">Instalar</a>
+        <a href="#privacidad">Privacidad</a>
       </nav>
+
       <div class="nav-actions">
-        <span class="version-pill">v0.9.0</span>
-        <a href="https://github.com/dannymzyq/companion-ai/releases" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
-          Descargar
-        </a>
+        <span class="nav-version">v0.9.2</span>
+        <a href="#descargar" class="nav-cta">Descargar</a>
       </div>
+
       <button class="nav-toggle" id="nav-toggle" aria-label="Abrir menú" aria-expanded="false">
-        <span></span><span></span><span></span>
+        <span></span>
+        <span></span>
       </button>
     </div>
   </header>
 
   <main id="inicio">
-    <!-- Hero -->
-    <section class="hero">
-      <div class="container hero-grid">
-        <div class="hero-copy">
-          <div class="eyebrow">
-            <span class="status-dot"></span>
-            <span>Windows 11 &amp; macOS Apple Silicon · Privacidad local-first</span>
-          </div>
-          <h1>Tu asistente personal en 3D, con voz y vida en tu escritorio.</h1>
-          <p class="hero-lead">
-            Le hablas como en una llamada y responde con su voz, expresiones y gestos en tiempo real.
-            Flota sobre tus ventanas, recuerda tus conversaciones, te ayuda con tareas en tu PC y mantiene
-            tu voz y tus datos en tu equipo.
+    <!-- HERO: Escenario oscuro cinematográfico -->
+    <section class="section-dark hero">
+      <div class="hero-ambient" aria-hidden="true"></div>
+      <div class="container hero-container">
+        <div class="hero-header reveal">
+          <p class="hero-eyebrow">Companion 0.9.2 · Windows 11 y macOS Apple Silicon</p>
+          <h1 class="hero-title">
+            Tu asistente en 3D.<br>
+            <span class="gradient-text">Con voz, vista y vida propia.</span>
+          </h1>
+          <p class="hero-subtitle">
+            Le hablas como en una llamada y responde en tiempo real con expresiones, gestos y voz natural.
+            Flota sobre tus ventanas, te ayuda en tu equipo y mantiene tus recuerdos bajo tu control.
           </p>
-
-          <div class="hero-cta">
-            <a href="#descargar" class="btn btn-primary btn-lg">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-              Descargar v0.9.0
+          <div class="hero-actions">
+            <a href="#descargar" class="btn btn-apple-blue">Descargar gratis</a>
+            <a href="#destacados" class="btn btn-apple-link">
+              Descubrir más <span class="chevron" aria-hidden="true">›</span>
             </a>
-            <a href="#capacidades" class="btn btn-ghost btn-lg">
-              Explorar capacidades
-            </a>
-          </div>
-
-          <div class="hero-metrics" aria-label="Métricas principales">
-            <div class="metric">
-              <strong>~2 s</strong>
-              <span>Latencia con cerebro local</span>
-            </div>
-            <div class="metric">
-              <strong>0 MB VRAM</strong>
-              <span>En modo Solo Nube</span>
-            </div>
-            <div class="metric">
-              <strong>9 voces + tu voz</strong>
-              <span>F5-TTS, Piper y Nube</span>
-            </div>
-            <div class="metric">
-              <strong>100 % local</strong>
-              <span>Oído, historial y recuerdos</span>
-            </div>
           </div>
         </div>
 
-        <!-- Simulador interactivo de la ventana de Companion -->
-        <div class="hero-stage">
+        <!-- Simulador interactivo centrado -->
+        <div class="hero-stage reveal reveal-delay-1">
+          <div class="stage-glow" aria-hidden="true"></div>
           <div class="app-window" id="demo-window">
-            <div class="window-bar">
-              <div class="window-who">
+            <div class="window-chrome">
+              <div class="window-dots" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="window-title-group">
+                <span class="window-status-dot"></span>
                 <strong>Mika</strong>
+                <span class="window-sep">·</span>
                 <span class="window-status" id="demo-status">Lista para hablar</span>
               </div>
-              <div class="window-chips">
-                <span class="chip" id="demo-mode-chip">Local · Gemma 4 E4B</span>
-                <span class="chip chip-emo" id="demo-emo-chip">feliz</span>
+              <div class="window-pills">
+                <span class="pill" id="demo-mode-chip">En vivo · Gemini Live</span>
+                <span class="pill pill-accent" id="demo-emo-chip">feliz</span>
               </div>
             </div>
 
-            <div class="window-canvas">
-              <div class="orb-scene">
-                <div class="orb-ring orb-ring-1"></div>
-                <div class="orb-ring orb-ring-2"></div>
+            <div class="window-stage">
+              <div class="orb-wrap">
+                <div class="orb-halo orb-halo-outer"></div>
+                <div class="orb-halo orb-halo-inner"></div>
                 <div class="orb-core" id="demo-orb">
+                  <div class="orb-specular" aria-hidden="true"></div>
                   <div class="orb-face">
                     <span class="eye"></span>
                     <span class="eye"></span>
                   </div>
                 </div>
-                <div class="floating-badge badge-top">
-                  <span class="pulse-dot"></span> Mirada en vivo
-                </div>
-                <div class="floating-badge badge-bottom">
-                  14 emociones · 9 gestos
+                <div class="voice-wave" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
                 </div>
               </div>
 
@@ -124,206 +115,235 @@
                 <p class="cap-ai" id="demo-ai">«¡Listo! Ya puse tu lista lofi en segundo plano sin sacarte de lo que hacías, y en 20 minutos te aviso.»</p>
               </div>
             </div>
-
-            <div class="window-footer">
-              <div class="state-switcher" role="group" aria-label="Probar estados de la aplicación">
-                <button class="state-btn active" data-demo-state="idle">Reposo</button>
-                <button class="state-btn" data-demo-state="listening">Escuchando</button>
-                <button class="state-btn" data-demo-state="thinking">Pensando</button>
-                <button class="state-btn" data-demo-state="speaking">Hablando</button>
-              </div>
-            </div>
           </div>
-          <p class="stage-hint">Prueba los 4 estados reales de la app para ver cómo respira la interfaz.</p>
+
+          <!-- Segmented Control estilo Apple -->
+          <div class="segmented-wrap">
+            <div class="segmented-control" role="group" aria-label="Probar estados de la aplicación">
+              <button class="seg-btn active" data-demo-state="idle">Reposo</button>
+              <button class="seg-btn" data-demo-state="listening">Escuchando</button>
+              <button class="seg-btn" data-demo-state="thinking">Pensando</button>
+              <button class="seg-btn" data-demo-state="speaking">Hablando</button>
+            </div>
+            <p class="stage-caption">Interactúa con los cuatro estados reales de Companion para ver cómo responde su atmósfera.</p>
+          </div>
+        </div>
+
+        <!-- Métricas monumentales -->
+        <div class="metrics-strip reveal reveal-delay-2" aria-label="Métricas clave">
+          <div class="metric-item">
+            <span class="metric-value">60 fps</span>
+            <span class="metric-label">Renderizado 3D fluido en ventana y modo flotante</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-value">0 MB</span>
+            <span class="metric-label">De VRAM en modo En vivo o Solo nube</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-value">4 modos</span>
+            <span class="metric-label">Desde conversación en vivo hasta 100 % local</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-value">9 voces</span>
+            <span class="metric-label">Incluidas + clonación propia con 10 s de audio</span>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- Pipeline en tiempo real -->
-    <section class="section" id="como-funciona">
+    <!-- CAPACIDADES: Bento Grid en blanco luminoso estilo Apple -->
+    <section class="section-light" id="destacados">
       <div class="container">
-        <div class="section-head">
-          <span class="section-kicker">Arquitectura en tiempo real</span>
-          <h2>De tu voz a su respuesta, en un par de segundos</h2>
-          <p>
-            Todo el pipeline corre en tu propia carpeta. Solo el texto de la conversación sale de tu PC
-            cuando eliges un cerebro en la nube; con Ollama local, nada sale de tu equipo.
+        <div class="section-head reveal">
+          <p class="eyebrow-light">Diseñado para convivir contigo</p>
+          <h2>Mucho más que un chat con voz.</h2>
+          <p class="section-lead">
+            Cada detalle está pensado para que el personaje se sienta presente en tu escritorio sin interrumpir tu flujo de trabajo ni tus juegos.
           </p>
-        </div>
-
-        <div class="pipeline">
-          <div class="pipe-step">
-            <div class="pipe-icon">
-              <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>
-            </div>
-            <h3>1. Oído activo</h3>
-            <p><strong>Silero VAD</strong> detecta cuándo empiezas y terminas de hablar, permitiendo interrumpirla con naturalidad.</p>
-          </div>
-          <div class="pipe-arrow" aria-hidden="true">→</div>
-          <div class="pipe-step">
-            <div class="pipe-icon">
-              <svg viewBox="0 0 24 24"><path d="M3 12h3l2-6 4 12 3-8 2 2h4"/></svg>
-            </div>
-            <h3>2. Transcripción</h3>
-            <p><strong>Whisper large-v3-turbo</strong> en tu GPU (1,1 GB VRAM) o en la nube con Groq/Gemini en modo ligero.</p>
-          </div>
-          <div class="pipe-arrow" aria-hidden="true">→</div>
-          <div class="pipe-step">
-            <div class="pipe-icon">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M4.93 4.93l2.12 2.12m9.9 9.9 2.12 2.12M2 12h3m14 0h3M4.93 19.07l2.12-2.12m9.9-9.9 2.12-2.12"/></svg>
-            </div>
-            <h3>3. Cerebro híbrido</h3>
-            <p><strong>Gemini / OpenAI / Groq</strong> en la nube o <strong>Ollama</strong> local (Gemma 4, MLX en Mac) con relevo automático de cuotas.</p>
-          </div>
-          <div class="pipe-arrow" aria-hidden="true">→</div>
-          <div class="pipe-step">
-            <div class="pipe-icon">
-              <svg viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-            </div>
-            <h3>4. Voz verificada</h3>
-            <p><strong>F5-TTS</strong> clonada con comprobación Whisper (~99 % fidelidad), <strong>Piper</strong> en CPU o voces neuronales.</p>
-          </div>
-          <div class="pipe-arrow" aria-hidden="true">→</div>
-          <div class="pipe-step">
-            <div class="pipe-icon">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
-            </div>
-            <h3>5. Avatar 3D vivo</h3>
-            <p>Sincronización labial por 7 bandas de formantes, 14 emociones, microgestos faciales, manos y físicas VRM.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Capacidades (Bento Grid) -->
-    <section class="section" id="capacidades">
-      <div class="container">
-        <div class="section-head">
-          <span class="section-kicker">Diseñado para convivir contigo</span>
-          <h2>Mucho más que un chat con voz</h2>
-          <p>Cada subsistema está pensado para que el personaje se sienta presente en tu PC sin estorbar tu trabajo ni tus juegos.</p>
         </div>
 
         <div class="bento-grid">
-          <article class="bento-card bento-wide">
-            <div class="card-badge">Escritorio vivo</div>
-            <h3>Modo flotante sin marco sobre tus ventanas</h3>
-            <p>
-              Saca a tu personaje de la ventana con un clic: flota transparente por encima de todo, sin bloquear tus clics en el fondo.
-              Tiene gravedad sobre la barra de tareas, te sigue con la mirada, reacciona si la acaricias o pasas el ratón, pasea por el borde,
-              se sienta en la ventana activa y hasta se echa una siesta si te ausentas.
-            </p>
-            <ul class="tag-list">
-              <li>Clics transparentes</li>
-              <li>Gravedad y paseos</li>
-              <li>Reacciones por zona</li>
-              <li>Pasatiempos y siesta</li>
-              <li>Acompaña acciones</li>
-            </ul>
+          <!-- Card 1: Ancha destacada (4/6) -->
+          <article class="bento-card bento-span-4 bento-hero-card reveal">
+            <div class="bento-content">
+              <span class="bento-kicker">Escritorio vivo</span>
+              <h3>Flota sobre tus ventanas.<br>Nunca estorba tus clics.</h3>
+              <p>
+                <strong>Sácala de la ventana con un clic.</strong> Tu personaje flota transparente por encima de todo con clics pasantes en el fondo.
+                Tiene gravedad sobre la barra de tareas, te sigue con la mirada, reacciona si la acaricias, pasea por el borde, se sienta en la ventana activa y se echa una siesta si te ausentas.
+              </p>
+              <div class="bento-chips">
+                <span>Clics transparentes</span>
+                <span>Gravedad y paseos</span>
+                <span>Reacciones por zona</span>
+                <span>Siesta y pasatiempos</span>
+              </div>
+            </div>
+            <div class="bento-visual visual-desktop" aria-hidden="true">
+              <div class="mini-screen">
+                <div class="mini-win mini-win-a"></div>
+                <div class="mini-win mini-win-b"></div>
+                <div class="mini-companion">
+                  <img src="icono.png" alt="" width="44" height="44">
+                </div>
+                <div class="mini-dock"></div>
+              </div>
+            </div>
           </article>
 
-          <article class="bento-card">
-            <div class="card-badge">Avatar 3D VRM</div>
-            <h3>Animación natural en cualquier modelo</h3>
+          <!-- Card 2: Avatar 3D (2/6) -->
+          <article class="bento-card bento-span-2 reveal">
+            <span class="bento-kicker">Avatar 3D VRM</span>
+            <h3>Expresión natural en cualquier modelo.</h3>
             <p>
-              Incluye 2 avatares VRoid y una esfera expresiva, y acepta cualquier archivo <code>.vrm</code> propio arrastrándolo a la ventana.
-              Combina captura de movimiento (100STYLE y Quaternius), IK de pies en el suelo, físicas de pelo y ropa, y efectos visuales como rubor, corazones y chispas.
-            </p>
-          </article>
-
-          <article class="bento-card">
-            <div class="card-badge">Acciones con permiso</div>
-            <h3>Controla tu PC sin quitarte el ratón</h3>
-            <p>
-              Abre apps, webs y carpetas, busca archivos, pon temporizadores, controla música y volumen o maneja ventanas abiertas
-              (Word, Spotify, Apple Music…) en segundo plano mediante UI Automation.
-            </p>
-            <ul class="tag-list">
-              <li>Catálogo seguro</li>
-              <li>Confirma pasos delicados</li>
-              <li>Nunca toca contraseñas</li>
-            </ul>
-          </article>
-
-          <article class="bento-card">
-            <div class="card-badge">Visión y audio</div>
-            <h3>Cámara, pantalla y «Mirada en vivo»</h3>
-            <p>
-              Elige exactamente qué pantalla o ventana quieres compartir —nunca el resto del escritorio— y activa el audio del sistema
-              transcrito localmente por Whisper. Con <strong>Mirada en vivo</strong>, comenta de forma natural lo que cambia en pantalla.
+              <strong>Incluye 2 avatares VRoid y una esfera expresiva.</strong> Arrastra cualquier archivo <code>.vrm</code> a la ventana.
+              Combina captura de movimiento, IK de pies en el suelo, 14 emociones, sincronización labial por 7 bandas de formantes y físicas de pelo y ropa.
             </p>
           </article>
 
-          <article class="bento-card">
-            <div class="card-badge">Memoria y ánimo</div>
-            <h3>Recuerda lo importante y evoluciona contigo</h3>
+          <!-- Card 3: Acciones con permiso (3/6) -->
+          <article class="bento-card bento-span-3 reveal">
+            <span class="bento-kicker">Acciones en tu PC</span>
+            <h3>Controla tus apps sin soltar el ratón.</h3>
             <p>
-              Combina memoria a corto plazo, resúmenes automáticos con fecha de conversaciones pasadas y extracción de datos duraderos
-              que puedes revisar o borrar uno a uno. Su estado de ánimo cambia entre turnos según la charla.
+              <strong>Abre apps, webs y carpetas, busca archivos o pon temporizadores.</strong> Controla Spotify, Apple Music, Word y el volumen en segundo plano mediante UI Automation.
+              En modo en vivo solo ejecuta acciones que pidas en ese turno y siempre confirma pasos delicados.
             </p>
           </article>
 
-          <article class="bento-card bento-wide">
-            <div class="card-badge">Seguridad y privacidad</div>
-            <h3>Local-first de verdad, con frenos en código</h3>
+          <!-- Card 4: Visión y Mirada en vivo (3/6) -->
+          <article class="bento-card bento-span-3 reveal">
+            <span class="bento-kicker">Visión y audio</span>
+            <h3>Cámara, pantalla y «Mirada en vivo».</h3>
             <p>
-              El servidor escucha exclusivamente en <code>127.0.0.1</code> con protección contra DNS rebinding.
-              Las claves de API se cifran con DPAPI en Windows y el Llavero en macOS. Al cerrar la ventana, todos los procesos y la GPU
-              se liberan de forma ordenada sin dejar nada en segundo plano.
+              <strong>Tú eliges exactamente qué ventana compartir.</strong> Nunca ve el resto de tu escritorio.
+              Activa el audio del sistema y deja que <em>Mirada en vivo</em> comente de forma natural lo que cambia en pantalla.
             </p>
-            <ul class="tag-list">
-              <li>Solo 127.0.0.1</li>
-              <li>Claves cifradas DPAPI / Keychain</li>
-              <li>Cierre limpio de GPU</li>
-              <li>Borrado compactado de BD</li>
-            </ul>
+          </article>
+
+          <!-- Card 5: Memoria y ánimo (6/6 ancho completo) -->
+          <article class="bento-card bento-span-6 bento-dark-accent reveal">
+            <div class="bento-content">
+              <span class="bento-kicker">Memoria y estado de ánimo</span>
+              <h3>Recuerda lo importante. Evoluciona contigo.</h3>
+              <p>
+                <strong>Memoria a corto plazo, resúmenes con fecha y datos duraderos.</strong>
+                Puedes revisar, editar o borrar cualquier recuerdo uno a uno desde tu equipo. Su estado de ánimo cambia de forma orgánica según cómo fluye la conversación.
+              </p>
+            </div>
+            <div class="memory-pills" aria-hidden="true">
+              <div class="mem-row"><span>Ayer · 22:14</span> «Prefieres lofi al programar»</div>
+              <div class="mem-row"><span>Hoy · 09:30</span> «Reunión de diseño a las 11:00»</div>
+              <div class="mem-row mem-active"><span>Ánimo actual</span> Feliz · Curiosa</div>
+            </div>
           </article>
         </div>
       </div>
     </section>
 
-    <!-- Personalidades y Voces (Interactivo) -->
-    <section class="section" id="personalidades">
+    <!-- MODOS Y ARQUITECTURA: Escenario oscuro -->
+    <section class="section-dark" id="modos">
       <div class="container">
-        <div class="section-head">
-          <span class="section-kicker">Hazlo tuyo</span>
-          <h2>8 personalidades, 9 voces y clonación propia</h2>
-          <p>
-            Combina cualquier avatar 3D con cualquier voz y personalidad. Puedes personalizar las incluidas, crear una personalidad
-            desde cero o clonar una voz nueva con solo ~10 segundos de audio.
+        <div class="section-head section-head-center reveal">
+          <p class="eyebrow-dark">Cerebro y voz</p>
+          <h2>Cuatro modos.<br>Un solo interruptor.</h2>
+          <p class="section-lead">
+            Desde conversación en vivo con latencia mínima y cero uso de GPU hasta un pipeline 100 % local en tu propio hardware.
           </p>
         </div>
 
-        <div class="split-showcase">
+        <!-- Selector interactivo de los 4 modos de v0.9.1+ -->
+        <div class="modes-showcase reveal">
+          <div class="segmented-control segmented-modes" role="tablist" aria-label="Modos de cerebro y voz">
+            <button class="seg-btn active" data-mode="live" role="tab" aria-selected="true">En vivo</button>
+            <button class="seg-btn" data-mode="hybrid" role="tab" aria-selected="false">Nube + tu voz</button>
+            <button class="seg-btn" data-mode="cloud" role="tab" aria-selected="false">Solo nube</button>
+            <button class="seg-btn" data-mode="local" role="tab" aria-selected="false">100 % en tu PC</button>
+          </div>
+
+          <div class="mode-card" id="mode-detail" aria-live="polite">
+            <!-- Rellenado dinámicamente por app.js -->
+          </div>
+        </div>
+
+        <!-- Pipeline en tiempo real -->
+        <div class="pipeline-block reveal">
+          <div class="pipeline-head">
+            <h3>Arquitectura en tiempo real</h3>
+            <p>De tu voz a su expresión en un par de segundos.</p>
+          </div>
+          <div class="pipeline-grid">
+            <div class="pipe-node">
+              <span class="pipe-num">01</span>
+              <h4>Oído activo</h4>
+              <p><strong>Silero VAD</strong> detecta cuándo empiezas y terminas de hablar, permitiendo interrumpirla con naturalidad.</p>
+            </div>
+            <div class="pipe-node">
+              <span class="pipe-num">02</span>
+              <h4>Transcripción</h4>
+              <p><strong>Whisper large-v3-turbo</strong> en tu GPU (1,1 GB VRAM) o directo en la nube en modo En vivo / Solo nube.</p>
+            </div>
+            <div class="pipe-node">
+              <span class="pipe-num">03</span>
+              <h4>Cerebro híbrido</h4>
+              <p><strong>Gemini, OpenAI, Anthropic, xAI, DeepSeek, Qwen, Groq</strong> o <strong>Ollama / MLX</strong> en local con relevo de cuotas.</p>
+            </div>
+            <div class="pipe-node">
+              <span class="pipe-num">04</span>
+              <h4>Voz verificada</h4>
+              <p><strong>F5-TTS</strong> clonada (~99 % fidelidad), <strong>Piper</strong> en CPU, voz nativa Live (24 kHz) o voces neuronales.</p>
+            </div>
+            <div class="pipe-node">
+              <span class="pipe-num">05</span>
+              <h4>Avatar 3D vivo</h4>
+              <p>Lip-sync por 7 bandas, 14 emociones, microgestos faciales, manos y físicas VRM a 60 fps.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PERSONALIDADES Y VOCES: Blanco editorial -->
+    <section class="section-light" id="personalidades">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="eyebrow-light">Hazlo tuyo</p>
+          <h2>Ocho personalidades.<br>Nueve voces. Y la tuya.</h2>
+          <p class="section-lead">
+            Combina cualquier avatar 3D con cualquier voz y carácter. Edita las incluidas, crea una desde cero o clona una voz nueva con ~10 segundos de audio.
+          </p>
+        </div>
+
+        <div class="studio-grid">
           <!-- Explorador de personalidades -->
-          <div class="panel">
-            <div class="panel-header">
+          <div class="studio-card reveal">
+            <div class="studio-card-head">
               <h3>Personalidades integradas</h3>
-              <span class="panel-sub">Haz clic para ver cómo habla</span>
+              <span>Elige un carácter</span>
             </div>
             <div class="pill-grid" id="personality-pills" role="tablist" aria-label="Personalidades"></div>
             <div class="personality-detail" id="personality-detail" aria-live="polite"></div>
           </div>
 
-          <!-- Catálogo de voces con audio real -->
-          <div class="panel">
-            <div class="panel-header">
+          <!-- Estudio de voces -->
+          <div class="studio-card reveal reveal-delay-1">
+            <div class="studio-card-head">
               <h3>Voces incluidas</h3>
-              <span class="panel-sub">Pulsa ▶ para oír la muestra</span>
+              <span>Pulsa para escuchar</span>
             </div>
             <div class="voice-list" id="voice-list"></div>
-            <div class="voice-engines">
-              <div class="engine-item">
-                <strong>Voz completa (F5-TTS)</strong>
-                <span>Clonación natural en GPU (~1,5 GB VRAM) con reescritura fonética para palabras en inglés.</span>
+            <div class="engine-strip">
+              <div>
+                <strong>F5-TTS</strong>
+                <span>Clonación en GPU (~1,5 GB)</span>
               </div>
-              <div class="engine-item">
-                <strong>Voz ligera (Piper)</strong>
-                <span>0 GB de VRAM en CPU. Cambio automático si abres un juego pesado.</span>
+              <div>
+                <strong>Piper</strong>
+                <span>0 GB VRAM · CPU</span>
               </div>
-              <div class="engine-item">
-                <strong>Voz en la nube</strong>
-                <span>Voces neuronales sin clave ni cupo diario, ideal para el modo Solo Nube.</span>
+              <div>
+                <strong>Live / Nube</strong>
+                <span>24 kHz nativa o neuronal</span>
               </div>
             </div>
           </div>
@@ -331,25 +351,26 @@
       </div>
     </section>
 
-    <!-- Rendimiento y Hardware -->
-    <section class="section" id="rendimiento">
+    <!-- RENDIMIENTO Y HARDWARE: Oscuro técnico estilo Apple Specs -->
+    <section class="section-dark" id="rendimiento">
       <div class="container">
-        <div class="section-head">
-          <span class="section-kicker">Adaptado a tu equipo</span>
-          <h2>Desde un portátil sin gráfica hasta una RTX o Apple Silicon</h2>
-          <p>
-            Companion mide tu memoria de vídeo disponible y recomienda automáticamente la combinación óptima de voz y modelo.
-            Si un juego necesita tu GPU, baja de modelo o pasa a voz ligera sin cortar la charla.
+        <div class="section-head section-head-center reveal">
+          <p class="eyebrow-dark">Adaptado a tu equipo</p>
+          <h2>Rendimiento a la medida<br>de tu hardware.</h2>
+          <p class="section-lead">
+            Companion mide tu memoria de vídeo disponible y elige la combinación óptima. Si abres un juego exigente, libera GPU automáticamente sin cortar la charla.
           </p>
         </div>
 
-        <div class="tabs-bar" role="tablist" aria-label="Perfiles de rendimiento">
-          <button class="tab-btn active" data-tab="windows" role="tab" aria-selected="true">Windows + NVIDIA</button>
-          <button class="tab-btn" data-tab="mac" role="tab" aria-selected="false">macOS Apple Silicon (MLX)</button>
-          <button class="tab-btn" data-tab="cloud" role="tab" aria-selected="false">Modo Solo Nube</button>
+        <div class="specs-controls reveal">
+          <div class="segmented-control" role="tablist" aria-label="Perfiles de rendimiento">
+            <button class="seg-btn active" data-tab="windows" role="tab" aria-selected="true">Windows + NVIDIA</button>
+            <button class="seg-btn" data-tab="mac" role="tab" aria-selected="false">macOS Apple Silicon</button>
+            <button class="seg-btn" data-tab="cloud" role="tab" aria-selected="false">En vivo / Solo nube</button>
+          </div>
         </div>
 
-        <div class="tab-panels">
+        <div class="tab-panels reveal">
           <!-- Windows -->
           <div class="tab-panel active" id="tab-windows">
             <div class="table-wrap">
@@ -359,7 +380,7 @@
                     <th>Tarjeta gráfica</th>
                     <th>Voz recomendada</th>
                     <th>Modelo local recomendado</th>
-                    <th>Velocidad / Notas</th>
+                    <th>Velocidad y notas</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -367,25 +388,25 @@
                     <td><strong>Sin NVIDIA</strong></td>
                     <td>Ligera (Piper) o Nube</td>
                     <td><code>Gemma 3 1B</code> (1,4 GB)</td>
-                    <td>Solo texto · Ideal con modo Solo Nube</td>
+                    <td>Solo texto · Ideal con En vivo o Solo nube</td>
                   </tr>
                   <tr>
                     <td><strong>4 GB VRAM</strong></td>
                     <td>Completa con nube / Ligera en local</td>
                     <td><code>Gemma 3 1B</code> (1,4 GB)</td>
-                    <td>Cabida automática según apps abiertas</td>
+                    <td>Ajuste automático según apps abiertas</td>
                   </tr>
                   <tr>
                     <td><strong>6 GB VRAM</strong></td>
-                    <td>Completa (nube) · cambio auto a ligera</td>
+                    <td>Completa (nube) · cambio auto</td>
                     <td><code>Qwen 3 1.7B</code> (2,4 GB)</td>
                     <td>Solo texto en local</td>
                   </tr>
                   <tr>
                     <td><strong>8 GB VRAM</strong></td>
-                    <td>Completa (nube) · cambio auto a ligera</td>
+                    <td>Completa (nube) · cambio auto</td>
                     <td><code>Gemma 4 E2B</code> (3,3 GB)</td>
-                    <td>170–250 tok/s · Ve imágenes</td>
+                    <td>170–250 tok/s · Visión incluida</td>
                   </tr>
                   <tr class="row-highlight">
                     <td><strong>12 GB o más</strong></td>
@@ -439,12 +460,11 @@
               </table>
             </div>
             <p class="table-note">
-              Compatible con Mac Apple Silicon (M1 o posterior, macOS 14+). Incluye voz por GPU en float16, oído en GPU (0,7 s por cada 4 s de habla),
-              avatar 3D, modo flotante, cámara/pantalla y acciones básicas del sistema.
+              Compatible con Mac Apple Silicon (M1 o posterior, macOS 14+). Incluye voz por GPU en float16, oído en GPU (0,7 s por cada 4 s de habla), avatar 3D, modo flotante, cámara/pantalla y acciones del sistema.
             </p>
           </div>
 
-          <!-- Solo Nube -->
+          <!-- Solo Nube / En vivo -->
           <div class="tab-panel" id="tab-cloud">
             <div class="cloud-compare">
               <div class="cloud-stat">
@@ -455,7 +475,7 @@
               <div class="cloud-stat">
                 <span class="cloud-label">Memoria de vídeo (VRAM)</span>
                 <strong>0 MB</strong>
-                <span class="cloud-vs">vs 1.294 MB con Whisper local</span>
+                <span class="cloud-vs">Sin cargar Whisper ni F5-TTS</span>
               </div>
               <div class="cloud-stat">
                 <span class="cloud-label">Pico de CPU al hablar</span>
@@ -463,98 +483,156 @@
                 <span class="cloud-vs">Ideal mientras juegas</span>
               </div>
               <div class="cloud-stat">
-                <span class="cloud-label">Relevo automático gratuito</span>
+                <span class="cloud-label">Relevo automático</span>
                 <strong>4 niveles</strong>
                 <span class="cloud-vs">Gemini Flash → Flash-Lite → Gemma 4 → Local</span>
               </div>
             </div>
             <p class="table-note">
-              Activa <strong>Ajustes › Cerebro › Solo nube</strong> con un interruptor: mueve cerebro (Gemini/OpenAI/Groq), oído (Groq Whisper gratuito ~2.000 frases/día o Gemini)
-              y voz (Microsoft Edge Neural) a la nube sin cargar ningún modelo pesado en tu PC.
+              En <strong>Ajustes › Cerebro y voz</strong> elige <em>En vivo</em> (Gemini Live, OpenAI Realtime, xAI Grok Voice, Qwen Omni) o <em>Solo nube</em> para dejar toda tu tarjeta gráfica libre.
             </p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Instalación y Bienvenida -->
-    <section class="section" id="descargar">
+    <!-- PRIVACIDAD: Capítulo dedicado estilo Apple -->
+    <section class="section-dark section-privacy" id="privacidad">
       <div class="container">
-        <div class="section-head">
-          <span class="section-kicker">Empieza en minutos</span>
-          <h2>Instalación guiada y actualizaciones incrementales</h2>
-          <p>
-            El instalador detecta si ya tienes Companion y actualiza únicamente los archivos modificados mediante huella SHA-256,
-            sin volver a descargar modelos grandes ni tocar tus recuerdos o personajes.
+        <div class="privacy-hero reveal">
+          <div class="privacy-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2.5 4.5 5.8v5.7c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5.8L12 2.5Z"/>
+              <path d="m9.2 12.2 2 2 3.8-4.2"/>
+            </svg>
+          </div>
+          <h2>Privacidad.<br><span class="text-muted">De serie, en cada capa.</span></h2>
+          <p class="section-lead">
+            Companion nació local-first. Tus recuerdos, tu historial y el control de tu PC viven en tu máquina, protegidos por frenos escritos en el código.
           </p>
         </div>
 
-        <div class="download-grid">
-          <div class="download-card">
-            <div class="os-badge">Windows 11</div>
-            <h3>Instalador oficial (.exe)</h3>
-            <p>
-              Instala en <code>C:\Program Files\Companion</code> con asistente visual. Incluye entorno Python 3.13 propio, app de escritorio Electron y desinstalador limpio.
-            </p>
-            <a href="https://github.com/dannymzyq/companion-ai/releases" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
-              Descargar Companion-Setup-0.9.0.exe
-            </a>
+        <div class="privacy-grid reveal">
+          <div class="privacy-item">
+            <h4>Solo 127.0.0.1</h4>
+            <p>El servidor escucha exclusivamente en bucle local con protección activa contra ataques de DNS rebinding.</p>
           </div>
-
-          <div class="download-card">
-            <div class="os-badge">macOS 14+ · Apple Silicon</div>
-            <h3>Imagen de disco (.dmg)</h3>
-            <p>
-              Arrastra <strong>Companion</strong> a Aplicaciones y ábrelo. Configura automáticamente las dependencias en <code>~/Library/Application Support/Companion</code> con soporte MLX.
-            </p>
-            <a href="https://github.com/dannymzyq/companion-ai/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
-              Descargar Companion-0.9.0-mac.dmg
-            </a>
+          <div class="privacy-item">
+            <h4>Claves cifradas</h4>
+            <p>Tus claves de API se guardan cifradas con DPAPI en Windows y el Llavero en macOS. La interfaz nunca muestra ningún fragmento.</p>
           </div>
+          <div class="privacy-item">
+            <h4>Permisos en tiempo real</h4>
+            <p>Las acciones solo se ejecutan si las pides tú en ese turno; si hay audio de una pantalla compartida, siempre pide confirmación explícita.</p>
+          </div>
+          <div class="privacy-item">
+            <h4>Cierre limpio total</h4>
+            <p>Al cerrar la ventana, todos los procesos y la memoria de la GPU se liberan por completo sin dejar servicios ocultos.</p>
+          </div>
+        </div>
+      </div>
+    </section>
 
-          <div class="download-card">
-            <div class="os-badge">Desde el código fuente</div>
-            <h3>Instalación con un clic</h3>
-            <p>
-              Clona el repositorio y haz doble clic en <code>Instalar.bat</code> (Windows) o ejecuta <code>bash instalar.sh</code> (macOS/Linux).
-            </p>
-            <div class="code-box">
-              <code>git clone https://github.com/dannymzyq/companion-ai.git</code>
-              <button class="copy-btn" data-copy="git clone https://github.com/dannymzyq/companion-ai.git" title="Copiar comando">Copiar</button>
+    <!-- INSTALACIÓN Y DESCARGA: Blanco luminoso -->
+    <section class="section-light" id="descargar">
+      <div class="container">
+        <div class="section-head section-head-center reveal">
+          <p class="eyebrow-light">Empieza en minutos</p>
+          <h2>Instala Companion 0.9.2.</h2>
+          <p class="section-lead">
+            El instalador detecta instalaciones previas y actualiza solo los archivos modificados mediante SHA-256, sin volver a descargar modelos ni tocar tus recuerdos.
+          </p>
+        </div>
+
+        <div class="download-grid reveal">
+          <article class="download-card">
+            <div class="dl-top">
+              <span class="dl-os">Windows 11</span>
+              <h3>Instalador oficial</h3>
+              <p>
+                Asistente visual para <code>C:\Program Files\Companion</code>. Incluye entorno Python 3.13, app de escritorio Electron y desinstalador limpio.
+              </p>
             </div>
-          </div>
+            <div class="dl-bottom">
+              <a href="https://github.com/dannymzyq/companion-ai/releases" target="_blank" rel="noopener noreferrer" class="btn btn-apple-blue btn-full">
+                Descargar .exe (v0.9.2)
+              </a>
+              <span class="dl-file">Companion-Setup-0.9.2.exe</span>
+            </div>
+          </article>
+
+          <article class="download-card">
+            <div class="dl-top">
+              <span class="dl-os">macOS 14+ · Apple Silicon</span>
+              <h3>Imagen de disco</h3>
+              <p>
+                Arrastra <strong>Companion</strong> a Aplicaciones y ábrelo. Configura automáticamente las dependencias y aceleración MLX en tu Mac.
+              </p>
+            </div>
+            <div class="dl-bottom">
+              <a href="https://github.com/dannymzyq/companion-ai/releases" target="_blank" rel="noopener noreferrer" class="btn btn-apple-dark btn-full">
+                Descargar .dmg (v0.9.2)
+              </a>
+              <span class="dl-file">Companion-0.9.2-mac.dmg</span>
+            </div>
+          </article>
+
+          <article class="download-card">
+            <div class="dl-top">
+              <span class="dl-os">Código abierto</span>
+              <h3>Desde el repositorio</h3>
+              <p>
+                Clona el proyecto y ejecuta <code>Instalar.bat</code> en Windows o <code>bash instalar.sh</code> en macOS y Linux.
+              </p>
+            </div>
+            <div class="dl-bottom">
+              <div class="code-box">
+                <code>git clone https://github.com/dannymzyq/companion-ai.git</code>
+                <button class="copy-btn" data-copy="git clone https://github.com/dannymzyq/companion-ai.git" title="Copiar comando">Copiar</button>
+              </div>
+              <span class="dl-file">Requiere Git · Python 3.13</span>
+            </div>
+          </article>
         </div>
 
         <!-- 5 pasos de bienvenida -->
-        <div class="onboarding-strip">
-          <h3>Primer arranque en 5 pasos sencillos</h3>
+        <div class="onboarding-card reveal">
+          <div class="onboarding-head">
+            <h3>Primer arranque en cinco pasos.</h3>
+            <p>Un asistente guiado te deja listo para hablar en menos de dos minutos.</p>
+          </div>
           <ol class="steps-list">
-            <li><strong>1. Tú</strong><span>Cómo llamarte y tus preferencias de trato.</span></li>
-            <li><strong>2. Cerebro</strong><span>Clave API en la nube o descarga guiada en Ollama.</span></li>
-            <li><strong>3. Personaje</strong><span>Vista previa 3D en vivo o tu propio <code>.vrm</code>.</span></li>
-            <li><strong>4. Voz</strong><span>Escucha muestras ▶, elige motor o sube tu voz.</span></li>
-            <li><strong>5. Mic y cámara</strong><span>Prueba de nivel de audio y ¡a hablar!</span></li>
+            <li><span class="step-idx">1</span><strong>Tú</strong><span>Cómo llamarte y tu trato preferido.</span></li>
+            <li><span class="step-idx">2</span><strong>Cerebro</strong><span>Modo en vivo, nube o Ollama local.</span></li>
+            <li><span class="step-idx">3</span><strong>Personaje</strong><span>Vista previa 3D o tu propio <code>.vrm</code>.</span></li>
+            <li><span class="step-idx">4</span><strong>Voz</strong><span>Muestras ▶, motor o voz clonada.</span></li>
+            <li><span class="step-idx">5</span><strong>Audio y cámara</strong><span>Prueba de micrófono y ¡a hablar!</span></li>
           </ol>
         </div>
       </div>
     </section>
   </main>
 
+  <!-- Footer minimalista estilo Apple -->
   <footer class="site-footer">
-    <div class="container footer-inner">
-      <div class="footer-brand">
-        <span class="brand-orb" aria-hidden="true"></span>
-        <div>
-          <strong>Companion PC</strong>
-          <p>Versión 0.9.0 · Asistente personal 3D local-first para escritorio.</p>
-        </div>
+    <div class="container">
+      <div class="footer-note">
+        <p>
+          Las velocidades mostradas corresponden a pruebas internas en hardware de referencia (RTX con 8–16 GB VRAM y Mac con Apple Silicon M5 Pro). El rendimiento real depende del modelo seleccionado y las aplicaciones abiertas en tu equipo.
+        </p>
       </div>
-      <div class="footer-links">
-        <a href="https://github.com/dannymzyq/companion-ai" target="_blank" rel="noopener noreferrer">GitHub</a>
-        <a href="https://github.com/dannymzyq/companion-ai/releases" target="_blank" rel="noopener noreferrer">Releases</a>
-        <a href="../README.md">README</a>
-        <a href="../CHANGELOG.md">Historial de cambios</a>
-        <a href="../INSTALACION.md">Guía de instalación</a>
+      <div class="footer-bar">
+        <div class="footer-brand">
+          <img src="icono.png" alt="" width="18" height="18">
+          <span>Companion v0.9.2</span>
+        </div>
+        <nav class="footer-links" aria-label="Enlaces del proyecto">
+          <a href="https://github.com/dannymzyq/companion-ai" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="https://github.com/dannymzyq/companion-ai/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+          <a href="https://github.com/dannymzyq/companion-ai/blob/main/README.md" target="_blank" rel="noopener noreferrer">README</a>
+          <a href="https://github.com/dannymzyq/companion-ai/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Cambios</a>
+          <a href="https://github.com/dannymzyq/companion-ai/blob/main/INSTALACION.md" target="_blank" rel="noopener noreferrer">Instalación</a>
+        </nav>
       </div>
     </div>
   </footer>
