@@ -17,3 +17,5 @@ models/whisper/
 models/piper/
 # instaladores creados con scripts\crear_instalador.ps1
 dist/
+# compilación de la edición ligera en Rust
+rust-live/target/
