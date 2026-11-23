@@ -22,7 +22,7 @@ const fs = require('fs');
 
 const URL_BASE = (process.env.COMPANION_URL || 'http://127.0.0.1:8200').replace(/\/$/, '');
 const ORIGIN = new URL(URL_BASE).origin;
-// Icono de las ventanas y de la barra de tareas (scripts/crear_icono.py). En Windows, el mismo AppUserModelID que
+// Icono de las ventanas y de la barra de tareas (scripts/instalacion/crear_icono.py). En Windows, el mismo AppUserModelID que
 // lleva el acceso directo (instalar.ps1): así la ventana se agrupa con él y anclarla ancla el companion, no Electron.
 const ICON = path.join(__dirname, process.platform === 'win32' ? 'icono.ico' : 'icono.png');
 const APP_ID = 'Companion.Desktop';
@@ -36,7 +36,7 @@ for (const s of ['disable-renderer-backgrounding', 'disable-backgrounding-occlud
   app.commandLine.appendSwitch(s);
 }
 if (TEST) {
-  // Micrófono y cámara simulados, salvo en la prueba de dispositivos reales (scripts/prueba_dispositivos.py).
+  // Micrófono y cámara simulados, salvo en la prueba de dispositivos reales (scripts/pruebas/prueba_dispositivos.py).
   if (process.env.COMPANION_TEST_REAL_MEDIA !== '1') app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('remote-debugging-port', process.env.COMPANION_TEST_PORT || '9334');
   app.setPath('userData', path.join(app.getPath('temp'), 'companion-pc-prueba'));   // perfil aparte del real

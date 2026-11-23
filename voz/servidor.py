@@ -91,7 +91,7 @@ def _voz(nombre: str) -> tuple[Path, dict]:
 
 
 def _muestra_corta(wav: Path, corta: dict) -> tuple[Path, str, float]:
-    """El tramo corto de la muestra (`short` en su .json, de scripts/recortar_muestras.py): F5 genera la muestra junto
+    """El tramo corto de la muestra (`short` en su .json, de scripts/herramientas/recortar_muestras.py): F5 genera la muestra junto
     con cada frase, así que con 4–5 s en vez de 8 cada frase tarda la mitad. Se recorta una vez y se guarda en la
     carpeta temporal. Devuelve (wav, su texto, ajuste de velocidad para que hable al mismo ritmo que con la entera)."""
     import soundfile as sf

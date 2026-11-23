@@ -8,7 +8,7 @@ Set-Location $raiz
 if (-not (Test-Path ".venv\Scripts\python.exe") -or -not (Test-Path "web\vendor\three\build\three.module.min.js")) {
     # Falta instalar: se abre la ventana de instalación (con su progreso) y, al terminar, ella abre el companion.
     Start-Process powershell.exe -ArgumentList "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-        "-File", "`"$raiz\scripts\ventana_instalar.ps1`"" -WindowStyle Hidden
+        "-File", "`"$raiz\scripts\instalacion\ventana_instalar.ps1`"" -WindowStyle Hidden
     exit 0
 }
 
@@ -23,7 +23,7 @@ if ($ollama -and -not (Get-NetTCPConnection -LocalPort 11434 -State Listen -Erro
     Set-Content -Path "data\ollama.pid" -Value $o.Id -Encoding ascii
 }
 if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env" }
-. "$raiz\scripts\comun_instalacion.ps1"
+. "$raiz\scripts\instalacion\comun_instalacion.ps1"
 
 # Dos arranques a la vez (doble clic dos veces, o el instalador y el acceso directo) lanzaban dos servidores y el
 # segundo fallaba con «solo se permite un uso de cada dirección de socket». Uno espera a que termine el otro, y
@@ -135,7 +135,7 @@ if (Test-Path $electron) {
     exit 0
 }
 
-# Sin la app de escritorio (scripts\instalar_escritorio.ps1): ventana de Chrome o Edge en modo aplicación.
+# Sin la app de escritorio (scripts\instalacion\instalar_escritorio.ps1): ventana de Chrome o Edge en modo aplicación.
 # Ahí no hay modo flotante y el servidor sigue encendido hasta ejecutar detener.ps1.
 $navegador = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
                "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",

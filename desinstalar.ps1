@@ -13,7 +13,7 @@ param([switch]$Programa, [switch]$Oido, [switch]$VozLigera, [switch]$VozCompleta
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $raiz = $PSScriptRoot
-. "$raiz\scripts\comun_instalacion.ps1"
+. "$raiz\scripts\instalacion\comun_instalacion.ps1"
 trap { Marca error $_.Exception.Message; break }
 # COMPANION_PRUEBA (solo las pruebas, en una copia): no se para el companion real ni se toca Ollama, el registro
 # ni la Papelera; los accesos directos se buscan en COMPANION_PRUEBA_ACCESOS.

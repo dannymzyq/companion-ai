@@ -25,7 +25,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $raiz = $PSScriptRoot
 Set-Location $raiz
-. "$raiz\scripts\comun_instalacion.ps1"
+. "$raiz\scripts\instalacion\comun_instalacion.ps1"
 trap { Marca error $_.Exception.Message; break }
 function Paso($id, $texto) { Marca paso $id; Write-Host "`n== $texto" -ForegroundColor Cyan }
 function Comprobar($que) { if ($LASTEXITCODE -ne 0) { throw "Falló: $que" } }
@@ -69,7 +69,7 @@ function Entorno($carpeta) {
     & $uv venv --python 3.13 $carpeta; Comprobar "crear $carpeta"
 }
 
-# requirements.lock: las versiones exactas probadas (sale de requirements.txt; se rehace con scripts\fijar_versiones.ps1).
+# requirements.lock: las versiones exactas probadas (sale de requirements.txt; se rehace con scripts\instalacion\fijar_versiones.ps1).
 # Si alguna ya no se puede bajar, se instala lo último compatible con requirements.txt.
 function Dependencias($python, $lock, $lista, $que) {
     if (Test-Path $lock) {
@@ -87,11 +87,11 @@ $py = Join-Path $raiz ".venv\Scripts\python.exe"
 Dependencias $py "requirements.lock" "requirements.txt" "dependencias del companion"
 
 Paso interfaz "Interfaz y app de escritorio"
-& "$raiz\scripts\setup.ps1" -SoloWeb
+& "$raiz\scripts\instalacion\setup.ps1" -SoloWeb
 
 # ---------------------------------------------------------------- 3. modelos según la tarjeta
 Paso recursos "Recursos según tu PC"
-$rec = (& $py scripts\preparar_recursos.py --recomendar) -split '\s+'
+$rec = (& $py scripts\instalacion\preparar_recursos.py --recomendar) -split '\s+'
 $vozRec, $modeloRec, $gb = $rec[0], $rec[1], $rec[2]
 if ($gb -eq "0.0" -or $gb -eq "0") { Write-Host "Sin tarjeta NVIDIA: voz ligera y el modelo local más pequeño." }
 else { Write-Host "Tarjeta de $gb GB -> voz recomendada: $vozRec, modelo local recomendado: $modeloRec" }
@@ -100,10 +100,10 @@ else { Write-Host "Tarjeta de $gb GB -> voz recomendada: $vozRec, modelo local r
 if ($Voz -eq "auto") { $Voz = if ([double]$gb -ge 3.5) { "ambas" } else { "ligera" } }
 
 Paso oido "El oído (Whisper)"
-& $py scripts\preparar_recursos.py --oido; Comprobar "descargar el oído"
+& $py scripts\instalacion\preparar_recursos.py --oido; Comprobar "descargar el oído"
 if ($Voz -in "ligera", "ambas") {
     Paso ligera "Voz ligera (Piper)"
-    & $py scripts\preparar_recursos.py --ligera; Comprobar "descargar la voz ligera"
+    & $py scripts\instalacion\preparar_recursos.py --ligera; Comprobar "descargar la voz ligera"
 } else { Marca omitido ligera }
 
 if ($Voz -in "completa", "ambas") {
@@ -127,7 +127,7 @@ if ($Voz -in "completa", "ambas") {
     & $uv pip install --python $pyVoz @torchPaquetes --index-url "https://download.pytorch.org/whl/$cu"; Comprobar "PyTorch"
     Paso f5 "Voz completa: F5-TTS y su modelo"
     Dependencias $pyVoz "voz\requirements.lock" "voz\requirements.txt" "F5-TTS"
-    & $py scripts\preparar_recursos.py --completa; Comprobar "descargar el modelo de la voz completa"
+    & $py scripts\instalacion\preparar_recursos.py --completa; Comprobar "descargar el modelo de la voz completa"
 } else { Marca omitido torch; Marca omitido f5 }
 
 # ---------------------------------------------------------------- 4. cerebro local (Ollama)
@@ -148,7 +148,7 @@ if (-not $SinOllama) {
         try { Invoke-WebRequest "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 3 | Out-Null }
         catch { Start-Process -FilePath $ollama -ArgumentList "serve" -WindowStyle Hidden; Start-Sleep -Seconds 4 }
         # por su API: así se ve el progreso (si falla, con el propio ollama)
-        & $py scripts\preparar_recursos.py --ollama $modeloRec
+        & $py scripts\instalacion\preparar_recursos.py --ollama $modeloRec
         if ($LASTEXITCODE -ne 0) { Write-Host "Descargando el modelo local $modeloRec..."; & $ollama pull $modeloRec }
     }
 } else { Marca omitido ollama }
@@ -222,14 +222,14 @@ public static class CompanionIdApp {
     }
     Acceso (Join-Path $escritorio "Companion.lnk") "iniciar.ps1" "Abrir el companion"
     Acceso (Join-Path $menu "Companion.lnk") "iniciar.ps1" "Abrir el companion"
-    Acceso (Join-Path $menu "Desinstalar Companion.lnk") "scripts\ventana_desinstalar.ps1" "Quitar el companion de esta PC"
+    Acceso (Join-Path $menu "Desinstalar Companion.lnk") "scripts\instalacion\ventana_desinstalar.ps1" "Quitar el companion de esta PC"
     if (-not $prueba) {
         $clave = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CompanionPC"
         New-Item -Path $clave -Force | Out-Null
         $version = if (Test-Path "$raiz\VERSION") { (Get-Content "$raiz\VERSION" -Raw).Trim() } else { "" }
         $valores = @{ DisplayName = "Companion"; Publisher = "Companion PC"; InstallLocation = $raiz; DisplayVersion = $version
                       DisplayIcon = "$raiz\desktop\icono.ico"
-                      UninstallString = "`"$ps`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$raiz\scripts\ventana_desinstalar.ps1`"" }
+                      UninstallString = "`"$ps`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$raiz\scripts\instalacion\ventana_desinstalar.ps1`"" }
         foreach ($k in $valores.Keys) { Set-ItemProperty -Path $clave -Name $k -Value $valores[$k] }
         Set-ItemProperty -Path $clave -Name NoModify -Value 1 -Type DWord
         Set-ItemProperty -Path $clave -Name NoRepair -Value 1 -Type DWord

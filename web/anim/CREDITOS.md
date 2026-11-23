@@ -28,8 +28,8 @@ recorrido y el giro por la sala, se enderezó un poco el cuello (15°) y se pas�
 
 ## Cómo se rehace
 
-Se convirtieron al esqueleto normalizado de VRM 1.0 con `scripts/convertir_animaciones.py` (los BVH los lee
-`scripts/anim_bvh.py`), el 17 nov 2026. Los paquetes originales no van en el proyecto: se bajan los dos .zip de
+Se convirtieron al esqueleto normalizado de VRM 1.0 con `scripts/herramientas/convertir_animaciones.py` (los BVH los lee
+`scripts/herramientas/anim_bvh.py`), el 17 nov 2026. Los paquetes originales no van en el proyecto: se bajan los dos .zip de
 Quaternius y `100STYLE.zip`, y se pasan al script el .glb de cada uno de Quaternius
 (`Godot/AnimationLibrary_Godot_Standard.glb` y `Unreal-Godot/UAL2_Standard.glb`) y, con `--estilos`, la carpeta
 `100STYLE` descomprimida (basta con las carpetas de los estilos de `STYLES`).

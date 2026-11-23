@@ -63,7 +63,7 @@ PC_MODELS = [                             # de mayor a menor
 ]
 
 # Mac con Apple Silicon (15 nov 2026): los Gemma 4 en versión MLX de Ollama (el motor de Apple, RUNNER mlx en
-# `ollama ps`). Medido en una MacBook M5 Pro de 24 GB con Ollama 0.40.13 (scripts/medir_modelos_locales.py): el doble
+# `ollama ps`). Medido en una MacBook M5 Pro de 24 GB con Ollama 0.40.13 (scripts/herramientas/medir_modelos_locales.py): el doble
 # de rápidos que los de PC en el mismo Mac (12B: 59 frente a 32 tokens/s; E4B: 124 frente a 64) y todos ven
 # imágenes. vram_gb es la memoria unificada que ocupan cargados en una conversación del companion (`ollama ps`:
 # 12B 9,4 GB, E4B 9,5 GB; el E2B, estimado). Van de más a menos capaz, no por memoria: en MLX el E4B ocupa lo que el 12B.
@@ -424,7 +424,7 @@ def _voices_dir() -> Path:
 
 
 LOCAL_VOICES = ROOT / "voices"            # las muestras del companion; al nodo solo se copia la que se usa
-PREVIEWS = LOCAL_VOICES / "previews"      # la muestra ▶ de cada voz, pregrabada (scripts/grabar_muestras.py)
+PREVIEWS = LOCAL_VOICES / "previews"      # la muestra ▶ de cada voz, pregrabada (scripts/herramientas/grabar_muestras.py)
 # Sin comas: el nodo sintetiza por cláusulas y las muy cortas («Hola,») salen comidas o mal dichas.
 PREVIEW_TEXT = "Hola soy {name} y así sueno cuando hablo contigo."
 

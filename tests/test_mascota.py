@@ -1,5 +1,5 @@
 """Mascota de escritorio (16 nov 2026): lo que el servidor da para las animaciones del modo flotante. Las
-animaciones y el movimiento de la ventana se prueban en scripts/prueba_mascota.py (Electron, fuera de pantalla)."""
+animaciones y el movimiento de la ventana se prueban en scripts/pruebas/prueba_mascota.py (Electron, fuera de pantalla)."""
 import logging
 import unittest
 from types import SimpleNamespace as W

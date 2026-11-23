@@ -8,7 +8,7 @@ el resto de lo del usuario):
     data/voces/<id>_es.wav + .json   la muestra y su texto (voz/servidor.py las lee de aquí)
     data/voces/previews/<id>.wav     la muestra ▶, que se graba la primera vez que se pide
 
-scripts/importar_voces.py usa las mismas piezas para las voces incluidas (voices/).
+scripts/herramientas/importar_voces.py usa las mismas piezas para las voces incluidas (voices/).
 """
 import io
 import json

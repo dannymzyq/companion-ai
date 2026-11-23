@@ -126,7 +126,7 @@ No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
   micrófono predeterminado. Con el permiso de iOS ya dado, la app empieza sin la tarjeta «Permitir micrófono».
 
 ## iOS 0.9.2 (22 nov 2026)
-Misma versión que la PC. El icono pasa al nuevo de la 0.9.2 (`scripts/crear_icono.py`, dibujado a sangre: sin
+Misma versión que la PC. El icono pasa al nuevo de la 0.9.2 (`scripts/instalacion/crear_icono.py`, dibujado a sangre: sin
 esquinas redondeadas ni transparencia, que iOS recorta solo). Incluye los arreglos compartidos con Android: la cámara
 pide permiso solo al encenderla, el teclado no tapa la bienvenida y textos del teléfono.
 

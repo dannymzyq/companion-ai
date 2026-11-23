@@ -1,4 +1,4 @@
-# Versiones exactas para macOS con Apple Silicon (14 o posterior), sacadas de requirements.lock (scripts\fijar_versiones.ps1).
+# Versiones exactas para macOS con Apple Silicon (14 o posterior), sacadas de requirements.lock (scripts\instalacion\fijar_versiones.ps1).
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.5
 aiosignal==1.4.0

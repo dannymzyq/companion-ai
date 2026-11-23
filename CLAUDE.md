@@ -11,13 +11,13 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   En esta PC `.venv` sigue hecho con el Python de ComfyUI: `instalar.ps1` sin `-NoRehacer` lo rehace con el
   propio, pero para eso detiene el companion (hazlo solo si el usuario lo pide).
 - Releases (15 nov 2026): `VERSION` + `CHANGELOG.md`; la etiqueta `vX.Y.Z` dispara `.github/workflows/release.yml`,
-  que crea `dist\Companion-Setup-X.Y.Z.exe` con `scripts\crear_instalador.ps1` (lanzador `instalador\Lanzador.cs`
+  que crea `dist\Companion-Setup-X.Y.Z.exe` con `scripts\instalacion\crear_instalador.ps1` (lanzador `instalador\Lanzador.cs`
   compilado con el csc.exe de Windows + `paquete.zip` con `manifest.json`: huella y tamaño de cada archivo de git).
   El .exe abre `ventana_instalar.ps1 -Paquete`: carpeta por defecto `C:\Program Files\Companion` (o la de
   `InstallLocation` en HKCU), admin una sola vez para crearla y dar Modificar al usuario (la app escribe ahí sus
   datos), luego `instalar_paquete.ps1` → `copiar_programa.ps1` (solo lo cambiado; borra lo que la versión anterior
   instaló y la nueva no trae; nunca toca lo que no está en un manifiesto) → `instalar.ps1` de la carpeta.
-  Nunca escribe en una carpeta con `.git`. Prueba: `scripts\prueba_instalador.py --paquete`.
+  Nunca escribe en una carpeta con `.git`. Prueba: `scripts\pruebas\prueba_instalador.py --paquete`.
   Antivirus (18 nov 2026): Defender marcó la 0.8.6 al descargarla como Trojan:Win32/Wacatac.B!ml (heurística !ml,
   archivo nuevo sin firma). Desde la 0.8.7 el lanzador abre PowerShell con `-ExecutionPolicy RemoteSigned` y SIN
   `-WindowStyle Hidden` (CreateNoWindow basta), y lleva `instalador\app.manifest` (asInvoker) y Version.cs (versión,
@@ -30,7 +30,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `cudaErrorNotSupported` en la laptop de la RTX 3050). `voz\servidor.py` no carga en el procesador si hay tarjeta
   NVIDIA que PyTorch no ve: da error y `tts.stream_speech` dice la frase con la voz ligera.
 - App para Mac con Apple Silicon (15 nov 2026, decisión del usuario: «básico primero», sin firma de Apple):
-  `scripts\crear_app_mac.sh` (solo en macOS) crea `dist\Companion-X.Y.Z-mac.dmg`: Electron darwin-arm64 con
+  `scripts\instalacion\crear_app_mac.sh` (solo en macOS) crea `dist\Companion-X.Y.Z-mac.dmg`: Electron darwin-arm64 con
   `desktop\` en `Resources/app` (arranca por `desktop\mac.js`) y lo de git + `manifest.json` en `Resources/programa`.
   `mac.js` copia solo lo cambiado a `~/Library/Application Support/Companion` (o `COMPANION_HOME`), ejecuta
   `instalar.sh` con `COMPANION_UI=1` en `instalando.html` (mismas marcas que `instalar.ps1`), arranca
@@ -39,14 +39,14 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   En el Mac: memoria unificada (`llm._mac_memory`: dos tercios de la RAM para la GPU), oído en la GPU (CTranslate2
   `device="mps"`, 0,7 s por 4 s de habla; si falla, procesador con 10 hilos), voz completa en MPS (16 nov 2026:
   `voz_proc` pone `VOZ_NFE=16`, `VOZ_REF_CORTA=1` y `VOZ_LARGA=90`; `servidor.py` pasa F5 a float16 en MPS y usa el
-  tramo `short` del .json de la muestra, de `scripts\recortar_muestras.py` / `voice_import.add_short`; primer audio
+  tramo `short` del .json de la muestra, de `scripts\herramientas\recortar_muestras.py` / `voice_import.add_short`; primer audio
   ~3 s, antes 33 s de media; en la PC la muestra corta no gana nada) y sin la comprobación con Whisper (solo se hace
   con el oído en CUDA; sin comprobación, `Session._say` manda el audio según llega),
   acciones con `open` y `osascript`. No hay `controlar`, `multimedia` ni sonido de lo compartido (`CAN_AUDIO`).
   Cerebro local en el Mac (15 nov 2026, petición del usuario): Gemma 4 MLX de Ollama (`profile.MAC_MODELS`, RUNNER
   mlx en `ollama ps`); `config.for_this_pc` traduce los nombres de PC (`MLX_EQUIV`) en `.env` y en lo guardado. En
   MLX el E4B ocupa más que el 12B: el catálogo va por capacidad, no por memoria. Medidos con
-  `scripts\medir_modelos_locales.py` en la MacBook del usuario (M5 Pro, 24 GB); `scripts\prueba_mlx.py` prueba el
+  `scripts\herramientas\medir_modelos_locales.py` en la MacBook del usuario (M5 Pro, 24 GB); `scripts\pruebas\prueba_mlx.py` prueba el
   companion aislado con ellos (solo en el Mac).
   Se prueba en `.github\workflows\mac.yml` (macos-15; `release.yml` lo llama y adjunta el .dmg al Release). Nadie
   lo ha probado aún en un Mac con micrófono: el usuario lo probará.
@@ -56,22 +56,22 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   da por tapadas: con `COMPANION_TEST=1` en el Mac, main.js y mac.js usan `enableLargerThanScreen` (la flotante,
   sin marco), `showInactive` + `setPosition`, opacidad 0 y sin clics para las que tienen marco, y apagan el
   frenado de ventanas tapadas. `crear_app_mac.sh` copia todos los .js y .html de `desktop/`.
-- Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\ventana_instalar.ps1` (WPF) que ejecuta
+- Instalar y desinstalar con ventana (14 nov 2026): `Instalar.bat` → `scripts\instalacion\ventana_instalar.ps1` (WPF) que ejecuta
   `instalar.ps1` con `COMPANION_UI=1` y lee sus marcas (`::paso::`, `::progreso::`, `::omitido::`, `::error::`,
-  `::fin::`, de `scripts\comun_instalacion.ps1` y `preparar_recursos.py`). `Desinstalar.bat` →
-  `scripts\ventana_desinstalar.ps1` → `desinstalar.ps1`. Si añades un paso al instalador, márcalo y añádelo a
-  `$definicion` de la ventana. Pruébalas con `scripts\prueba_instalador.py` (ventanas fuera de pantalla y capturas;
+  `::fin::`, de `scripts\instalacion\comun_instalacion.ps1` y `preparar_recursos.py`). `Desinstalar.bat` →
+  `scripts\instalacion\ventana_desinstalar.ps1` → `desinstalar.ps1`. Si añades un paso al instalador, márcalo y añádelo a
+  `$definicion` de la ventana. Pruébalas con `scripts\pruebas\prueba_instalador.py` (ventanas fuera de pantalla y capturas;
   `--real` instala de verdad en una copia de `data\`, `--desinstalar` en una copia temporal). Nunca abras la ventana
   ni ejecutes el desinstalador contra esta carpeta sin que el usuario lo pida.
 - Servidor: `.venv\Scripts\python.exe -m companion` (puerto 8200, o el `PORT` de `.env`: si otro programa usa el 8200,
-  `instalar.ps1` e `iniciar.ps1` eligen uno libre con `Puerto-Libre` de `scripts\comun_instalacion.ps1`). `iniciar.ps1`
+  `instalar.ps1` e `iniciar.ps1` eligen uno libre con `Puerto-Libre` de `scripts\instalacion\comun_instalacion.ps1`). `iniciar.ps1`
   lleva un candado (mutex) para que dos arranques a la vez no lancen dos servidores. `iniciar.ps1 -SinVentana` lo arranca sin abrir la ventana.
 - Pruebas rápidas (segundos, sin GPU ni servidores, datos en una carpeta temporal): `.venv\Scripts\python.exe -m
   unittest discover -s tests -t .`. Córrelas tras cada cambio; cubren los frenos de acciones y control.
-- Pruebas sin micrófono: `scripts\prueba_componentes.py` y `scripts\prueba_ws.py` (ver README).
+- Pruebas sin micrófono: `scripts\pruebas\prueba_componentes.py` y `scripts\pruebas\prueba_ws.py` (ver README).
 - Los `.ps1` llevan BOM UTF-8: Windows PowerShell 5.1 lee sin ella los acentos como ANSI. Mantenla al crearlos.
 - Versiones fijas: el instalador usa `requirements.lock` y `voz\requirements.lock` (uv 0.13.8 con su SHA-256).
-  Tras cambiar dependencias y probar, rehazlos con `scripts\fijar_versiones.ps1`.
+  Tras cambiar dependencias y probar, rehazlos con `scripts\instalacion\fijar_versiones.ps1`.
 - Registros: `iniciar.ps1` guarda las tres sesiones anteriores (`data\companion.1.log`…) y `voz_proc` la anterior
   de la voz (`voz.1.log`). Desde la 0.7.0 no llevan lo que se dice (`config.shown`: solo cuántos caracteres;
   `LOG_TEXT=1` en `.env` lo vuelve a escribir). Aun así, no los muestres ni los subas.
@@ -84,8 +84,8 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   van a menos de 40 fps; `setLevel` (main.js) solo escribe `--level` si cambia; `updateHit` con el ratón quieto
   mira cada 120 ms. No vuelvas a leer píxeles ni a escribir estilos en cada cuadro.
 - El panel de navegador de Claude bloquea el micrófono: ahí la interfaz se prueba escribiendo; el avatar,
-  con `scripts\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
-  Para el micrófono de verdad, `scripts\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).
+  con `scripts\pruebas\maniqui_vrm.py` (maniquí VRM 1.0 o `--v0`) y `window.companion.avatar` en la consola.
+  Para el micrófono de verdad, `scripts\pruebas\prueba_navegador.py` (Chrome oculto y en silencio, con un micrófono simulado).
 - Modelos incluidos (decisión del usuario, 13 nov 2026): `avatar1` (`models\avatar1.vrm`, por defecto), `avatar2`
   y `avatar3` (la esfera), con nombres genéricos sin género. El modelo de Mika está retirado: no lo vuelvas a
   ofrecer. `models.LEGACY` traduce lo guardado antes (default/chica/chico/esfera). `mika.vrm`, `mika_base.vrm`,
@@ -98,7 +98,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   desplazamiento y zoom hacia el cursor); flotando: izquierdo mueve la ventana, derecho gira, central desplaza,
   Ctrl + rueda acerca (`avatar.zoom`), doble clic `avatar.resetView`. «Desvanecer los pies al flotar»
   (`companion.float.fade` en localStorage; apagado = `body.no-fade` + `avatar.setFullBody`, cuerpo entero).
-  Prueba: `scripts\prueba_flotante.py` (sin cerebro: suena un tono y cambia de modo dos veces).
+  Prueba: `scripts\pruebas\prueba_flotante.py` (sin cerebro: suena un tono y cambia de modo dos veces).
 - Mascota de escritorio (16 nov 2026, solo flotando; Ajustes › «Escritorio (modo flotante)», `companion.pet` en
   localStorage): `desktop/pet.js` mueve la ventana (gravedad hasta la barra de tareas, paseos, sentarse sobre la
   ventana activa y seguirla, ir al lado de la ventana de una acción «controlar» y volver) y manda a la página
@@ -110,9 +110,9 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   está) y `kind`/`point` del paso. Con algo a pantalla completa no pasea ni salta. Mientras trabaja, el modelo no
   recibe clics (los reales del control lo atravesarían). Mover la ventana flotante SIEMPRE con `setBounds` y el
   tamaño guardado: con escalado 150 %, `setPosition` o `getBounds` la hacen crecer en cada llamada (medido).
-  Prueba: `scripts\prueba_mascota.py` (pantalla y ventanas inventadas en x=-4000, nunca las reales; hoja de
+  Prueba: `scripts\pruebas\prueba_mascota.py` (pantalla y ventanas inventadas en x=-4000, nunca las reales; hoja de
   poses en `data\prueba\mascota_poses.png`). Poses con cada modelo, incluidos los VRM propios del usuario (se copian
-  solo a `data\prueba`): `scripts\hoja_modelos.py`. Sentada va DE COSTADO (`opts.side`) y con los muslos algo caídos:
+  solo a `data\prueba`): `scripts\pruebas\hoja_modelos.py`. Sentada va DE COSTADO (`opts.side`) y con los muslos algo caídos:
   de frente y con muslos horizontales, faldas y vestidos atravesaban las piernas (16 nov 2026). Andar: `WALK_HZ`
   (avatar.js y pet.js, el mismo) y la ventana avanza según el largo de la pierna, para que no patine.
   Transparencia al flotar (`alpha` en `companion.pet`, `--pet-opacity`): con `.hover` (ratón encima o agarrándola)
@@ -130,7 +130,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   (`ix` índice, `sp` abanico en `ARMS`). Para probar poses desde la consola: `await import('/js/avatar.js')` da
   `ARMS` editable en vivo; `avatar.sheet([...])` hace la hoja de contactos.
 - Animaciones grabadas (17 nov 2026, petición del usuario: «como ZZZ»): `web/anim/clips.json` (Quaternius UAL 1 y 2,
-  CC0, `web/anim/CREDITOS.md`) hecho con `scripts/convertir_animaciones.py` (giros respecto a la pose en T =
+  CC0, `web/anim/CREDITOS.md`) hecho con `scripts/herramientas/convertir_animaciones.py` (giros respecto a la pose en T =
   espacio normalizado de three-vrm, en Euler XYZ). `web/js/clips.js` las muestrea; `applyLayer` las pone con
   máscara por zonas ANTES de lo procedural (reposo/hablar en `_buildPose`, andar, agacharse/arrodillarse en
   `pointerWork`, caer, `_aterrizar`, enfado = brazos cruzados). Solo clips CC0 o equivalentes: Mixamo no deja
@@ -139,7 +139,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   de los muelles del VRM lo contrario a la ventana (`_currentTail`/`_prevTail` de three-vrm). `anchors().step`
   da el largo del paso a pet.js. Probado con los 3 incluidos y los 4 VRM del usuario (copias en `data\prueba`).
   Estilos (17 nov 2026, «aplica todo lo que se pueda»): `walk_<estilo>`/`idle_<estilo>` de 100STYLE (CC BY 4.0: hay
-  que citar «The 100STYLE Dataset - Ian Mason»; Zenodo 8127870), con `--estilos` y `scripts/anim_bvh.py` (bucle
+  que citar «The 100STYLE Dataset - Ian Mason»; Zenodo 8127870), con `--estilos` y `scripts/herramientas/anim_bvh.py` (bucle
   recortado de cada toma, sin recorrido ni giro, cuello −15°). `EMO_STYLE`/`EMO_AMP`, `_styleNow` (emoción o
   personalidad), `styleW` (fundido), `_styled` (marcha a la par por `cycles`), `gait()` → `anchors().hz/speed` →
   pet.js. Pies: `_legIK` al final de `_applyPose` (clavados de pie con pasito, solo altura al andar; `ikOn`).
@@ -197,7 +197,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - **El usuario puede tener el companion abierto.** No reinicies ni apagues el servidor real (puerto 8200): pídele
   que lo haga él (`detener.ps1`, o `Companion.bat`, que lo reinicia solo si el código o `.env` son más nuevos).
   Nunca llames a `DELETE /api/memory` contra él: borra su conversación y sus recuerdos. Las pruebas van
-  contra el servidor aislado de `scripts\_prueba.py` (puerto 8201, `data\prueba`); con `--local` usan Ollama.
+  contra el servidor aislado de `scripts\pruebas\_prueba.py` (puerto 8201, `data\prueba`); con `--local` usan Ollama.
 - Tarjetas pequeñas (18 nov 2026, «optimizar para 4-6 GB»), medido en esta PC: voz completa 1,03 GB en reposo y
   1,12 de pico (F5 ya va en float16 en CUDA); Whisper en GPU int8_float16: turbo 1,29 GB / 1,4 % de palabras
   perdidas, small 0,53 / 3-5 %, base 0,14 / 6-9 % (small en el procesador: 1,8 s por frase). `profile.ear_model`:
@@ -240,9 +240,9 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   (juntos, un fallo del sonido tumbaba también la imagen). → `audio.startScreen` (trozos de 1 s, nunca mientras
   suena Mika) → `screen_audio` → `companion/screen_audio.py` (Whisper `transcribe_media` cada ~6 s, solo en GPU) →
   nota de texto ajeno en el último mensaje y freno de acciones. El texto oído no va al registro. Prueba:
-  `scripts\prueba_sonido_pantalla.py` (sin cerebro; con dispositivos simulados, que también simulan el sonido de la
+  `scripts\pruebas\prueba_sonido_pantalla.py` (sin cerebro; con dispositivos simulados, que también simulan el sonido de la
   PC: la captura real de Windows solo se ha probado en la PC del usuario).
-- App de escritorio: `desktop\` (Electron descargado por `scripts\instalar_escritorio.ps1`). `scripts\prueba_escritorio.py`
+- App de escritorio: `desktop\` (Electron descargado por `scripts\instalacion\instalar_escritorio.ps1`). `scripts\pruebas\prueba_escritorio.py`
   la prueba con `COMPANION_TEST=1`: ventanas fuera de pantalla, sin sonido, micrófono y cámara simulados.
   No envíes a ningún LLM una captura real de la pantalla del usuario en una prueba.
 - Cuota: la capa gratuita de Gemini da 20 peticiones al día por modelo en `gemini-3.6-flash`; cada prueba de
@@ -304,7 +304,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
 - Recursos: `profile.resources` reparte la memoria de vídeo (escritorio 2 GB + oído 1,1 GB + voz) y recomienda
   voz y modelo local; `profile.LOCAL_MODELS` es el catálogo (12B, E4B, E2B, Qwen 3 1.7B, Gemma 3 1B; los dos
   últimos no ven imágenes; `TOP_RECOMMENDED` es el mayor que se llega a recomendar). El modelo local que elige el usuario es el que se carga (`llm.choose_local`): no lo cambies
-  por otro «que quepa» sin avisar; solo `_too_slow` baja de modelo, y lo dice. Prueba: `scripts\prueba_recursos.py`.
+  por otro «que quepa» sin avisar; solo `_too_slow` baja de modelo, y lo dice. Prueba: `scripts\pruebas\prueba_recursos.py`.
 - Dos motores de voz (`settings.voice_engine`): `completa` = `voz\servidor.py` · `ligera` = Piper en el procesador
   (`companion/tts_light.py`, modelos en `models\piper`, sin memoria de vídeo). Una voz nueva en `voices.json`
   necesita también su `light`.
@@ -323,7 +323,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   En vivo, Dispositivos › Oído se ve bloqueado con el motivo; con las acciones apagadas, sus otros dos interruptores.
   Con otro proveedor elegido en la lista sin guardar, la tarjeta «En vivo» también queda pendiente. `public_cloud`
   ya no da `key_hint` (enseñaba los 4 últimos caracteres de la clave): la interfaz dice «clave guardada».
-- Icono (21 nov 2026): `scripts\crear_icono.py` dibuja la esfera con ojos, sin estrella y algo más grande (`STYLE`, elegido
+- Icono (21 nov 2026): `scripts\instalacion\crear_icono.py` dibuja la esfera con ojos, sin estrella y algo más grande (`STYLE`, elegido
   por el usuario tras varias pruebas), sobre un cuadrado redondeado (cada tamaño
   aparte; en 16-24 px sin brillo) → `desktop\icono.ico` (accesos, instalador, ventanas WPF),
   `desktop\icono.png` (1024 px: .icns del Mac) y `web\`/`docs\icono.png` (pestaña). Las ventanas de Electron llevan
@@ -336,7 +336,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `[accion: nombre | dato]`; se ejecutan tras «Permitir» en la tarjeta, un «sí» del usuario o «permitir siempre».
   Catálogo cerrado y de poco riesgo: no añadas borrar, enviar, comprar, cambiar ajustes ni comandos libres sin
   que el usuario lo pida. Solo cuentan las de turnos con mensaje del usuario (nunca de la mirada en vivo, el
-  saludo o un resultado). `actions.guess` reconoce órdenes claras del usuario. Prueba: `scripts\prueba_acciones.py`
+  saludo o un resultado). `actions.guess` reconoce órdenes claras del usuario. Prueba: `scripts\pruebas\prueba_acciones.py`
   con `COMPANION_ACTIONS_DRY=1` (no abre nada). Nunca pruebes acciones reales en la PC del usuario sin pedírselo.
 - Autorización (decisión del usuario, 13 nov 2026): su orden basta, sin tarjeta (`actions.config()["ask"]`
   apagado por defecto). Se mantienen: confirmar pasos delicados que la orden no pedía (`control.task_allows`) y
@@ -352,7 +352,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   comenta con `prompt.POKE` como mucho cada `POKE_GAP` (60 s con la nube). Flotando, cada paso de «controlar» con
   punto lleva la punta del índice derecho (`anchors().hand`) a él con postura según su altura (`pointerWork`:
   stand/crouch/kneel/reach). Chat flotante: `#text-form` como cápsula. Pruebas: `tests/test_toques.py` y
-  `scripts/prueba_mascota.py` (7b, 9b).
+  `scripts/pruebas/prueba_mascota.py` (7b, 9b).
 - Usar ventanas (`companion/control.py` las piezas, `companion/control_task.py` el bucle de pasos; acción
   `controlar`): EN SEGUNDO PLANO (decisión del usuario, 13 nov:
   puede estar jugando). Cada paso escala por `attempt`: accesibilidad → mensajes a la ventana (PostMessage) →
@@ -360,8 +360,8 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   completa). Nunca traigas la ventana al frente al empezar. La captura es PrintWindow (la propia ventana, nunca
   la pantalla con el juego). Windows ignora SetForegroundWindow desde segundo plano: `bring_front` lo resuelve y
   lo comprueba. Solo con E4B, modelos mayores o la nube (`llm.can_control`).
-  `scripts\prueba_control_real.py --si` usa el teclado y ratón reales: solo cuando el usuario lo pida.
-  Pruébalo SOLO con `scripts\prueba_control.py`: ventana propia fuera de pantalla, `COMPANION_CONTROL_ONLY`
+  `scripts\pruebas\prueba_control_real.py --si` usa el teclado y ratón reales: solo cuando el usuario lo pida.
+  Pruébalo SOLO con `scripts\pruebas\prueba_control.py`: ventana propia fuera de pantalla, `COMPANION_CONTROL_ONLY`
   (solo esa ventana) y `COMPANION_CONTROL_NO_INPUT=1` (sin teclado ni ratón reales; una vez se probó sin él y
   trajo la ventana al frente, quitándole el foco al usuario). Gemma 4 E4B cae en el texto trampa de la ventana:
   la confirmación de pasos delicados es la red de seguridad, no la quites.
@@ -373,7 +373,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   española según `voices\pronunciacion.json`; «qu»+e/i → «k»). Whisper no sirve para juzgar si algo suena a
   inglés (corrige hacia la marca): `calibrar_pronunciacion.py` solo comprueba que se entienda. Una vocal con
   tilde al principio («Ápel») hace que F5 se la coma: mejor sin tilde («Apel»).
-- Voces nuevas a partir de grabaciones: `scripts\importar_voces.py <carpeta>` y luego `scripts\grabar_muestras.py`.
+- Voces nuevas a partir de grabaciones: `scripts\herramientas\importar_voces.py <carpeta>` y luego `scripts\herramientas\grabar_muestras.py`.
 - Voces propias del usuario (14 nov 2026): Ajustes › Voz › «Añadir una voz propia» → `POST /api/voices/custom`
   (`companion/voice_import.py`, mismas piezas que `importar_voces.py`). Viven en `data\voces` (ids `p_…`, fuera de
   git: no las subas) y `voz\servidor.py` las busca allí (`VOICES_CUSTOM_DIR`, que pasa `voz_proc`). Su voz ligera
@@ -394,7 +394,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `GET /api/loading` al abrir y cuando cambia el oído, la voz o el cerebro. `detener.ps1` hace `POST /api/shutdown`,
   luego cierra el árbol (solo procesos de esta carpeta con «-m companion» o «servidor:app») y Ollama si está en
   `data\ollama.pid`. El apagado solo descarga los modelos que cargó ESE proceso (`llm._ours`): uno de prueba no
-  debe tocar el Ollama del usuario. Pruebas: `scripts\prueba_carga.py`, que usa `detener.ps1 -PuertoPrueba 8201
+  debe tocar el Ollama del usuario. Pruebas: `scripts\pruebas\prueba_carga.py`, que usa `detener.ps1 -PuertoPrueba 8201
   -SoloServidor`. PowerShell no distingue mayúsculas: un parámetro nunca puede llamarse como una variable del
   script (con `-Puerto` y `$puerto`, la prueba apagó el companion real del usuario, 15 nov 2026).
 - Solo nube (15 nov 2026, `profile.cloud_only`, Ajustes › Cerebro): cerebro, oído (`ear.engine` «nube»,
@@ -402,14 +402,14 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `Transcriber.local_model()` en CPU) y voz (motor «nube», `tts_cloud.py` con edge-tts; sin red cae a la ligera). Al
   encenderlo guarda `before_cloud_only` y al apagarlo lo devuelve; elegir algo local lo apaga (`profile.apply`).
   Quita el respaldo local del cerebro (`settings.local_fallback`). La clave de Groq nunca se devuelve a la interfaz.
-  `scripts\prueba_nube.py` mide RAM, procesador y vídeo (`--turnos 0` no gasta cuota). La clave de Groq no se ha
+  `scripts\pruebas\prueba_nube.py` mide RAM, procesador y vídeo (`--turnos 0` no gasta cuota). La clave de Groq no se ha
   probado de verdad (no había una): solo con peticiones simuladas en `tests\test_nube.py`.
 - Gemini Live (0.9.0, `companion/gemini_live.py`, `profile.gemini_live`, Ajustes › Cerebro y voz): WebSocket directo
   (micrófono 16 kHz, imágenes, voz 24 kHz) y acciones por la herramienta `ejecutar_accion`. Frenos (21 nov 2026):
   la herramienta solo vale en turnos que empezó el usuario (`_live_user`; saludo, mirada, toques y temporizadores la
   rechazan) y, como Gemini recibe el micrófono y el sonido de la pantalla por el mismo canal, si la pantalla sonó en
   los últimos 4 s (`_live_screen_heard` → `_live_mixed`) un «sí» oído no aprueba tarjetas y toda acción va con tarjeta
-  (`_ask(card=True)`, también con acceso total). Prueba real: `scripts\prueba_gemini_live.py` (datos aislados; córrela con
+  (`_ask(card=True)`, también con acceso total). Prueba real: `scripts\pruebas\prueba_gemini_live.py` (datos aislados; córrela con
   `COMPANION_ACTIONS_DRY=1`: Gemini llegó a pedir abrir una app de verdad).
   Varios proveedores en vivo (21 nov 2026): `companion/realtime.py` (`LIVE_PROVIDERS`: gemini, openai, xai, qwen,
   custom; `RealtimeClient` habla el protocolo de OpenAI Realtime, «ga» u «beta», con la misma interfaz que
@@ -446,7 +446,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   faster-whisper descarga cualquier otro solo de Hugging Face.
 - La interfaz se sirve con `Cache-Control: no-cache` y Electron vacía su caché al arrancar. Si una prueba se
   comporta como el código anterior, sospecha primero de JavaScript en caché (pasó el 11 nov 2026).
-- Micrófono y cámara reales: `scripts\prueba_dispositivos.py` (Electron oculto con `COMPANION_TEST_REAL_MEDIA=1`,
+- Micrófono y cámara reales: `scripts\pruebas\prueba_dispositivos.py` (Electron oculto con `COMPANION_TEST_REAL_MEDIA=1`,
   sin cerebro: nada llega a un modelo). Úsala solo cuando el usuario pida probar su dispositivo físico. La Brio
   deja mudo su micrófono al cerrar el vídeo: no cierres y reabras la cámara sin `audio.heal()`.
 - Ollama tiene una sola cola (`-np 1`) y no aborta una petición hasta leer sus imágenes: toda petición en

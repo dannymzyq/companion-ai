@@ -27,7 +27,7 @@ después, la app y las actualizaciones funcionan sin administrador. Windows Smar
 instalador no está firmado: «Más información» › «Ejecutar de todas formas».
 
 Cómo se publica una versión: [CHANGELOG.md](CHANGELOG.md) (sube `VERSION`, añade su apartado y publica la
-etiqueta `vX.Y.Z`; GitHub Actions crea el instalador con `scripts\crear_instalador.ps1` y el Release).
+etiqueta `vX.Y.Z`; GitHub Actions crea el instalador con `scripts\instalacion\crear_instalador.ps1` y el Release).
 
 **En un Mac con Apple Silicon** (M1 o posterior, macOS 14 o posterior): descarga `Companion-X.Y.Z-mac.dmg` del
 mismo Release, arrastra **Companion** a Aplicaciones y ábrelo. La app no está firmada por un desarrollador de Apple:
@@ -37,7 +37,7 @@ derecho › Abrir). Al abrirla por primera vez, y con cada versión nueva, una v
 servidor y se abre la ventana de siempre. Al cerrarla se apaga el servidor. El cerebro local necesita
 [Ollama para Mac](https://ollama.com/download) (opcional, 0.31 o más reciente). En el Mac el cerebro local usa los
 Gemma 4 en versión **MLX** (el motor de Apple), el doble de rápidos allí que los de PC. Medidos en una MacBook M5 Pro de
-24 GB con Ollama 0.40.13 (`scripts/medir_modelos_locales.py`):
+24 GB con Ollama 0.40.13 (`scripts/herramientas/medir_modelos_locales.py`):
 
 | Modelo | Memoria cargado | Velocidad | Ve imágenes |
 |---|---|---|---|
@@ -60,7 +60,7 @@ progreso en vivo (cada paso, el porcentaje de cada descarga, la velocidad y el t
 «Reintentar» sigue donde se quedó). Para quitarlo, **`Desinstalar.bat`** (o Configuración › Aplicaciones): elige
 qué borrar, con tus datos sin marcar (van a la Papelera). Detalle en [INSTALACION.md](INSTALACION.md).
 
-Por dentro, las ventanas (`scripts\ventana_instalar.ps1`, `scripts\ventana_desinstalar.ps1`, WPF de Windows)
+Por dentro, las ventanas (`scripts\instalacion\ventana_instalar.ps1`, `scripts\instalacion\ventana_desinstalar.ps1`, WPF de Windows)
 ejecutan `instalar.ps1` y `desinstalar.ps1`, que también sirven desde una terminal (lo que ya está, se salta):
 
 ```
@@ -118,8 +118,8 @@ La primera vez se abre un asistente de cinco pasos. Cada paso se guarda al pulsa
    Ryo, Satoshi), con ▶ para oír una muestra antes de elegir. Cualquier voz sirve con cualquier personaje, y
    **el personaje se llama como la voz elegida** (se presenta como Kenji, Natsumi…; `profile.character`). El
    catálogo está en `voices.json` y el origen de cada voz en `voices\CREDITOS.md`: Mika es la original, Kenji es
-   sintética y las otras siete salen de grabaciones tuyas (`scripts\importar_voces.py <carpeta>` recorta y
-   transcribe una voz nueva a partir de un mp3; `scripts\grabar_muestras.py` graba su muestra ▶). Las muestras ▶
+   sintética y las otras siete salen de grabaciones tuyas (`scripts\herramientas\importar_voces.py <carpeta>` recorta y
+   transcribe una voz nueva a partir de un mp3; `scripts\herramientas\grabar_muestras.py` graba su muestra ▶). Las muestras ▶
    son archivos pregrabados (`voices\previews`): oírlas no usa el servidor de voz, que lee las muestras de
    `voices\` directamente y devuelve la memoria sobrante al cambiar de voz.
    **Voces propias**: «Añadir una voz propia», debajo de la lista, sube una grabación (mp3, wav, m4a, ogg o flac;
@@ -172,7 +172,7 @@ que ves en pantalla. Las palabras en inglés se cambian por su pronunciación es
 «Apel Miúsik», «WhatsApp» → «Uatsap»), y «qu» delante de e/i se dice «k», porque el modelo a veces decía «cue».
 La lista está en `voices\pronunciacion.json`: puedes editarla o añadir palabras sin reiniciar. Para probar
 versiones de una palabra nueva y quedarte con la que mejor se entiende, añádela en
-`scripts\calibrar_pronunciacion.py` y ejecútalo.
+`scripts\herramientas\calibrar_pronunciacion.py` y ejecútalo.
 
 **Ajustes** van por secciones que se abren de una en una: Tú y tu personaje · Cerebro · Voz y sonido · Micrófono
 y cámara · Pantalla y cámara compartidas · Acciones en tu PC · Memoria y datos · Estado. Cada sección enseña en su
@@ -209,7 +209,7 @@ juegas. Al apagarlo vuelve lo que tenías antes. Se elige también por partes:
   voz parecida (`cloud` en `voices.json`). No es una API oficial: si deja de responder (o no hay internet), la frase
   suena con la voz ligera.
 
-Medido con `scripts\prueba_nube.py` (RTX 5070 Ti, oído con Gemini porque no había clave de Groq):
+Medido con `scripts\pruebas\prueba_nube.py` (RTX 5070 Ti, oído con Gemini porque no había clave de Groq):
 
 | | Solo nube | Oído local + voz ligera |
 |---|---|---|
@@ -564,24 +564,24 @@ conversación, tus recuerdos ni tus modelos, y no reinician el companion real. G
 Para «compartir una ventana» la prueba abre su propia tarjeta (`desktop\tarjeta-prueba.html`), nunca una tuya.
 
 ```powershell
-.venv\Scripts\python.exe scripts\prueba_escritorio.py       # app de escritorio: modelos, cámara, selector de pantalla o ventana y modo flotante (sin ventanas visibles)
-.venv\Scripts\python.exe scripts\prueba_escritorio.py --local   # lo mismo con el cerebro local
-.venv\Scripts\python.exe scripts\prueba_bienvenida.py       # la bienvenida completa, que se guarda, no se repite y se edita desde Ajustes (sin GEMINI_API_KEY en .env, por el camino del modelo local)
-.venv\Scripts\python.exe scripts\prueba_acciones.py         # acciones con permiso, en modo simulado: no abre ni pulsa nada en la PC (cerebro local)
-.venv\Scripts\python.exe scripts\prueba_control.py [modelo] # usar una ventana: solo su propio reproductor falso, fuera de pantalla, sin teclado ni ratón de verdad
-.venv\Scripts\python.exe scripts\prueba_control.py --mensajes # ídem solo con mensajes a la ventana (escribir y reproducir en segundo plano)
-.venv\Scripts\python.exe scripts\prueba_control_real.py --si  # ídem con TECLADO Y RATÓN DE VERDAD y captura: la ventana a la vista, ~2 min sin usar la PC
-.venv\Scripts\python.exe scripts\prueba_memoria.py          # memoria a largo plazo: conversación larga, sesión nueva y pregunta sobre lo anterior (cerebro local)
-.venv\Scripts\python.exe scripts\prueba_componentes.py      # etiquetas, voz, detección de voz, Whisper
-.venv\Scripts\python.exe scripts\prueba_ws.py               # conversación hablada completa, sin interfaz
-.venv\Scripts\python.exe scripts\prueba_carga.py            # pantallas de carga, apagado si muere la ventana y detener.ps1 (solo el servidor de prueba)
-.venv\Scripts\python.exe scripts\prueba_nube.py             # «solo nube»: conversación hablada y medición de RAM, procesador y vídeo (--turnos 0: sin gastar cuota)
-.venv\Scripts\python.exe scripts\prueba_ws.py --interrumpir # hablarle encima
-.venv\Scripts\python.exe scripts\prueba_navegador.py        # permiso y selector de micrófono en un Chrome oculto
-.venv\Scripts\python.exe scripts\prueba_dispositivos.py --mic BRIO --cam BRIO   # micrófono y cámara FÍSICOS (enciende la luz de la cámara; nada llega a un modelo)
-.venv\Scripts\python.exe scripts\maniqui_vrm.py data\maniqui.vrm  # maniquí de cajas para probar el avatar
-.venv\Scripts\python.exe scripts\medir_llm.py gemini-3.6-flash:minimal gemini-3.5-flash-lite:minimal   # latencia del cerebro
-.venv\Scripts\python.exe scripts\medir_llm.py local/gemma4:e4b-it-qat local/gemma4:e2b-it-qat          # ídem, modelos locales
+.venv\Scripts\python.exe scripts\pruebas\prueba_escritorio.py       # app de escritorio: modelos, cámara, selector de pantalla o ventana y modo flotante (sin ventanas visibles)
+.venv\Scripts\python.exe scripts\pruebas\prueba_escritorio.py --local   # lo mismo con el cerebro local
+.venv\Scripts\python.exe scripts\pruebas\prueba_bienvenida.py       # la bienvenida completa, que se guarda, no se repite y se edita desde Ajustes (sin GEMINI_API_KEY en .env, por el camino del modelo local)
+.venv\Scripts\python.exe scripts\pruebas\prueba_acciones.py         # acciones con permiso, en modo simulado: no abre ni pulsa nada en la PC (cerebro local)
+.venv\Scripts\python.exe scripts\pruebas\prueba_control.py [modelo] # usar una ventana: solo su propio reproductor falso, fuera de pantalla, sin teclado ni ratón de verdad
+.venv\Scripts\python.exe scripts\pruebas\prueba_control.py --mensajes # ídem solo con mensajes a la ventana (escribir y reproducir en segundo plano)
+.venv\Scripts\python.exe scripts\pruebas\prueba_control_real.py --si  # ídem con TECLADO Y RATÓN DE VERDAD y captura: la ventana a la vista, ~2 min sin usar la PC
+.venv\Scripts\python.exe scripts\pruebas\prueba_memoria.py          # memoria a largo plazo: conversación larga, sesión nueva y pregunta sobre lo anterior (cerebro local)
+.venv\Scripts\python.exe scripts\pruebas\prueba_componentes.py      # etiquetas, voz, detección de voz, Whisper
+.venv\Scripts\python.exe scripts\pruebas\prueba_ws.py               # conversación hablada completa, sin interfaz
+.venv\Scripts\python.exe scripts\pruebas\prueba_carga.py            # pantallas de carga, apagado si muere la ventana y detener.ps1 (solo el servidor de prueba)
+.venv\Scripts\python.exe scripts\pruebas\prueba_nube.py             # «solo nube»: conversación hablada y medición de RAM, procesador y vídeo (--turnos 0: sin gastar cuota)
+.venv\Scripts\python.exe scripts\pruebas\prueba_ws.py --interrumpir # hablarle encima
+.venv\Scripts\python.exe scripts\pruebas\prueba_navegador.py        # permiso y selector de micrófono en un Chrome oculto
+.venv\Scripts\python.exe scripts\pruebas\prueba_dispositivos.py --mic BRIO --cam BRIO   # micrófono y cámara FÍSICOS (enciende la luz de la cámara; nada llega a un modelo)
+.venv\Scripts\python.exe scripts\pruebas\maniqui_vrm.py data\maniqui.vrm  # maniquí de cajas para probar el avatar
+.venv\Scripts\python.exe scripts\herramientas\medir_llm.py gemini-3.6-flash:minimal gemini-3.5-flash-lite:minimal   # latencia del cerebro
+.venv\Scripts\python.exe scripts\herramientas\medir_llm.py local/gemma4:e4b-it-qat local/gemma4:e2b-it-qat          # ídem, modelos locales
 ```
 
 ## Latencia medida (11 nov 2026)
@@ -605,7 +605,7 @@ local, y ~1 s de síntesis de voz. El primer turno tras arrancar tarda más.
   quita uno propio. Un modelo cambia solo el cuerpo: el nombre y la voz son los de la voz elegida.
 
 Si un modelo trae expresiones más o menos marcadas, los pesos están en `EMOTIONS` y `setVoice` de `web/js/avatar.js`.
-(`scripts\vestir_vrm.py`, que vestía el modelo de Mika, queda como herramienta suelta.)
+(`scripts\herramientas\vestir_vrm.py`, que vestía el modelo de Mika, queda como herramienta suelta.)
 
 ## Movimiento y emociones
 
@@ -614,12 +614,12 @@ los que cargues):
 
 - **Animaciones grabadas** (17 nov 2026): la base del cuerpo son animaciones de captura de movimiento de la
   Universal Animation Library de Quaternius (CC0; ver `web/anim/CREDITOS.md`), convertidas a VRM con
-  `scripts/convertir_animaciones.py` en `web/anim/clips.json`: reposo, hablar, andar, agacharse, arrodillarse,
+  `scripts/herramientas/convertir_animaciones.py` en `web/anim/clips.json`: reposo, hablar, andar, agacharse, arrodillarse,
   aterrizar y cruzarse de brazos (enfado). Se mezclan con lo escrito en código, que va encima: respiración,
   mirada, gestos al hablar, emociones, toques. El reposo grabado se toma con los pies más juntos y el andar pisa
   hacia el centro, para que se vea menos de personaje de acción. Si falta el archivo, todo sigue como antes.
 - **Estilos según la emoción** (17 nov 2026): andar y estar de pie salen de The 100STYLE Dataset - Ian Mason
-  (CC BY 4.0, `scripts/anim_bvh.py`): neutro, alegre, triste, enfado, tímido, orgullo, pensar, ligero y nervioso
+  (CC BY 4.0, `scripts/herramientas/anim_bvh.py`): neutro, alegre, triste, enfado, tímido, orgullo, pensar, ligero y nervioso
   (`EMO_STYLE` en `avatar.js`; sin emoción, manda la personalidad). Se funden al cambiar, van a la par en la fase
   de la marcha, y su ritmo y velocidad los usa la mascota para avanzar. El movimiento se marca algo más que la
   captura (`amp` de cada capa), más con alegría y menos con tristeza.

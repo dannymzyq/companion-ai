@@ -1,8 +1,8 @@
-﻿# Instalador de mentira para probar la ventana (scripts\prueba_instalador.py): imprime las mismas marcas que
+﻿# Instalador de mentira para probar la ventana (scripts\pruebas\prueba_instalador.py): imprime las mismas marcas que
 # instalar.ps1, con pausas cortas, sin descargar ni instalar nada. FALSO_FALLA=<paso> hace que falle ahí.
 param([string]$Voz = "auto", [switch]$SinOllama, [switch]$AccesosDirectos)
 $ErrorActionPreference = "Stop"
-. "$PSScriptRoot\..\scripts\comun_instalacion.ps1"
+. "$PSScriptRoot\..\scripts\instalacion\comun_instalacion.ps1"
 trap { Marca error $_.Exception.Message; break }
 $pausa = [int]($env:FALSO_PAUSA_MS | ForEach-Object { if ($_) { $_ } else { 120 } })
 function Paso($id) {

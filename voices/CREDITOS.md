@@ -5,7 +5,7 @@ El personaje toma el nombre de la voz elegida. Las voces no llevan etiqueta de g
 | Voz | Origen | Tono de la muestra | Tono al hablar (clonada) |
 | --- | --- | --- | --- |
 | Mika | Desde el 13 nov 2026: audio que el usuario generó en ElevenLabs con textos de muestra (`Mika-2.wav`, tramo de 8,1 s). La anterior (la voz original del proyecto) está en `voices\anterior\mika_es_original.*` | 212 Hz | 207–218 Hz |
-| Kenji | Sintética: [Piper](https://github.com/OHF-Voice/piper1-gpl), modelo `es_ES-davefx-medium` con el tono ×0,76 (datos de OHF-Voice/voice-datasets · CC0). Se regenera con `scripts\generar_voces.py` | – | 142 Hz |
+| Kenji | Sintética: [Piper](https://github.com/OHF-Voice/piper1-gpl), modelo `es_ES-davefx-medium` con el tono ×0,76 (datos de OHF-Voice/voice-datasets · CC0). Se regenera con `scripts\herramientas\generar_voces.py` | – | 142 Hz |
 | Natsumi | Grabación aportada por el usuario: `Natalia2.mp3` | 282 Hz | 298 Hz |
 | Ayaka | Grabación aportada por el usuario: `AnaMaria2.mp3` | 250 Hz | 222 Hz |
 | Chiaki | Grabación aportada por el usuario: `Cristina1.mp3` | 238 Hz | 238 Hz |
@@ -16,7 +16,7 @@ El personaje toma el nombre de la voz elegida. Las voces no llevan etiqueta de g
 
 Las siete grabaciones las entregó el usuario el 12 nov 2026 (dos archivos de ~55 s por voz). El origen y los
 derechos de esas voces los conoce él: aquí no consta ninguna licencia, así que no deben redistribuirse sin
-comprobarlo. `scripts\importar_voces.py` eligió de cada pareja el tramo de frases completas más claro que cabe
+comprobarlo. `scripts\herramientas\importar_voces.py` eligió de cada pareja el tramo de frases completas más claro que cabe
 en los 12 s que usa el servidor de voz, lo transcribió con Whisper (necesita el texto exacto) y lo guardó
 aquí como `<voz>_es.wav` + `.json`, que `voz\servidor.py` lee directamente.
 

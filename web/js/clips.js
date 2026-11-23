@@ -1,4 +1,4 @@
-// Animaciones grabadas (17 nov 2026): web/anim/clips.json, hechas con scripts/convertir_animaciones.py a partir de la
+// Animaciones grabadas (17 nov 2026): web/anim/clips.json, hechas con scripts/herramientas/convertir_animaciones.py a partir de la
 // Universal Animation Library de Quaternius (CC0). Están en el esqueleto normalizado de VRM 1.0 (giros respecto a la
 // pose en T, en ángulos de Euler XYZ, los mismos que usa avatar.js), así que sirven para cualquier VRM: los
 // incluidos y los que cargue el usuario.

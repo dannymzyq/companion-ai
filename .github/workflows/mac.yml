@@ -1,4 +1,4 @@
-# App para Mac con Apple Silicon: crea dist/Companion-X.Y.Z-mac.dmg (scripts/crear_app_mac.sh) y la prueba en
+# App para Mac con Apple Silicon: crea dist/Companion-X.Y.Z-mac.dmg (scripts/instalacion/crear_app_mac.sh) y la prueba en
 # un Mac de GitHub como la usaría alguien: abre Companion.app, que instala todo en una carpeta propia y arranca
 # el servidor; luego las pruebas rápidas, la voz ligera y la completa con el oído. Se lanza a mano (Actions ›
 # Mac › Run workflow) o desde release.yml, que adjunta el .dmg al Release.
@@ -33,7 +33,7 @@ jobs:
           echo "CASA=$RUNNER_TEMP/casa" >> "$GITHUB_ENV"     # en vez de ~/Library/Application Support/Companion
 
       - name: Crear Companion.app y el .dmg
-        run: bash scripts/crear_app_mac.sh
+        run: bash scripts/instalacion/crear_app_mac.sh
 
       - name: Abrir la app desde el .dmg (instala todo la primera vez)
         run: |
@@ -74,7 +74,7 @@ jobs:
           VOICE_ENGINE: ligera
         run: |
           set -o pipefail
-          .venv/bin/python scripts/prueba_componentes.py 2>&1 | tee -a "$RUNNER_TEMP/pruebas.log"
+          .venv/bin/python scripts/pruebas/prueba_componentes.py 2>&1 | tee -a "$RUNNER_TEMP/pruebas.log"
 
       - name: Voz completa (F5-TTS con PyTorch para Mac)
         working-directory: ${{ env.CASA }}

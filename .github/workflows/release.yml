@@ -1,5 +1,5 @@
 # Publica un Release al subir una etiqueta vX.Y.Z: crea el instalador (dist\Companion-Setup-X.Y.Z.exe) con
-# scripts\crear_instalador.ps1 y lo adjunta, con las notas de esa versión sacadas de CHANGELOG.md.
+# scripts\instalacion\crear_instalador.ps1 y lo adjunta, con las notas de esa versión sacadas de CHANGELOG.md.
 #   git tag v0.3.0 && git push origin v0.3.0
 name: Release
 
@@ -41,7 +41,7 @@ jobs:
 
       - name: Crear el instalador
         shell: powershell
-        run: ./scripts/crear_instalador.ps1
+        run: ./scripts/instalacion/crear_instalador.ps1
 
       # Una versión cuyo título en CHANGELOG.md dice «(solo Windows)» no crea la app para Mac (una corrección que
       # solo afecta a Windows).

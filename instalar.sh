@@ -98,15 +98,15 @@ EOF
 
 # ---------------------------------------------------------------- 3. modelos segun la tarjeta
 paso recursos "Recursos segun tu equipo"
-read -r VOZ_REC MODELO_REC GB <<<"$("$PY" scripts/preparar_recursos.py --recomendar)"
+read -r VOZ_REC MODELO_REC GB <<<"$("$PY" scripts/instalacion/preparar_recursos.py --recomendar)"
 echo "Memoria de video: $GB GB -> voz recomendada: $VOZ_REC, modelo local recomendado: $MODELO_REC"
 # Las dos voces desde 4 GB (si a la tarjeta le falta memoria, el companion pasa solo a la ligera).
 if [ "$VOZ" = auto ]; then if awk "BEGIN{exit !($GB >= 3.5)}"; then VOZ=ambas; else VOZ=ligera; fi; fi
 
 paso oido "El oido (Whisper)"
-"$PY" scripts/preparar_recursos.py --oido
+"$PY" scripts/instalacion/preparar_recursos.py --oido
 case "$VOZ" in
-  ligera|ambas) paso ligera "Voz ligera (Piper)"; "$PY" scripts/preparar_recursos.py --ligera ;;
+  ligera|ambas) paso ligera "Voz ligera (Piper)"; "$PY" scripts/instalacion/preparar_recursos.py --ligera ;;
   *) marca omitido ligera ;;
 esac
 case "$VOZ" in
@@ -120,7 +120,7 @@ case "$VOZ" in
       "$UV" pip install --python "$RAIZ/voz/.venv/bin/python" -r voz/requirements.txt
     fi
     paso f5 "Voz completa: modelo de F5-TTS"
-    "$PY" scripts/preparar_recursos.py --completa ;;
+    "$PY" scripts/instalacion/preparar_recursos.py --completa ;;
   *) marca omitido torch; marca omitido f5 ;;
 esac
 
@@ -137,7 +137,7 @@ if [ "$OLLAMA" = 1 ]; then
       sleep 4
     fi
     if ollama list 2>/dev/null | grep -qF "$MODELO_REC"; then echo "El modelo $MODELO_REC ya esta descargado."
-    else echo "Descargando el modelo local $MODELO_REC..."; "$PY" scripts/preparar_recursos.py --ollama "$MODELO_REC"; fi
+    else echo "Descargando el modelo local $MODELO_REC..."; "$PY" scripts/instalacion/preparar_recursos.py --ollama "$MODELO_REC"; fi
   fi
 else
   marca omitido ollama

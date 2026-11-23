@@ -1,4 +1,4 @@
-# Versiones exactas de la voz completa en macOS con Apple Silicon, torch incluido (scripts\fijar_versiones.ps1).
+# Versiones exactas de la voz completa en macOS con Apple Silicon, torch incluido (scripts\instalacion\fijar_versiones.ps1).
 accelerate==1.15.0
 annotated-doc==0.0.6
 annotated-types==0.8.0

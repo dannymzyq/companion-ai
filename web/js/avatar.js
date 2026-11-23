@@ -785,7 +785,7 @@ export const LEAN = {
 // trabajar de espaldas en una ventana (las acciones «controlar»). run(p, t, w, a): w = cuánto está dentro.
 const WORK_POSE = { u: [-0.5, -0.35, -1.12], l: [0, -1.35, 0], h: [0.25, 0, 0], c: 0.35 };     // manos al teclado
 export const WALK_HZ = 0.95;             // ciclos de marcha por segundo (dos pasos por ciclo)
-// Estilos grabados de 100STYLE (17 nov 2026): clips walk_<estilo> e idle_<estilo> (scripts/convertir_animaciones.py).
+// Estilos grabados de 100STYLE (17 nov 2026): clips walk_<estilo> e idle_<estilo> (scripts/herramientas/convertir_animaciones.py).
 // Cada emoción anda y está de pie a su manera; sin emoción marcada, manda la personalidad (setTemper). Si un clip no
 // está, se usa el de siempre (walk / idle, de Quaternius).
 const EMO_STYLE = { feliz: 'alegre', emocionada: 'alegre', timida: 'timido', sonrojada: 'timido', triste: 'triste',

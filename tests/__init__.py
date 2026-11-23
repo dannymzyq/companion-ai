@@ -5,7 +5,7 @@
 Nada de esto toca lo del usuario: se usa una carpeta de datos temporal, las acciones van en seco
 (COMPANION_ACTIONS_DRY) y el control de ventanas no puede usar el teclado ni el ratón reales. Las direcciones del
 cerebro y de la voz apuntan a un puerto cerrado, así que ninguna prueba llega a un modelo.
-Las pruebas completas (servidor de prueba, voz, Electron) siguen en scripts\\prueba_*.py.
+Las pruebas completas (servidor de prueba, voz, Electron) siguen en scripts\\pruebas\\prueba_*.py.
 """
 import os
 import sys

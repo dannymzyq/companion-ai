@@ -1,9 +1,9 @@
 // Instalador de Companion (el .exe de cada Release). Lleva dentro el programa en un .zip (recurso
 // «paquete.zip», con su manifest.json y VERSION), lo descomprime en una carpeta temporal y abre la ventana de
-// instalación de siempre (scripts\ventana_instalar.ps1 -Paquete), que deja elegir la carpeta, copia solo lo que
+// instalación de siempre (scripts\instalacion\ventana_instalar.ps1 -Paquete), que deja elegir la carpeta, copia solo lo que
 // cambió y completa o actualiza lo demás. Al cerrarse la ventana se borra la carpeta temporal.
 //
-// Se compila con el csc.exe de .NET Framework que trae Windows (scripts\crear_instalador.ps1).
+// Se compila con el csc.exe de .NET Framework que trae Windows (scripts\instalacion\crear_instalador.ps1).
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -16,7 +16,7 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Instalador de Companion")]
 [assembly: AssemblyCompany("Companion (github.com/dannymzyq/companion-ai)")]
 [assembly: AssemblyCopyright("Companion")]
-// La versión (AssemblyVersion, AssemblyFileVersion) la pone scripts\crear_instalador.ps1 en Version.cs al compilar.
+// La versión (AssemblyVersion, AssemblyFileVersion) la pone scripts\instalacion\crear_instalador.ps1 en Version.cs al compilar.
 
 static class Lanzador
 {
@@ -37,7 +37,7 @@ static class Lanzador
             }
             string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
                                      @"WindowsPowerShell\v1.0\powershell.exe");
-            string ventana = Path.Combine(tmp, @"scripts\ventana_instalar.ps1");
+            string ventana = Path.Combine(tmp, @"scripts\instalacion\ventana_instalar.ps1");
             // Sin «-WindowStyle Hidden» (ya va sin consola con CreateNoWindow) y con RemoteSigned en vez de Bypass: los
             // scripts salen del propio .exe, sin la marca de «descargado de internet», así que RemoteSigned los deja
             // correr. Un .exe pequeño que abre PowerShell escondido con Bypass es justo lo que el antivirus asocia a un
