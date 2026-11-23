@@ -13,7 +13,7 @@
 // COMPANION_SERVER_PID = el proceso del servidor que acaba de arrancar iniciar.ps1 (si se cierra, la pantalla de
 // carga lo dice en vez de esperar), COMPANION_TEST=1 es para las pruebas automáticas (ventanas fuera de pantalla, sin
 // sonido y con micrófono y cámara simulados).
-const { app, BaseWindow, BrowserWindow, WebContentsView, ipcMain, session, desktopCapturer, screen, shell } = require('electron');
+const { app, BaseWindow, BrowserWindow, WebContentsView, ipcMain, session, desktopCapturer, screen, shell, Tray, Menu, globalShortcut, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
@@ -60,7 +60,74 @@ let pickerSources = [];
 let pickerDone = null;
 let pickerOptions = { audio: false, audioOn: false };
 let audioNext = 0;           // la próxima petición de pantalla es solo para el sonido (hasta este instante)
-let lastShare = null;         // {kind: 'screen' | 'window', name, audio} de lo último que se compartió
+let retryVideoNext = 0;      // si video+loopback falla (p. ej. Discord capturando), reintento solo vídeo sin reabrir el selector
+let lastShare = null;         // {id, kind: 'screen' | 'window', name, audio} de lo último que se compartió
+let tray = null;
+let quitting = false;
+const desktopPrefsFile = () => path.join(app.getPath('userData'), 'escritorio.json');
+function loadDesktopPrefs() {
+  const def = { shortcuts: true, trayOnClose: false, openAtLogin: false };
+  try {
+    const raw = JSON.parse(fs.readFileSync(desktopPrefsFile(), 'utf8'));
+    return {
+      shortcuts: raw.shortcuts !== false,
+      trayOnClose: raw.trayOnClose === true,
+      openAtLogin: app.getLoginItemSettings ? app.getLoginItemSettings().openAtLogin : !!raw.openAtLogin,
+    };
+  } catch {
+    try { def.openAtLogin = app.getLoginItemSettings ? app.getLoginItemSettings().openAtLogin : false; } catch { /* noop */ }
+    return def;
+  }
+}
+function saveDesktopPrefs(patch) {
+  const cur = { ...loadDesktopPrefs(), ...(patch || {}) };
+  try { fs.writeFileSync(desktopPrefsFile(), JSON.stringify(cur)); } catch { /* noop */ }
+  if (patch && 'openAtLogin' in patch && app.setLoginItemSettings && !TEST) {
+    try { app.setLoginItemSettings({ openAtLogin: !!cur.openAtLogin }); } catch { /* noop */ }
+  }
+  if (patch && 'shortcuts' in patch) applyGlobalShortcuts(cur.shortcuts);
+  return cur;
+}
+function sendShortcut(action) {
+  if (view && !view.webContents.isDestroyed()) {
+    view.webContents.send('companion:shortcut', action);
+  }
+}
+function applyGlobalShortcuts(on) {
+  if (TEST) return;
+  try { globalShortcut.unregisterAll(); } catch { /* noop */ }
+  if (!on) return;
+  const reg = (accel, fn) => { try { globalShortcut.register(accel, fn); } catch { /* ocupado por otra app */ } };
+  reg('CommandOrControl+Shift+M', () => sendShortcut('mute'));
+  reg('CommandOrControl+Shift+F', () => { if (win && !win.isDestroyed()) open(mode === 'float' ? 'window' : 'float'); });
+  reg('CommandOrControl+Shift+S', () => sendShortcut('stop'));
+}
+function createTray() {
+  if (TEST || tray) return;
+  try {
+    const img = nativeImage.createFromPath(ICON_PNG);
+    tray = new Tray(img.isEmpty() ? ICON : img.resize({ width: 16, height: 16 }));
+    tray.setToolTip('Companion');
+    const toggleShow = () => {
+      if (!win || win.isDestroyed()) { open('window'); return; }
+      if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
+    };
+    tray.on('click', toggleShow);
+    const rebuildMenu = () => Menu.buildFromTemplate([
+      { label: 'Mostrar / ocultar', click: toggleShow },
+      { label: mode === 'float' ? 'Volver a ventana normal' : 'Modo flotante (Ctrl+Shift+F)', click: () => open(mode === 'float' ? 'window' : 'float') },
+      { type: 'separator' },
+      { label: 'Silenciar / activar micrófono (Ctrl+Shift+M)', click: () => sendShortcut('mute') },
+      { label: 'Callar / interrumpir (Ctrl+Shift+S)', click: () => sendShortcut('stop') },
+      { type: 'separator' },
+      { label: 'Salir de Companion', click: () => { quitting = true; app.quit(); } },
+    ]);
+    tray.setContextMenu(rebuildMenu());
+    tray.on('right-click', () => { if (tray) tray.setContextMenu(rebuildMenu()); });
+  } catch (err) {
+    console.warn('No pude crear el icono en la bandeja:', err.message);
+  }
+}
 // El sonido de la PC («loopback») solo se ofrece en Windows: para entenderlo hace falta el oído en una tarjeta
 // NVIDIA (companion/screen_audio.py), y en el Mac Electron aún no lo da sin permisos aparte.
 const CAN_AUDIO = process.platform === 'win32';
@@ -240,6 +307,12 @@ function open(next) {
   else if (old && !old.isDestroyed()) old.contentView.removeChildView(view);
   w.contentView.addChildView(view);
   fit(w);
+  w.on('close', (e) => {
+    if (!TEST && !quitting && win === w && tray && loadDesktopPrefs().trayOnClose) {
+      e.preventDefault();
+      w.hide();
+    }
+  });
   w.on('closed', () => {
     if (win !== w) return;                          // la cerró un cambio de modo: la página sigue en la otra
     win = null;
@@ -374,7 +447,13 @@ async function pickSource(audio) {
       resolve(s ? { ...s, audio: !!(withAudio && pickerOptions.audio) } : null);
       if (!w.isDestroyed()) w.destroy();
     };
-    w.on('closed', () => {
+    w.on('close', (e) => {
+    if (!TEST && !quitting && win === w && tray && loadDesktopPrefs().trayOnClose) {
+      e.preventDefault();
+      w.hide();
+    }
+  });
+  w.on('closed', () => {
       if (picker === w) { picker = null; pickerSources = []; }
       if (pickerDone) { pickerDone = null; resolve(null); }
     });
@@ -394,6 +473,13 @@ ipcMain.handle('companion:share-audio-next', (e, on) => {
   audioNext = Date.now() + 10000;
   return true;
 });
+ipcMain.handle('companion:share-retry-video', (e) => {
+  if (!fromOurPage(e) || !lastShare || !lastShare.id) return false;
+  retryVideoNext = Date.now() + 10000;
+  return true;
+});
+ipcMain.handle('companion:desktop-prefs-get', (e) => (fromOurPage(e) ? loadDesktopPrefs() : null));
+ipcMain.handle('companion:desktop-prefs-set', (e, patch) => (fromOurPage(e) ? saveDesktopPrefs(patch) : null));
 
 // Qué se eligió la última vez (pantalla o ventana y su nombre), para que la página se lo cuente a Mika.
 ipcMain.handle('companion:share-info', (e) => (fromOurPage(e) ? lastShare : null));
@@ -433,18 +519,29 @@ app.whenReady().then(async () => {
         return;
       }
     }
+    if (fromUs && Date.now() < retryVideoNext && lastShare && lastShare.id) {
+      retryVideoNext = 0;
+      try {
+        return callback({ video: { id: lastShare.id, name: lastShare.name } });
+      } catch (err) {
+        console.error('No pude reintentar solo vídeo:', err);
+        return callback(null);
+      }
+    }
     let chosen = null;
     try {
-      if (fromUs) chosen = await pickSource(true);    // el sonido se pide después, aparte (ver arriba)
+      if (fromUs) chosen = await pickSource(true);
     } catch (err) {
       console.error('No pude listar pantallas y ventanas:', err);
     }
     try {
       if (!chosen) return callback(null);          // cancelado: getDisplayMedia() se rechaza con AbortError
-      // Con «Escuchar también el sonido», la página pide después el de toda la PC (companion:share-audio-next;
-      // Windows no deja separar el de una sola ventana). La voz de Mika también suena ahí: la interfaz no envía
-      // ese audio mientras ella habla.
-      lastShare = { kind: chosen.kind, name: chosen.name, audio: chosen.audio };
+      lastShare = { id: chosen.id, kind: chosen.kind, name: chosen.name, audio: chosen.audio };
+      // Pedir video + loopback en UNA sola captura evita conflictos de WGC/WASAPI con Discord y evita perder la
+      // activación del clic en una segunda llamada getDisplayMedia. Si falla, vision.js reintenta solo vídeo.
+      if (chosen.audio && request.audioRequested) {
+        return callback({ video: { id: chosen.id, name: chosen.name }, audio: 'loopback' });
+      }
       callback({ video: { id: chosen.id, name: chosen.name } });
     } catch (err) {
       console.error('La ventana que pidió compartir ya no existe:', err.message);
@@ -461,11 +558,16 @@ app.whenReady().then(async () => {
   }
 
   open('window');
+  createTray();
+  applyGlobalShortcuts(loadDesktopPrefs().shortcuts);
 });
 
+app.on('before-quit', () => { quitting = true; });
 app.on('window-all-closed', () => app.quit());
 
 app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll(); } catch { /* noop */ }
+  if (tray) { try { tray.destroy(); } catch { /* noop */ } tray = null; }
   if (process.env.COMPANION_STOP_ON_EXIT !== '1') return;
   // Al cerrar a Mika se apaga todo lo que arrancó el companion: el servidor (con un apagado ordenado), la voz
   // completa, el modelo local de Ollama y Ollama si lo abrió él (detener.ps1 / detener.sh).

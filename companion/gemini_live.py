@@ -131,14 +131,16 @@ ACTION_TOOLS = [{
                 "description": (
                     "Tipo de acción: 'abrir_app', 'controlar' (para manejar una app como reproducir una canción en "
                     "Apple Music o Spotify o escribir en Word), 'abrir_web', 'abrir_carpeta', 'buscar_archivo', "
-                    "'temporizador', 'multimedia' o 'volumen'."
+                    "'temporizador', 'recordatorio' (con fecha/hora persistente), 'portapapeles' (leer lo copiado), "
+                    "'multimedia' o 'volumen'."
                 ),
             },
             "arg1": {
                 "type": "STRING",
                 "description": (
                     "Argumento principal: nombre de la app (ej. 'Apple Music', 'Spotify'), URL o búsqueda, "
-                    "carpeta, nombre de archivo, duración ('10m'), multimedia ('pausa'|'siguiente'|'anterior') "
+                    "carpeta, nombre de archivo, duración ('10m'), fecha/hora del recordatorio ('mañana a las 9', "
+                    "'hoy a las 18:30', 'en 2 horas'), 'leer' para portapapeles, multimedia ('pausa'|'siguiente'|'anterior') "
                     "o volumen ('subir'|'bajar'|'silenciar'|'50%')."
                 ),
             },
@@ -146,7 +148,7 @@ ACTION_TOOLS = [{
                 "type": "STRING",
                 "description": (
                     "Opcional. Para 'controlar': lo que debe hacer en esa app (ej. 'reproduce La Barca de Luis Miguel'). "
-                    "Para 'temporizador': etiqueta opcional (ej. 'pasta')."
+                    "Para 'temporizador' o 'recordatorio': texto o etiqueta (ej. 'llamar al banco')."
                 ),
             },
         },
@@ -154,8 +156,28 @@ ACTION_TOOLS = [{
     },
 }]
 
-# `expresar` no frena la voz: NON_BLOCKING en Gemini y respuesta SILENT (sin turno nuevo).
-SILENT_TOOLS = {"expresar"}
+# Herramienta silenciosa para guardar recuerdos duraderos durante una llamada en vivo.
+REMEMBER_TOOL = {
+    "name": "recordar",
+    "description": (
+        "Guarda un dato duradero e importante sobre el usuario (gustos, nombres de personas o mascotas, "
+        "proyectos, planes con fecha) para recordarlo en futuras conversaciones. Nunca guardes contraseñas, "
+        "documentos ni datos bancarios."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "dato": {
+                "type": "STRING",
+                "description": "El dato concreto en tercera persona (ej. 'A Danny le encanta el café sin azúcar').",
+            }
+        },
+        "required": ["dato"],
+    },
+}
+
+# `expresar` y `recordar` no frenan la voz: NON_BLOCKING en Gemini y respuesta SILENT (sin turno nuevo).
+SILENT_TOOLS = {"expresar", "recordar"}
 
 
 def gemini_tools(tools: list[dict]) -> list[dict]:
@@ -200,6 +222,7 @@ class GeminiLiveClient:
         voice_name: str = "Aoede",
         temperature: float | None = None,
         tools: list[dict] | None = None,
+        resume_handle: str | None = None,
         ws_connect=None,
     ):
         self.api_key = (api_key or "").strip()
@@ -208,6 +231,7 @@ class GeminiLiveClient:
         self.voice_name = voice_name or "Aoede"
         self.temperature = temperature
         self.tools = tools or []
+        self.resume_handle = (resume_handle or "").strip() or None
         self._ws_connect = ws_connect or websockets.connect
         self.ws = None
         self.connected = False
@@ -232,6 +256,9 @@ class GeminiLiveClient:
             },
             "inputAudioTranscription": {},
             "outputAudioTranscription": {},
+            # Permite sesiones largas sin corte de contexto y reanudación transparente tras ~10 min.
+            "contextWindowCompression": {"slidingWindow": {}},
+            "sessionResumption": {"handle": self.resume_handle} if self.resume_handle else {},
         }
         if self.tools:
             setup["tools"] = [{"functionDeclarations": gemini_tools(self.tools)}]
@@ -334,6 +361,12 @@ class GeminiLiveClient:
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
+                res_upd = msg.get("sessionResumptionUpdate")
+                if isinstance(res_upd, dict) and res_upd.get("resumable") and res_upd.get("newHandle"):
+                    self.resume_handle = str(res_upd["newHandle"])
+                    yield ("resume_handle", self.resume_handle)
+                if "goAway" in msg:
+                    yield ("go_away", msg.get("goAway"))
                 tc = msg.get("toolCall")
                 if isinstance(tc, dict) and tc.get("functionCalls"):
                     yield ("tool_call", list(tc["functionCalls"]))

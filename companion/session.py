@@ -25,8 +25,8 @@ import numpy as np
 
 from . import actions, gemini_live, llm, realtime, mood, personality, play, profile, screen_audio, store, tts, voicecheck, voz_proc
 from .config import settings, shown
-from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, POKE, SUMMARIZE, TIMER_DONE, adult_active, build_system_prompt,
-                     local_time, poke_text, sampling_for, turn_context)
+from .prompt import (ACTION_FAILED, ACTION_RESULT, OBSERVE, POKE, REMINDER_DONE, SUMMARIZE, TIMER_DONE, adult_active,
+                     build_system_prompt, local_time, poke_text, sampling_for, turn_context)
 from .tags import Sentence, TagStream
 from .vad import FRAME, FRAME_MS, StreamingVAD
 
@@ -173,6 +173,7 @@ class Session:
         self._live_mixed = False                           # en este turno pudo hablar la pantalla, no el usuario
         self._live_emo = ""                                # «tool»: la dio `expresar` · «guess»: deducida del texto
         self._live_ctx_at = 0.0                            # última vez que se le pasó la hora y el ánimo
+        self._live_resume_handle: str | None = None        # token de reanudación de Gemini Live (rotación sin perder hilo)
 
     # ------------------------------------------------------------ envío
     async def send_json(self, data: dict):
@@ -692,6 +693,18 @@ class Session:
                                                             else "Se acabó el temporizador") + (f": {label}." if label else ".")})
         self._later(TIMER_DONE.format(user=settings.user_name, what=req.detail))
 
+    async def _check_reminders(self, late: bool = False):
+        due = store.due_reminders()
+        if not due:
+            return
+        if late:
+            await asyncio.sleep(1.8)
+        for rid, _due_ts, text in due:
+            store.mark_reminder_done(rid)
+            prefix = "Tenías un recordatorio pendiente" if late else "Recordatorio"
+            await self.send_json({"type": "notice", "message": f"{prefix}: {text}."})
+            self._later(REMINDER_DONE.format(user=settings.user_name, what=text))
+
     def _spawn(self, coro):
         task = asyncio.create_task(coro)
         self.side.add(task)
@@ -837,6 +850,7 @@ class Session:
             while not self.closed:
                 await asyncio.sleep(settings.watch_interval)
                 await self._expire_actions()
+                await self._check_reminders()
                 now = time.monotonic()
                 # Memoria: en un rato de calma, resume lo que ya salió de la ventana de corto plazo.
                 if (not self.busy and not self.in_speech and self.state == "idle" and now - self.last_talk > SUMMARY_QUIET
@@ -1066,14 +1080,15 @@ class Session:
             voice_name = lv["voice"] or (gemini_live.voice_for(v["id"] if v else None, speaks) if lv["provider"] == "gemini"
                                          else realtime.voice_for(lv["provider"], speaks))
             samp = sampling_for(self.persona)
-            tools = [gemini_live.EXPRESS_TOOL, *(gemini_live.ACTION_TOOLS if self.actions_on() else [])]
+            tools = [gemini_live.EXPRESS_TOOL, gemini_live.REMEMBER_TOOL,
+                     *(gemini_live.ACTION_TOOLS if self.actions_on() else [])]
             system = (self._system(live=True) + "\n\n" + gemini_live.live_recap(self.persona, settings.user_name)
                       + "\n\n" + self._live_context())
             kw = {"model": lv["model"], "voice_name": voice_name, "temperature": samp.get("temperature"), "tools": tools}
             if self._live_factory:
                 client = self._live_factory(lv["key"], system, **kw)
             elif lv["provider"] == "gemini":
-                client = gemini_live.GeminiLiveClient(lv["key"], system, **kw)
+                client = gemini_live.GeminiLiveClient(lv["key"], system, resume_handle=self._live_resume_handle, **kw)
             else:
                 client = realtime.RealtimeClient(lv["key"], system, provider=lv["provider"], url=lv["url"], **kw)
             try:
@@ -1208,16 +1223,35 @@ class Session:
                             self.control_stop = True
                     if not self._live_turn_open:
                         await self.set_state("listening")
+                elif ev == "resume_handle":
+                    if isinstance(payload, str) and payload:
+                        self._live_resume_handle = payload
+                elif ev == "go_away":
+                    log.info("Gemini Live pidió rotación de conexión (%s); se reanudará con el handle guardado", payload)
+                    await client.close()
+                    break
                 elif ev == "tool_call":
-                    express = [fc for fc in payload if fc.get("name") == "expresar"]
-                    payload = [fc for fc in payload if fc.get("name") != "expresar"]
-                    if express:                     # no frena la voz ni el micrófono: solo mueve cara y cuerpo
-                        for fc in express:
+                    silent = [fc for fc in payload if fc.get("name") in ("expresar", "recordar")]
+                    payload = [fc for fc in payload if fc.get("name") not in ("expresar", "recordar")]
+                    if silent:                      # no frenan la voz ni el micrófono
+                        sres = []
+                        for fc in silent:
+                            cid = str(fc.get("id") or "")
+                            fname = str(fc.get("name") or "")
                             args = fc.get("args") if isinstance(fc.get("args"), dict) else {}
-                            await self._live_express(str(args.get("emocion") or ""), str(args.get("gesto") or ""))
+                            if fname == "expresar":
+                                await self._live_express(str(args.get("emocion") or ""), str(args.get("gesto") or ""))
+                                sres.append({"id": cid, "name": fname, "response": {"ok": True}})
+                            elif fname == "recordar":
+                                dato = str(args.get("dato") or "").strip().strip("«»\"' ")
+                                ok = (self._live_user and not self._live_mixed and 8 <= len(dato) <= 200
+                                      and not _PRIVATE.search(dato))
+                                if ok:
+                                    store.add_memory(dato)
+                                    log.info("Gemini Live recordó: %s", dato)
+                                sres.append({"id": cid, "name": fname, "response": {"ok": ok}})
                         try:
-                            await client.send_tool_response([{"id": str(fc.get("id") or ""), "name": "expresar",
-                                                              "response": {"ok": True}} for fc in express])
+                            await client.send_tool_response(sres)
                         except gemini_live.GeminiLiveError:
                             pass
                     if not payload:
@@ -1338,7 +1372,7 @@ class Session:
                             continue
             await self._ask([(name, args)], trusted=trusted, card=card)
 
-    async def reset_live(self):
+    async def reset_live(self, *, keep_handle: bool = False):
         """Cierra la sesión actual de Gemini Live (al cambiar ajustes, personalidad o cerrar la ventana)."""
         task, self.live_task = self.live_task, None
         client, self.live = self.live, None
@@ -1350,6 +1384,8 @@ class Session:
         self._live_turn_open = False
         self._live_in_tool = False
         self._live_user = self._live_mixed = False
+        if not keep_handle:
+            self._live_resume_handle = None
         self._live_pcm_buf.clear()
         self._live_in_buf.clear()
         self._live_out_buf.clear()
@@ -1359,6 +1395,7 @@ class Session:
         _open.append(self)
         while _missed:                        # temporizadores que acabaron sin ninguna ventana abierta
             self._spawn(self._timer_done(_missed.pop(0), late=True))
+        self._spawn(self._check_reminders(late=True))
 
     async def close(self):
         self.closed = True

@@ -949,6 +949,8 @@ async function begin(withMic) {
   if (!audio.hasMic) {
     showKeyboard(true);
     $('mic').classList.add('muted');
+  } else {
+    applyPttState();
   }
   setState(state);
   if (config && config.llm.ready && greet) send({ type: 'start' });
@@ -984,6 +986,96 @@ $('mic').onclick = async () => {
 };
 
 $('stop').onclick = () => { audio.flush(); send({ type: 'interrupt' }); };
+
+// Push-to-Talk: cuando hay tecla elegida, el micrófono queda en silencio y solo escucha al mantenerla pulsada.
+const PTT_KEY = 'companion.ptt';
+const savedPtt = () => localStorage.getItem(PTT_KEY) || '';
+let pttDown = false;
+let pttTail = 0;
+function applyPttState() {
+  const key = savedPtt();
+  if ($('ptt-key')) $('ptt-key').value = key;
+  if (key && audio.hasMic) {
+    muted = !pttDown;
+    audio.setMuted(muted);
+    $('mic').classList.toggle('muted', muted);
+    $('mic').title = `Mantén pulsada ${key} para hablar`;
+    setState(state);
+  }
+}
+if ($('ptt-key')) {
+  $('ptt-key').value = savedPtt();
+  $('ptt-key').onchange = () => {
+    const val = $('ptt-key').value;
+    localStorage.setItem(PTT_KEY, val);
+    pttDown = false;
+    if (val) {
+      applyPttState();
+      toast(`Push-to-Talk activado: mantén pulsada ${val} para hablar.`);
+    } else if (audio.hasMic) {
+      muted = false;
+      audio.setMuted(false);
+      $('mic').classList.remove('muted');
+      $('mic').title = 'Silenciar micrófono';
+      setState(state);
+      toast('Micrófono abierto.');
+    }
+  };
+}
+addEventListener('keydown', (e) => {
+  const key = savedPtt();
+  if (!key || e.code !== key || e.repeat || pttDown || !started) return;
+  if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+  clearTimeout(pttTail);
+  pttDown = true;
+  if (audio.hasMic) {
+    muted = false;
+    audio.setMuted(false);
+    $('mic').classList.remove('muted');
+    setState(state);
+  }
+});
+addEventListener('keyup', (e) => {
+  const key = savedPtt();
+  if (!key || e.code !== key || !pttDown) return;
+  pttDown = false;
+  clearTimeout(pttTail);
+  pttTail = setTimeout(() => {
+    if (!pttDown && savedPtt() === key && audio.hasMic) {
+      muted = true;
+      audio.setMuted(true);
+      $('mic').classList.add('muted');
+      setState(state);
+    }
+  }, 300);
+});
+addEventListener('blur', () => {
+  if (pttDown && savedPtt()) {
+    pttDown = false;
+    applyPttState();
+  }
+});
+
+// Atajos globales y preferencias de la app de escritorio (Tray, autostart, atajos).
+if (desktop && desktop.onShortcut) {
+  desktop.onShortcut((action) => {
+    if (action === 'mute') $('mic').click();
+    else if (action === 'stop') $('stop').click();
+  });
+}
+if (desktop && desktop.desktopPrefs && $('desk-app-card')) {
+  $('desk-app-card').hidden = false;
+  desktop.desktopPrefs.get().then((p) => {
+    if (!p) return;
+    $('desk-shortcuts').checked = p.shortcuts !== false;
+    $('desk-tray').checked = !!p.trayOnClose;
+    $('desk-autostart').checked = !!p.openAtLogin;
+  }).catch(() => {});
+  const saveDesk = (patch) => desktop.desktopPrefs.set(patch).catch(() => {});
+  $('desk-shortcuts').onchange = () => saveDesk({ shortcuts: $('desk-shortcuts').checked });
+  $('desk-tray').onchange = () => saveDesk({ trayOnClose: $('desk-tray').checked });
+  $('desk-autostart').onchange = () => saveDesk({ openAtLogin: $('desk-autostart').checked });
+}
 
 function showKeyboard(show) {
   $('text-form').hidden = !show;

@@ -4,6 +4,23 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.10.0 — 2026-11-22
+
+- **Nueva interfaz estilo Apple**: rediseño visual completo con materiales translúcidos tipo macOS / visionOS, tipografía
+  del sistema, dock inferior flotante y panel de *Ajustes* al estilo *Ajustes del Sistema* (barra lateral con iconos por
+  categoría, tarjetas agrupadas e interruptores nativos).
+- **Audio de pantalla compartida compatible con Discord**: la captura de pantalla ahora solicita vídeo y sonido loopback
+  en una sola llamada, evitando el fallo de «solo imagen» cuando Discord ya está compartiendo la ventana de Companion.
+- **Bandeja del sistema, atajos globales, inicio automático y Push-to-Talk**: icono en la bandeja con menú rápido y opción
+  de minimizar al cerrar; arranque automático con Windows/macOS; atajos globales (`Ctrl+Shift+M` silenciar micrófono,
+  `Ctrl+Shift+F` modo flotante, `Ctrl+Shift+S` detener la voz); y modo *Pulsar para hablar* (`Alt derecho`, `F9` o `Bloq Mayús`).
+- **Gemini Live más estable y con memoria en vivo**: soporte de `sessionResumption`, `contextWindowCompression` y `goAway`
+  para mantener el hilo en sesiones largas sin cortes de contexto, más la herramienta silenciosa `recordar` para guardar
+  recuerdos duraderos sin interrumpir la voz.
+- **Recordatorios persistentes y portapapeles bajo demanda**: nueva acción `recordatorio` guardada en SQLite que interpreta
+  fechas/horas en español (*«mañana a las 9»*, *«en 2 horas»*, *«hoy a las 18:30»*) y avisa a su hora incluso tras reiniciar;
+  y nueva acción `portapapeles` para leer, resumir o traducir lo que copiaste solo cuando lo pides.
+
 ## 0.9.2 — 2026-11-21
 
 - **Icono nuevo**: la esfera con ojos, más grande y sin estrella, dibujada aparte para cada tamaño (nítida también en

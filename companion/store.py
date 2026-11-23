@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, role TEXT NOT NULL,
 CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY, fact TEXT NOT NULL UNIQUE, ts REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS summaries (id INTEGER PRIMARY KEY, text TEXT NOT NULL, first_id INTEGER NOT NULL,
                                       last_id INTEGER NOT NULL, ts REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY, due_ts REAL NOT NULL, text TEXT NOT NULL,
+                                      done INTEGER NOT NULL DEFAULT 0, created_ts REAL NOT NULL);
 """)
 # Memoria en tres capas:
 #   corto plazo  → messages: los últimos mensajes van tal cual al modelo
@@ -117,13 +119,42 @@ def relevant_summaries(query: str, skip_recent: int = 8, limit: int = 2, ignore:
     return [(t, ts) for n, ts, t in scored if n >= 2][:limit]
 
 
+def add_reminder(due_ts: float, text: str) -> int:
+    cur = _db.execute("INSERT INTO reminders(due_ts, text, done, created_ts) VALUES (?,?,0,?)",
+                      (float(due_ts), text.strip()[:300], time.time()))
+    _db.commit()
+    return cur.lastrowid
+
+
+def due_reminders(now: float | None = None) -> list[tuple[int, float, str]]:
+    """Recordatorios pendientes cuya hora ya llegó: [(id, due_ts, texto)]."""
+    t = time.time() if now is None else float(now)
+    return _db.execute("SELECT id, due_ts, text FROM reminders WHERE done = 0 AND due_ts <= ? ORDER BY due_ts",
+                       (t,)).fetchall()
+
+
+def pending_reminders(limit: int = 30) -> list[tuple[int, float, str]]:
+    return _db.execute("SELECT id, due_ts, text FROM reminders WHERE done = 0 ORDER BY due_ts LIMIT ?",
+                       (limit,)).fetchall()
+
+
+def mark_reminder_done(rid: int):
+    _db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (int(rid),))
+    _db.commit()
+
+
+def delete_reminder(rid: int):
+    _db.execute("DELETE FROM reminders WHERE id = ?", (int(rid),))
+    _db.commit()
+
+
 def delete_memory(fact: str):
     _db.execute("DELETE FROM memories WHERE fact = ?", (fact,))
     _db.commit()
 
 
 def forget_all():
-    _db.executescript("DELETE FROM messages; DELETE FROM memories; DELETE FROM summaries;")
+    _db.executescript("DELETE FROM messages; DELETE FROM memories; DELETE FROM summaries; DELETE FROM reminders;")
     _db.commit()
     # Sin esto, lo borrado sigue dentro de companion.db (SQLite solo marca las páginas como libres) y se podría
     # recuperar con una herramienta. VACUUM reescribe el archivo sin ello.

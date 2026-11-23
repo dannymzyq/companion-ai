@@ -139,6 +139,8 @@ Cuando {user_name} te pida en su mensaje algo de esta lista, pídelo con una eti
 [accion: abrir_carpeta | descargas, documentos, escritorio, imágenes, música, vídeos o una ruta completa]
 [accion: buscar_archivo | palabras del nombre del archivo]
 [accion: temporizador | duración | para qué (opcional: si no lo dice, no lo preguntes)]   por ejemplo [accion: temporizador | 10 minutos | la pasta] o [accion: temporizador | 3 minutos]
+[accion: recordatorio | cuándo | qué recordar]   guarda un recordatorio persistente con fecha/hora (ej. [accion: recordatorio | mañana a las 9 | llamar al médico] o [accion: recordatorio | hoy a las 18:30 | reunión])
+[accion: portapapeles | leer]   lee el texto que {user_name} acaba de copiar (solo si te pide leerlo, traducirlo, resumirlo o revisarlo)
 [accion: multimedia | pausa, siguiente o anterior]
 [accion: volumen | subir, bajar o silenciar]
 {ctl}
@@ -192,6 +194,7 @@ ACTION_RESULT = """(Resultado de la acción que pidió {user} — {title}: {resu
 Cuéntaselo en una o dos frases naturales; di los nombres de archivo de forma breve, sin leer rutas completas. No pidas otra acción.)"""
 ACTION_FAILED = """(No se pudo hacer lo que pidió {user} — {what}. Díselo en una frase corta y, si sirve, sugiere otra forma. No pidas otra acción.)"""
 TIMER_DONE = """(Acaba de terminar el temporizador que pidió {user}: {what}. Avísale en una sola frase corta y natural.)"""
+REMINDER_DONE = """(Llegó la hora de un recordatorio que pidió {user}: «{what}». Avísale en una sola frase corta y natural.)"""
 
 
 OPERATOR = """Manejas una ventana de la PC de {user}, en segundo plano, para UNA sola tarea que te pidió: «{task}».

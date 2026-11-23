@@ -506,6 +506,16 @@
                 </div>
               </div>
               <div class="set">
+                <div class="set-head"><b>Pulsar para hablar (Push-to-Talk)</b><button class="info" data-tip="tip-ptt" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-ptt" hidden>Si eliges una tecla, el micrófono queda silenciado y solo escucha mientras la mantienes pulsada (ideal para jugar o estar en llamada).</p>
+                <div class="picker"><select id="ptt-key" aria-label="Tecla para hablar">
+                  <option value="">Desactivado (micrófono abierto)</option>
+                  <option value="AltRight">Alt derecho (AltGr)</option>
+                  <option value="F9">Tecla F9</option>
+                  <option value="CapsLock">Bloq Mayús</option>
+                </select></div>
+              </div>
+              <div class="set">
                 <div class="set-head"><b>Cámara</b><button class="info" data-tip="tip-cam" aria-label="Qué es esto">i</button></div>
                 <p class="tip" id="tip-cam" hidden>La cámara que se enciende con el botón de cámara para que te vea.</p>
                 <div class="picker"><select id="cam-select-2" aria-label="Cámara"></select></div>
@@ -523,6 +533,28 @@
                 <input type="checkbox" id="watch" class="switch">
               </label>
               <p class="note">Al compartir pantalla eliges si también escucha su sonido. El botón de flotar en la barra inferior saca a tu personaje sobre tus ventanas.</p>
+            </div>
+
+            <div class="set-card" id="desk-app-card" hidden>
+              <div class="card-head">
+                <h3>Aplicación de escritorio</h3>
+                <small class="card-meta">Bandeja, atajos e inicio</small>
+              </div>
+              <label class="row set">
+                <span><b>Atajos globales</b><button class="info" data-tip="tip-desk-shortcuts" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-desk-shortcuts" hidden>Funcionan incluso dentro de un juego o en otra app: Ctrl+Shift+M silencia el micrófono, Ctrl+Shift+F alterna modo flotante, Ctrl+Shift+S detiene la voz.</small></span>
+                <input type="checkbox" id="desk-shortcuts" class="switch">
+              </label>
+              <label class="row set">
+                <span><b>Minimizar a la bandeja al cerrar</b><button class="info" data-tip="tip-desk-tray" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-desk-tray" hidden>Al pulsar la X, la ventana se oculta en el icono de la bandeja del sistema en vez de cerrar la app.</small></span>
+                <input type="checkbox" id="desk-tray" class="switch">
+              </label>
+              <label class="row set">
+                <span><b>Iniciar al encender la PC</b><button class="info" data-tip="tip-desk-autostart" aria-label="Qué es esto">i</button>
+                  <small class="tip" id="tip-desk-autostart" hidden>Abre Companion automáticamente cuando inicias sesión en Windows o macOS.</small></span>
+                <input type="checkbox" id="desk-autostart" class="switch">
+              </label>
             </div>
 
             <div class="set-card" id="pet-group" hidden>

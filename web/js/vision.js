@@ -52,11 +52,24 @@ export class Vision {
     if (this.sources[kind]) { if (ready) ready.getTracks().forEach((t) => t.stop()); return; }
     const media = navigator.mediaDevices;
     const usable = ready && ready.getVideoTracks()[0] && ready.getVideoTracks()[0].readyState === 'live';
-    const stream = usable ? ready : kind === 'camera'
-      ? await this.openCamera(deviceId)
-      // En un navegador se pide el sonido aquí (su casilla «Compartir audio»). En la app de escritorio, aparte
-      // y después (addDesktopSound): si el sonido falla, la imagen sigue compartida.
-      : await media.getDisplayMedia({ video: { frameRate: { ideal: 5 } }, audio: !window.desktop });
+    let stream;
+    if (usable) {
+      stream = ready;
+    } else if (kind === 'camera') {
+      stream = await this.openCamera(deviceId);
+    } else {
+      // Pide vídeo y sonido en una sola llamada getDisplayMedia (conserva el gesto del clic y evita colisiones
+      // con Discord/OBS al capturar una ventana con loopback). Si Windows rechaza el audio en esa ventana,
+      // reintenta solo vídeo sin volver a abrir el selector y luego intenta el sonido aparte.
+      try {
+        stream = await media.getDisplayMedia({ video: { frameRate: { ideal: 5 } }, audio: true });
+      } catch (err) {
+        if (!window.desktop || err.name === 'AbortError' || err.name === 'NotAllowedError') throw err;
+        const ok = await window.desktop.shareRetryVideo?.().catch(() => false);
+        if (!ok) throw err;
+        stream = await media.getDisplayMedia({ video: { frameRate: { ideal: 5 } }, audio: false });
+      }
+    }
     const video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
@@ -65,7 +78,12 @@ export class Vision {
     const track = stream.getVideoTracks()[0];
     track.addEventListener('ended', () => this.stop(kind));   // «Dejar de compartir» del sistema, o la ventana se cerró
     const detail = kind === 'screen' ? await shareDetail(track) : null;
-    if (detail && detail.wantsAudio) await addDesktopSound(stream, detail);
+    // Solo si pidió audio y la primera llamada no trajo pista de audio, intentamos capturar el loopback aparte.
+    if (detail && detail.wantsAudio && stream.getAudioTracks().length === 0) {
+      await addDesktopSound(stream, detail);
+    } else if (detail) {
+      delete detail.wantsAudio;
+    }
     this.sources[kind] = { stream, video, detail };
     if (kind === 'camera') this.lastCam = { group: track.getSettings().groupId || '', label: track.label };
     this.onChange(kind, stream, this.sources[kind].detail);

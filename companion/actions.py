@@ -20,10 +20,11 @@ import time
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 
-from . import state
+from . import state, store
 from .config import settings
 
 log = logging.getLogger("companion.actions")
@@ -40,6 +41,8 @@ CATALOG = {
     "abrir_carpeta": {"title": "Abrir una carpeta", "report": False},
     "buscar_archivo": {"title": "Buscar archivos por nombre", "report": True},
     "temporizador": {"title": "Poner un temporizador", "report": False},
+    "recordatorio": {"title": "Guardar un recordatorio", "report": False},
+    "portapapeles": {"title": "Leer el portapapeles", "report": True},
     "multimedia": {"title": "Controlar la música o el vídeo", "report": False},
     "volumen": {"title": "Cambiar el volumen", "report": False},
     # Ratón y teclado sobre una ventana (companion/control.py). Desde el 16 nov 2026 también admite «permitir
@@ -64,7 +67,9 @@ class Request:
 
     def public(self, *, is_cloud: bool, provider: str) -> dict:
         note = (f"Con el cerebro en la nube, los nombres de los archivos que encuentre se envían a {provider}."
-                if self.name == "buscar_archivo" and is_cloud else "")
+                if self.name == "buscar_archivo" and is_cloud else
+                f"Con el cerebro en la nube, el texto de tu portapapeles se envía a {provider}."
+                if self.name == "portapapeles" and is_cloud else "")
         if self.name == "controlar":
             note = ("Lo hace en segundo plano, sin quitarte el foco: tu teclado y tu ratón solo los usa si no estás usando "
                     "la PC. Te preguntará antes de enviar, comprar o borrar algo que no pediste, y nunca escribe contraseñas. "
@@ -263,6 +268,89 @@ def _say_duration(s: int) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _parse_when(text: str, now: datetime | None = None) -> float:
+    """Interpreta una fecha/hora en español para un recordatorio («en 2 horas», «hoy a las 18:30»,
+    «mañana a las 9», «25/11 a las 10:00», «a las 20:00») y devuelve el timestamp Unix."""
+    cur = now or datetime.now()
+    t = _plain(text)
+    if not t:
+        raise ActionError("Necesito saber cuándo avisarte.")
+    # Relativo: «en 2 horas», «en 30 minutos», «en 1 hora y media»
+    if re.search(r"^(?:en|dentro de)\b", t):
+        secs = _duration(re.sub(r"^(?:en|dentro de)\s+", "", t))
+        return (cur + timedelta(seconds=secs)).timestamp()
+
+    # Fecha base: hoy, mañana, pasado mañana, o DD/MM(/YYYY)
+    base = cur.replace(second=0, microsecond=0)
+    explicit_day = False
+    m_date = re.search(r"\b(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?\b", t)
+    if m_date:
+        day, month = int(m_date.group(1)), int(m_date.group(2))
+        yr_raw = m_date.group(3)
+        year = (2000 + int(yr_raw) if yr_raw and len(yr_raw) == 2 else int(yr_raw) if yr_raw else cur.year)
+        try:
+            base = base.replace(year=year, month=month, day=day)
+        except ValueError as e:
+            raise ActionError("Esa fecha no es válida.") from e
+        explicit_day = True
+    elif "pasado manana" in t:
+        base = base + timedelta(days=2)
+        explicit_day = True
+    elif "manana" in t:
+        base = base + timedelta(days=1)
+        explicit_day = True
+    elif "hoy" in t:
+        explicit_day = True
+
+    # Hora: «a las 9», «a las 18:30», «9:15 pm», «las 8 de la noche»
+    m_time = re.search(r"(?:a\s+las?\s+|las?\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|de la manana|de la tarde|de la noche)?\b",
+                       re.sub(r"\b\d{1,2}[/\-]\d{1,2}(?:[/\-]\d{2,4})?\b", " ", t))
+    if m_time and (re.search(r"(?:a\s+las?|[:.]|\b(?:am|pm|manana|tarde|noche)\b)", t)):
+        hh = int(m_time.group(1))
+        mm = int(m_time.group(2) or 0)
+        ampm = (m_time.group(3) or "").strip()
+        if ampm in ("pm", "de la tarde", "de la noche") and 1 <= hh < 12:
+            hh += 12
+        elif ampm in ("am", "de la manana") and hh == 12:
+            hh = 0
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            raise ActionError("Esa hora no es válida.")
+        target = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if not explicit_day and target <= cur:
+            target += timedelta(days=1)
+    elif explicit_day:
+        target = base.replace(hour=9, minute=0, second=0, microsecond=0)
+    else:
+        # Último intento: duración suelta («2 horas»)
+        secs = _duration(t)
+        return (cur + timedelta(seconds=secs)).timestamp()
+
+    delta = (target - cur).total_seconds()
+    if delta < 10:
+        raise ActionError("Esa fecha u hora ya pasó.")
+    if delta > 366 * 86400:
+        raise ActionError("Solo puedo guardar recordatorios hasta un año vista.")
+    return target.timestamp()
+
+
+def _read_clipboard() -> str:
+    """Lee el texto del portapapeles bajo demanda (Windows / macOS)."""
+    if os.getenv("COMPANION_CLIPBOARD_TEST") is not None:
+        return os.environ["COMPANION_CLIPBOARD_TEST"]
+    try:
+        if sys.platform == "darwin":
+            r = subprocess.run(["pbpaste"], capture_output=True, timeout=5)
+            return r.stdout.decode("utf-8", "replace")
+        if sys.platform == "win32":
+            cmd = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Clipboard -Raw"
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, timeout=5,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return r.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError) as e:
+        raise ActionError(f"No pude leer el portapapeles ({e}).") from e
+    return ""
+
+
 def prepare(name: str, args: list[str]) -> Request:
     """Comprueba la acción y resuelve a qué se refiere. Lanza ActionError si no se puede hacer."""
     name = _plain(name).replace(" ", "_")
@@ -348,6 +436,19 @@ def prepare(name: str, args: list[str]) -> Request:
         task = args[1][:200]
         return Request(name, args, title, f"Usar «{win.title[:60]}» para: {task}", {"window": win, "task": task})
 
+    if name == "recordatorio":
+        when_str = args[0] if args else ""
+        what = " ".join(args[1:]).strip() if len(args) > 1 else ""
+        if not when_str or not what:
+            raise ActionError("Necesito saber cuándo y qué recordar (ej. «mañana a las 9 | llamar al médico»).")
+        due_ts = _parse_when(when_str)
+        when_fmt = time.strftime("%d/%m a las %H:%M", time.localtime(due_ts))
+        return Request(name, args, title, f"Recordatorio ({when_fmt}): {what}",
+                       {"due_ts": due_ts, "text": what, "when": when_fmt})
+
+    if name == "portapapeles":
+        return Request(name, args or ["leer"], title, "Leer el texto del portapapeles", {})
+
     if name == "volumen":
         k = _plain(" ".join(args))
         op = ("silenciar" if re.search(r"silen|mute|quit", k) else
@@ -376,6 +477,8 @@ _GUESS = [
     ("controlar", re.compile(r"^(?:en|usa|usando|con)\s+(?:la app\s+|el programa\s+|la ventana de\s+)?(?P<a>[\w .-]{2,30}?)\s+(?:para\s+)?(?P<b>" + _DO + r"\b.+)$")),
     # «reproduce La Barca de Luis Miguel en Apple Music»: la tarea primero y la aplicación al final
     ("controlar", re.compile(r"^(?P<b>" + _DO + r"\b.+?)\s+en\s+(?:la app\s+|el programa\s+|la ventana de\s+)?(?P<a>[\w .-]{2,30})$")),
+    ("recordatorio", re.compile(r"^(?:recuerdame|pon(?:me)?\s+un\s+recordatorio\s+(?:para\s+)?|avisame)\s+(?P<a>(?:en\s+[\w ,.]+?|pasado\s+manana(?:\s+a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?)?|manana(?:\s+a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?)?|hoy\s+a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?|\d{1,2}[/\-]\d{1,2}(?:[/\-]\d{2,4})?(?:\s+a\s+las?\s+[\d:.]+)?|a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?))\s+(?:que\s+|de\s+|para\s+)?(?P<b>.+)$")),
+    ("portapapeles", re.compile(r"^(?:lee(?:me)?|traduce(?:me)?|resume(?:me)?|revisa(?:me)?|explica(?:me)?|corrige(?:me)?|que\s+hay\s+en|mira)\s+(?:el\s+|mi\s+)?(?P<a>portapapeles|lo que (?:acabo de copiar|copie|tengo copiado))\b")),
     ("temporizador", re.compile(r"\b(?:pon|ponme|programa|activa|crea)\s+(?:un|otro)?\s*(?:temporizador|cronometro|alarma)\s+(?:de\s+)?(?P<a>[\w ,.]+?)(?:\s+para\s+(?P<b>.+))?$")),
     ("buscar_archivo", re.compile(r"^(?:busca(?:me)?|encuentra(?:me)?|localiza)\s+(?:mi|mis|el|la|los|las|un|una)?\s*(?:archivo|archivos|documento|documentos|fichero|ficheros|foto|fotos|pdf)\s+(?:de\s+(?:la|el|los|las)?\s*|del\s+|que se llama\s+|llamado\s+)?(?P<a>.+)$")),
     ("volumen", re.compile(r"^(?P<a>sube|subeme|baja|bajame|silencia|quita|pon)\s+(?:el\s+)?(?:volumen|sonido|audio)(?P<b>.*)$")),
@@ -397,6 +500,8 @@ def guess(text: str) -> tuple[str, list[str]] | None:
             args = [g.strip() for g in (m.groupdict().get("a"), m.groupdict().get("b")) if g and g.strip()]
             if name == "controlar" and m.group("b").startswith(("abre", "abreme")) and "carpeta" in m.group("b"):
                 continue                                # «abre la carpeta… en el explorador»: es abrir_carpeta
+            if name == "portapapeles":
+                args = ["leer"]
             if name == "volumen":
                 args = [" ".join(args)]
             if name == "controlar":                     # solo si hay una ventana abierta con ese nombre
@@ -490,8 +595,18 @@ def run(req: Request) -> str:
                 where = str(p.parent)
             rows.append(f"{p.name} (en {where})")
         return f"Encontré {len(hits)}{' o más' if len(hits) >= SEARCH_MAX else ''}: " + "; ".join(rows)
+    if req.name == "portapapeles":
+        clip = _read_clipboard().strip()
+        if not clip:
+            return "El portapapeles está vacío."
+        if len(clip) > 2500:
+            clip = clip[:2500] + "… (recortado)"
+        return f"Contenido del portapapeles: {clip}"
     if DRY:
         return f"(simulado) {req.detail}"
+    if req.name == "recordatorio":
+        store.add_reminder(t["due_ts"], t["text"])
+        return f"Recordatorio guardado para el {t['when']}: {t['text']}."
     if req.name == "abrir_app":
         if sys.platform == "darwin":
             subprocess.Popen(["open", t["app"]["id"]])     # la ruta del .app
