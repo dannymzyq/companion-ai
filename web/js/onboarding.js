@@ -124,6 +124,8 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
 
   // ---------------------------------------------------------------- 2b. modelo local
   async function fillLocal() {
+    // En el teléfono (movil/core/ui_movil.js) este paso es «todo dentro del teléfono»: modelos y descargas.
+    if (window.companionPhone) return window.companionPhone.fill(sections.local, { setup, fail, poll: (id) => { poll = id; } });
     const draw = () => {
       const l = setup.local, res = setup.resources;
       const gb = l.gpu ? Math.round(l.gpu.total / 1024) : 0;
@@ -182,6 +184,7 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
   }
 
   async function saveLocal() {
+    if (window.companionPhone) return window.companionPhone.save();
     if (!localPick) throw new Error('Descarga y elige un modelo para continuar.');
     await api('/api/setup', { local_model: localPick, provider: 'local' });
   }

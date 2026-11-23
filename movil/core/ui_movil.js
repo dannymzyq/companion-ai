@@ -1,0 +1,745 @@
+// Capa de interfaz del teléfono sobre web/ (que es la de la PC): elegir el modo «todo dentro del teléfono» con sus
+// descargas, textos adaptados al teléfono, márgenes de la barra de estado y lo que aquí no existe, oculto.
+// La carga boot.js; onboarding.js le pasa el paso «local» (window.companionPhone).
+
+import { call, on } from './platform.js';
+
+const $ = (id) => document.getElementById(id);
+const api = async (path, body) => {
+  const r = await fetch(path, body === undefined ? undefined
+    : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'No se pudo guardar.');
+  return data;
+};
+const gb = (b) => `${(b / 1e9).toFixed(b >= 1e9 ? 1 : 2).replace('.', ',')} GB`;
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+// ---------------------------------------------------------------- textos de la PC → del teléfono
+const TEXTOS = [
+  ['Permitir micrófono y cámara', 'Permitir micrófono'],
+  ['Último paso: elige tu micrófono y tu cámara.', 'Último paso: comprueba tu micrófono.'],
+  [' y, con la mirada en vivo, también cada pocos segundos por su cuenta', ''],   // la mirada en vivo es de la PC ['Micrófono y cámara', 'Micrófono'],
+  ['Sin micrófono · sin cámara', 'Sin micrófono'], [' · sin cámara', ''],
+  ['Local · ', 'Teléfono · '],
+  ['No quiero usar una clave: usar un modelo en esta PC', 'Prefiero todo dentro del teléfono, sin internet'],
+  ['La clave se guarda solo en esta PC.', window.companionNative && window.companionNative.platform === 'android'
+    ? 'La clave se guarda solo en el almacén seguro de este teléfono.' : 'La clave se guarda solo en el llavero de este teléfono.'],
+  [': responde mejor y no ocupa tu tarjeta gráfica.', ': responde mejor y gasta menos batería.'],
+  ['Recomendada para tu PC', 'Recomendada'],
+  ['Ollama en esta PC', 'Todo en el teléfono'],
+  ['Whisper en esta PC', 'Whisper en el teléfono'],
+  ['Tu voz se transcribe en esta PC.', 'Tu voz se transcribe en el teléfono.'],
+  ['Responde mejor y no ocupa tu tarjeta gráfica.', 'Responde mejor y gasta menos batería.'],
+  ['en esta PC', 'en este teléfono'], ['de esta PC', 'de este teléfono'], ['esta PC', 'este teléfono'],
+  ['en tu PC', 'en tu teléfono'], ['de tu PC', 'de tu teléfono'], ['tu PC', 'tu teléfono'],
+  ['la PC', 'el teléfono'], ['su PC', 'su teléfono'],
+  ['; la GPU del Mac queda libre', '; no descarga nada en el teléfono'], ['; tu tarjeta gráfica queda libre', '; no descarga nada en el teléfono'],
+  ['nada se carga en la GPU del Mac', 'nada se descarga'], ['la GPU del Mac', 'el teléfono'],
+  ['Tu tarjeta queda libre', 'Sin descargas'], ['nada se carga en tu tarjeta', 'nada se descarga'],
+  ['En vivo no se carga nada en tu tarjeta: ni el oído (Whisper) ni la voz completa.', 'En vivo no se descarga ni se carga ningún modelo en el teléfono.'],
+];
+const MOTOR_NUBE = 'Habla con las voces neuronales de Microsoft: necesita internet.';
+const MOTOR_TEL = 'Habla con la voz ligera, dentro del teléfono: sin internet.';
+
+const CLAVES = new RegExp(TEXTOS.map(([a]) => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
+
+function adaptar(texto) {
+  let t = texto;
+  for (const [a, b] of TEXTOS) if (t.includes(a)) t = t.split(a).join(b);
+  return t;
+}
+
+function adaptarNodo(root) {
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    if (CLAVES.test(n.nodeValue)) { const t = adaptar(n.nodeValue); if (t !== n.nodeValue) n.nodeValue = t; }
+  }
+  if (root.querySelectorAll) {
+    for (const e of root.querySelectorAll('[placeholder],[title]')) {
+      for (const a of ['placeholder', 'title']) {
+        const v = e.getAttribute(a);
+        if (v && CLAVES.test(v)) e.setAttribute(a, adaptar(v));
+      }
+    }
+  }
+}
+
+// Notas largas que en la PC hablan de tarjeta y memoria de vídeo: en el teléfono se escriben de nuevo.
+const poner = (e, t) => { if (e && e.textContent !== t) e.textContent = t; };
+
+function notas(cfg) {
+  const phone = cfg && cfg.mode === 'telefono';
+  document.body.classList.toggle('modo-telefono', !!phone);
+  const note = $('ob-engine-note');
+  if (note && /NVIDIA|tarjeta|vídeo/.test(note.textContent)) poner(note, phone ? MOTOR_TEL : MOTOR_NUBE);
+  const brain = $('brain-note');
+  if (brain && cfg) {
+    const name = cfg.name || 'Tu companion';
+    poner(brain, phone
+      ? `Todo pasa dentro de este teléfono: tu voz, lo que piensa ${name} y su voz. Nada sale a internet.`
+        + (cfg.adult && cfg.adult.active ? ' Sin filtro para temas +18 si tú los propones.' : '')
+      : `El texto de la conversación viaja a ${cfg.cloud.name}, tu voz se transcribe en la nube y la voz de ${name} se genera en la nube.`);
+  }
+  const local = $('tip-local');
+  poner(local, 'Los modelos que usa el modo teléfono: el cerebro (Gemma), el oído (Whisper) y la voz ligera. '
+    + 'Se descargan una vez y después funcionan sin internet.');
+  const head = local && local.closest('.set') && local.closest('.set').querySelector('.set-head b');
+  poner(head, 'Modelos del teléfono');
+}
+
+// ---------------------------------------------------------------- el paso «todo dentro del teléfono»
+let estado = null;
+let pintar = null;
+
+async function refrescar() {
+  estado = await api('/api/phone');
+  if (pintar) pintar();
+  return estado;
+}
+
+function opcion(nombre, detalle, on, onClick) {
+  const row = el('div', 'model-row' + (on ? ' on' : ''));
+  const b = el('button', 'pick');
+  b.append(el('b', null, nombre), el('small', null, detalle));
+  b.onclick = onClick;
+  row.append(b);
+  return row;
+}
+
+async function fill(section, { fail, poll }) {
+  section.replaceChildren(
+    el('h2', null, 'Todo dentro del teléfono'),
+    el('p', null, 'Sin internet: te oye, piensa y habla aquí mismo, y nada sale del teléfono. La primera vez hay que '
+      + 'descargar los modelos (mejor con wifi).'),
+  );
+  const box = el('div');
+  section.append(box);
+  pintar = () => {
+    if (!estado) return;
+    const by = Object.fromEntries(estado.models.map((m) => [m.kind, m]));
+    const parts = [];
+    for (const kind of ['cerebro', 'oido']) {
+      parts.push(el('label', 'ob-label', kind === 'cerebro' ? 'Cerebro' : 'Oído'));
+      const list = el('div', 'model-list');
+      for (const o of estado.options[kind]) {
+        const chosen = by[kind] && by[kind].id === o.id;
+        const size = o.total ? gb(o.total) : '';
+        const ready = o.listo ? ' · descargado' : '';
+        if (o.cabe === false) {
+          const row = opcion(o.nombre, `${size} · No cabe en la memoria que iOS le deja a la app en este iPhone`, false, () => {});
+          row.querySelector('button').disabled = true;
+          row.querySelector('button').style.opacity = '0.45';
+          if (o.listo) {                       // bajado pero inservible aquí: que se pueda recuperar el espacio
+            const del = el('button', 'mini', `Borrar (${size})`);
+            del.onclick = async () => {
+              try { await api('/api/phone/delete', { id: o.id }); await refrescar(); } catch (e) { fail(e.message); }
+            };
+            row.append(del);
+          }
+          list.append(row);
+          continue;
+        }
+        list.append(opcion(o.nombre, [size + ready, o.nota].filter(Boolean).join(' · '), chosen, async () => {
+          try { await api('/api/setup', { phone_models: { [kind]: o.id } }); await refrescar(); } catch (e) { fail(e.message); }
+        }));
+      }
+      parts.push(list);
+    }
+    const falta = estado.missing_bytes;
+    const bajando = estado.models.filter((m) => m.progress && !m.progress.fin && !m.progress.error);
+    const fallo = estado.models.find((m) => m.progress && m.progress.error && m.progress.error !== 'cancelada');
+    const info = el('p', 'ob-info');
+    const cell = el('label', 'ob-check');
+    const check = el('input'); check.type = 'checkbox'; check.id = 'phone-cell';
+    check.checked = sessionStorage.getItem('companion.cellular') === '1';
+    check.onchange = () => sessionStorage.setItem('companion.cellular', check.checked ? '1' : '0');
+    cell.append(check, document.createTextNode(' Permitir descargar con datos móviles'));
+    const actions = el('div', 'ob-actions');
+    if (bajando.length) {
+      const done = bajando.reduce((a, m) => a + m.progress.done, 0), total = bajando.reduce((a, m) => a + m.progress.total, 0);
+      const pct = total ? Math.floor((done / total) * 100) : 0;
+      info.textContent = `Descargando… ${pct} % (${gb(done)} de ${gb(total)}). Puedes salir de esta pantalla: sigue sola mientras la app esté abierta.`;
+      const bar = el('div', 'phone-bar'); const fillBar = el('i'); fillBar.style.width = `${pct}%`; bar.append(fillBar);
+      const stop = el('button', 'link', 'Cancelar');
+      stop.onclick = async () => { for (const m of bajando) await api('/api/phone/cancel', { id: m.id }).catch(() => {}); refrescar(); };
+      actions.append(stop);
+      parts.push(info, bar, actions);
+    } else if (falta > 0) {
+      const partial = estado.models.some((m) => !m.listo && m.present > 0);
+      info.textContent = `Falta descargar ${gb(falta)}.` + (check.checked ? '' : ' Solo con wifi.')
+        + (fallo ? ` La última descarga falló (${fallo.progress.error}).` : '');
+      const get = el('button', 'primary', `${partial ? 'Reanudar' : 'Descargar'} (${gb(falta)})`);
+      get.onclick = async () => {
+        fail('');
+        try { await api('/api/phone/download', { cellular: check.checked }); await refrescar(); } catch (e) { fail(e.message); }
+      };
+      actions.append(get);
+      parts.push(info, cell, actions);
+    } else {
+      info.textContent = estado.simulated_brain
+        ? 'Todo descargado. En el simulador el cerebro es de prueba; en el iPhone piensa Gemma.'
+        : 'Todo descargado: ya funciona sin internet.';
+      parts.push(info);
+    }
+    box.replaceChildren(...parts);
+  };
+  box.replaceChildren(el('p', 'ob-info', 'Mirando qué hay en el teléfono…'));
+  try { await refrescar(); } catch (e) { fail(`No pude ver los modelos: ${e.message}`); }
+  poll(setInterval(() => refrescar().catch(() => {}), 1000));
+}
+
+async function save() {
+  const s = estado || await refrescar();
+  if (s.missing_bytes > 0) {
+    throw new Error('Descarga los modelos para usar el modo teléfono, o vuelve a la nube con «Atrás».');
+  }
+  await api('/api/setup', { mode: 'telefono' });
+}
+
+// ---------------------------------------------------------------- ventana flotante (picture in picture)
+// Como las apps de vídeo: el personaje sigue en una ventanita encima de las demás apps. Se copia el dibujo 3D a un
+// lienzo con fondo (de la cintura a la cabeza) y cada cuadro va al nativo (VentanaFlotante.swift), que lo pone en
+// la ventana flotante de iOS (WebKit no deja hacer picture in picture de un lienzo). Con la app en segundo plano la página no recibe cuadros (requestAnimationFrame se para): un
+// temporizador sigue moviendo al personaje mientras la ventana está abierta.
+const pip = { canvas: null, timer: null, on: false };
+// Android: la ventana flotante es la propia app en pequeño (MainActivity), en directo: sin cuadros ni latido.
+const ANDROID = !!(window.companionNative && window.companionNative.platform === 'android');
+
+function pipCopy() {
+  const av = window.companion && window.companion.avatar;
+  if (!av || !pip.canvas) return;
+  const src = av.renderer.domElement, g = pip.canvas.getContext('2d');
+  const W = pip.canvas.width, H = pip.canvas.height;
+  const grad = g.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#1d1830'); grad.addColorStop(1, '#0c0b14');
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  // Recorte con la proporción de la ventanita, centrado arriba (donde está la cabeza con el primer plano).
+  const sw = src.width, sh = src.height, want = W / H;
+  let cw = sw, ch = sw / want;
+  if (ch > sh) { ch = sh; cw = sh * want; }
+  // Centrado en la franja del personaje (entre el nombre y los botones), en vertical 9:16.
+  const z = av.closeUp && av.closeUp.top ? av.closeUp : { top: 0.13, bottom: 0.85 };
+  const sy = Math.min(Math.max(((z.top + z.bottom) / 2) * sh - ch / 2, 0), Math.max(0, sh - ch));
+  g.drawImage(src, (sw - cw) / 2, sy, cw, ch, 0, 0, W, H);
+}
+
+// Un cuadro para la ventanita. Con la app delante, main.js dibuja en cada requestAnimationFrame y la copia se
+// hace justo después, en el mismo cuadro (fuera de él, WebGL ya no guarda la imagen). En segundo plano no hay
+// requestAnimationFrame: aquí se mueve y se dibuja al personaje antes de copiarlo.
+function pipFrame() {
+  const av = window.companion && window.companion.avatar, a = window.companion && window.companion.audio;
+  if (!av || !pip.canvas) return Promise.resolve();
+  // Si la app pasa a segundo plano mientras espera, requestAnimationFrame ya no llega: a los 150 ms se sigue sin él.
+  if (!document.hidden) return new Promise((r) => {
+    const t = setTimeout(r, 150);
+    requestAnimationFrame(() => { clearTimeout(t); pipCopy(); r(); });
+  });
+  try { av.setVoice(a ? a.analyse() : { vol: 0 }); av.update(); } catch { /* el siguiente cuadro */ }
+  pipCopy();
+  return Promise.resolve();
+}
+
+// El botón ARMA la ventana: iOS no deja que una app se mande sola a segundo plano, así que (como las apps de
+// vídeo) la ventanita se abre al salir de la app (VentanaFlotante: canStartPictureInPictureAutomaticallyFromInline).
+async function abrirFlotante(callado = false) {
+  if (ANDROID) {
+    await call('pip.open');
+    pip.on = true;
+    if (!callado) aviso('Ventana flotante encendida: al salir de la app te acompaña en una ventanita.');
+    return;
+  }
+  const av = window.companion && window.companion.avatar;
+  if (!av || !av.renderer) throw new Error('El personaje todavía está cargando.');
+  if (!pip.canvas) {
+    pip.canvas = Object.assign(document.createElement('canvas'), { width: 360, height: 640 });
+    on('pip', (open) => { if (!open && pip.on) console.info('Ventana flotante cerrada'); });
+  }
+  await call('pip.open', { width: pip.canvas.width, height: pip.canvas.height });
+  pip.on = true;
+  // A 15 cuadros por segundo, el vigilante de fluidez de avatar.js creería que el teléfono va lento y bajaría la
+  // resolución: se pausa mientras la ventanita está encendida.
+  if (!pip.watch) { pip.watch = av._frameWatch; av._frameWatch = () => {}; }
+  let enviando = false;
+  const tick = async () => {
+    if (enviando || !pip.on) return;
+    if (!pip.latido) latido();                     // el audio de la página se crea con el primer toque              // si el puente va lento, se salta un cuadro
+    enviando = true;
+    try {
+      await pipFrame();
+      await call('pip.frame', { jpeg: pip.canvas.toDataURL('image/jpeg', 0.75).split(',')[1] });
+    } catch { /* el siguiente */ } finally { enviando = false; }
+  };
+  pip.tick = tick;
+  latido();
+  tick();
+  clearInterval(pip.timer);
+  pip.timer = setInterval(tick, 66);              // ~15 cuadros por segundo
+  if (!callado) aviso('Ventana flotante encendida: al salir de la app te acompaña en una ventanita.');
+}
+
+// En segundo plano iOS duerme la página (y con ella sus temporizadores y requestAnimationFrame) salvo que esté
+// sonando audio. Este nodo suena un ruido muy por debajo de lo audible (WebKit trata el silencio absoluto como «no
+// suena») y, además, su reloj de audio no se frena con la app fuera: cada ~43 ms se mueve y se dibuja al personaje y
+// se manda el cuadro a la ventanita, igual que con la app delante.
+function latido() {
+  const a = window.companion && window.companion.audio;
+  const ctx = a && a.ctx;
+  if (!ctx || pip.latido) return;
+  try {
+    const n = ctx.createScriptProcessor(2048, 1, 1);
+    let ultimo = 0;
+    n.onaudioprocess = (e) => {
+      const out = e.outputBuffer.getChannelData(0);
+      for (let i = 0; i < out.length; i++) out[i] = (Math.random() - 0.5) * 2e-4;
+      const now = performance.now();
+      if (pip.on && document.hidden && pip.tick && now - ultimo > 60) { ultimo = now; pip.tick(); }
+    };
+    n.connect(ctx.destination);
+    pip.latido = n;
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  } catch (err) { console.warn('Ventana flotante: sin latido de audio', err); }
+}
+
+function cerrarFlotante() {
+  if (ANDROID) { pip.on = false; call('pip.close').catch(() => {}); return; }
+  if (pip.latido) { try { pip.latido.disconnect(); } catch { /* ya */ } pip.latido = null; }
+  clearInterval(pip.timer); pip.timer = null; pip.on = false;
+  const av = window.companion && window.companion.avatar;
+  if (av && pip.watch) { av._frameWatch = pip.watch; pip.watch = null; }
+  call('pip.close').catch(() => {});
+}
+
+function aviso(text) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = text; t.hidden = false;
+  clearTimeout(aviso.timer);
+  aviso.timer = setTimeout(() => { t.hidden = true; }, 4500);
+}
+function pipApagada() { try { return localStorage.getItem('pip_flotante') === 'no'; } catch { return false; } }
+function guardarPip(encendida) { try { localStorage.setItem('pip_flotante', encendida ? 'si' : 'no'); } catch { /* sin guardar */ } }
+window.companionPip = { abrir: abrirFlotante, cerrar: cerrarFlotante, estado: () => pip.on };
+
+window.companionPhone = { fill, save, refresh: refrescar };
+
+// ---------------------------------------------------------------- arranque
+export function init() {
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (meta && !/viewport-fit/.test(meta.content)) meta.content += ', viewport-fit=cover';
+  const style = document.createElement('style');
+  style.textContent = `
+    header { padding-top: calc(env(safe-area-inset-top) + 8px) !important; }
+    footer { padding-bottom: calc(env(safe-area-inset-bottom) + 6px) !important; }
+    #banner { margin-top: env(safe-area-inset-top); }
+    #settings > * { padding-top: calc(env(safe-area-inset-top) + 12px); }
+    #onboard { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+    #start, #loading { padding-top: env(safe-area-inset-top); }
+    #modes [data-mode="hybrid"], .row:has(#cloud-only), .row:has(#voice-auto), #voice-auto-note, #ear, .modo-telefono .set:has(#ear), .set:has(#output-select),
+    #ob-engine-get, #ob-tts { display: none !important; }
+    #text-send { display: grid !important; place-items: center; flex: 0 0 auto; width: 44px; height: 44px; margin-left: 6px;
+      border-radius: 50%; border: none; background: var(--accent, #a78bfa); color: #14111f; }
+    #text-send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    #text-form:not([hidden]) { display: flex; align-items: center; }
+    #text-form #text-input { flex: 1 1 auto; min-width: 0; }
+    #float-btn[hidden] { display: inline-grid !important; }
+    /* Lo de la PC que no existe en el teléfono: pantalla compartida y mirada en vivo, acciones en el equipo. */
+    .set-card:has(#watch-row), .set-card:has(#actions-on), #sum-acciones { display: none !important; }
+    /* Con el teclado, el margen de abajo del iPhone ya no cuenta (lo tapa el teclado): se sube su alto entero. */
+    footer { transform: translateY(calc(-1 * var(--teclado, 0px)));
+      transition: transform var(--teclado-t, 0.25s) ease-out; }
+    .con-teclado footer { padding-bottom: 10px !important; }
+    .con-teclado footer > .controls { display: none !important; }
+    .phone-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; margin: 6px 0 10px; }
+    .phone-bar i { display: block; height: 100%; background: var(--accent, #a78bfa); transition: width 0.4s; }
+    .ob-label { display: block; margin: 14px 0 6px; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+    .ob-check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; margin: 6px 0 12px; }
+    .ob-actions { display: flex; gap: 12px; align-items: center; }`;
+  document.head.append(style);
+
+  if (ANDROID) {
+    // Márgenes de las barras de Android (los pone MainActivity en --sat/--sab: WebView no siempre da env()).
+    style.textContent += `
+      header { padding-top: calc(max(env(safe-area-inset-top), var(--sat, 0px)) + 8px) !important; }
+      footer { padding-bottom: calc(max(env(safe-area-inset-bottom), var(--sab, 0px)) + 6px) !important; }
+      #banner { margin-top: max(env(safe-area-inset-top), var(--sat, 0px)); }
+      #settings > * { padding-top: calc(max(env(safe-area-inset-top), var(--sat, 0px)) + 12px); }
+      #onboard, #start, #loading { padding-top: max(env(safe-area-inset-top), var(--sat, 0px)); }
+      #previews { top: calc(max(env(safe-area-inset-top), var(--sat, 0px)) + 64px) !important; }
+      /* Todo dentro del teléfono (MLX, WhisperKit) aún no existe en Android. */
+      #modes [data-mode="local"], #ob-go-local { display: none !important; }
+      /* En la ventana flotante solo el personaje, de cuerpo a cabeza. */
+      .en-pip header, .en-pip footer, .en-pip #previews, .en-pip #toast, .en-pip #banner, .en-pip #settings,
+      .en-pip #start, .en-pip #captions, .en-pip #subtitle { display: none !important; }`;
+    on('pipModo', (enPip) => {
+      document.body.classList.toggle('en-pip', !!enPip);
+      setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 150);
+    });
+  }
+
+  // Si iOS interrumpe el audio de la página (una llamada, Siri, otra app), se reanuda solo al volver: si no, la voz
+  // queda muda hasta reiniciar la app.
+  setInterval(() => {
+    const a = window.companion && window.companion.audio;
+    if (a && a.ctx && a.ctx.state === 'interrupted') a.ctx.resume().catch(() => {});
+  }, 1000);
+  document.addEventListener('visibilitychange', () => {
+    const a = window.companion && window.companion.audio;
+    if (!document.hidden && a && a.ctx && a.ctx.state !== 'running') a.ctx.resume().catch(() => {});
+  });
+
+  // Teclado (lo mide el nativo, Bridge.watchKeyboard): solo la barra de abajo sube por encima; el personaje no se
+  // mueve. Al cerrarlo, todo vuelve a su sitio.
+  window.__teclado = (alto, dur) => {
+    const root = document.documentElement.style;
+    root.setProperty('--teclado', `${alto}px`);
+    root.setProperty('--teclado-t', `${Math.max(0.1, dur || 0.25)}s`);
+    document.body.classList.toggle('con-teclado', alto > 0);
+    // Fuera del chat (bienvenida, Ajustes): el campo con el cursor sube por encima del teclado.
+    const el = document.activeElement;
+    if (alto > 0 && el && el.matches('input, textarea, select') && el.id !== 'text-input') {
+      setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80);
+    }
+  };
+  style.textContent += `
+    .con-teclado #onboard { padding-bottom: var(--teclado) !important; transition: padding var(--teclado-t, 0.25s); }
+    .con-teclado #onboard > .card, .con-teclado #onboard .card { max-height: calc(100vh - var(--teclado) - 24px); overflow-y: auto; }
+    .con-teclado #settings > * { padding-bottom: calc(var(--teclado) + 16px) !important; }`;
+
+  // Cámara en el teléfono: vista previa vertical (9:16), espejo solo con la frontal y un botón para pasar por las
+  // cámaras del iPhone (frontal, trasera, gran angular…). La elegida se recuerda (companion.cam, como en main.js).
+  style.textContent += `
+    #previews { top: calc(env(safe-area-inset-top) + 64px) !important; }
+    #previews figure { width: 112px !important; }
+    #previews video { aspect-ratio: 9 / 16 !important; }
+    #preview-camera video { transform: none !important; }
+    #preview-camera.frontal video { transform: scaleX(-1) !important; }
+    #preview-camera video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+    #preview-camera { width: 128px !important; aspect-ratio: 9 / 16; }
+    #preview-camera .zoom-txt { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); padding: 2px 7px;
+      border-radius: 10px; background: rgba(0,0,0,0.55); color: #fff; font-size: 0.7rem; pointer-events: none; }
+    #preview-camera .zoom-txt[hidden] { display: none; }
+    #previews figure button.girar { left: 5px; right: auto; width: 30px; height: 30px; top: 5px; }
+    #previews figure button.girar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round; }`;
+  const figCam = $('preview-camera');
+  const vis = () => window.companion && window.companion.vision;
+  const marcarFrontal = () => {
+    const src = vis() && vis().sources.camera;
+    const t = src && src.stream.getVideoTracks()[0];
+    const s = t ? t.getSettings() : {};
+    figCam.classList.toggle('frontal', s.facingMode ? s.facingMode === 'user' : /front|frontal|user/i.test(t ? t.label : ''));
+  };
+  if (figCam) {
+    const girar = document.createElement('button');
+    girar.className = 'girar';
+    girar.setAttribute('aria-label', 'Cambiar de cámara'); girar.title = 'Cambiar de cámara';
+    girar.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9.5 12.5a3 3 0 0 1 5-1.5l.8.8M14.5 14.5a3 3 0 0 1-5 1.5l-.8-.8"/><path d="M15.5 9.8v2h-2M8.5 17.2v-2h2"/></svg>';
+    girar.addEventListener('click', async (e) => {
+      e.stopPropagation(); e.preventDefault();
+      const v = vis();
+      if (!v || !v.active('camera') || girar.disabled) return;
+      girar.disabled = true;
+      try {
+        const cams = await v.listCams();
+        if (cams.length < 2) { aviso('Este iPhone solo tiene una cámara disponible.'); return; }
+        const actual = v.sources.camera.stream.getVideoTracks()[0].getSettings().deviceId;
+        const sig = cams[(cams.findIndex((c) => c.id === actual) + 1) % cams.length];
+        v.stop('camera');
+        await v.start('camera', sig.id);
+        try { localStorage.setItem('companion.cam', sig.id); } catch { /* sin guardar */ }
+        const sel = $('cam-select-2'); if (sel) sel.value = sig.id;
+        aviso(sig.label);
+      } catch (err) {
+        aviso(`No pude cambiar de cámara: ${err.message || err.name}`);
+        try { await vis().start('camera'); } catch { /* se queda apagada */ }
+      } finally { girar.disabled = false; marcarFrontal(); figCam.dispatchEvent(new Event('camara-lista')); }
+    }, true);
+    figCam.append(girar);
+    // Zoom: pellizcar la vista previa, o tocarla para pasar por 0,5× (gran angular), 1×, 2× y 5×. WebKit ya da el
+    // zoom como la app Cámara (medido: la triple va de 0,5 a 10, la frontal de 1 a 10).
+    const zoomTxt = document.createElement('span');
+    zoomTxt.className = 'zoom-txt';
+    figCam.append(zoomTxt);
+    const pista = () => { const s = vis() && vis().sources.camera; return s && s.stream.getVideoTracks()[0]; };
+    const ponerZoom = (z) => {
+      const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
+      if (!c) return false;
+      z = Math.min(Math.max(z, c.min), Math.min(c.max, 10));
+      t.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+      figCam.dataset.zoom = z;
+      zoomTxt.textContent = `${z.toFixed(1).replace('.0', '')}×`;
+      return true;
+    };
+    let pellizco = null;
+    figCam.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        pellizco = { d, z: Number(figCam.dataset.zoom) || 1 };
+        e.preventDefault();
+      }
+    }, { passive: false });
+    figCam.addEventListener('touchmove', (e) => {
+      if (!pellizco || e.touches.length !== 2) return;
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      ponerZoom(pellizco.z * d / pellizco.d); e.preventDefault();
+    }, { passive: false });
+    figCam.addEventListener('touchend', () => { pellizco = null; });
+    figCam.querySelector('video').addEventListener('click', () => {
+      const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
+      if (!c) return;
+      const pasos = [0.5, 1, 2, 5].filter((z) => z >= c.min && z <= c.max);
+      const ahora = Number(figCam.dataset.zoom) || 1;
+      ponerZoom(pasos[(pasos.findIndex((z) => z > ahora + 0.01) + pasos.length) % pasos.length] ?? pasos[0]);
+    });
+    figCam.addEventListener('camara-lista', () => {
+      const t = pista(); const c = t && t.getCapabilities ? t.getCapabilities().zoom : null;
+      zoomTxt.hidden = !c;
+      if (c) ponerZoom(Math.max(1, c.min));
+    });
+    new MutationObserver(() => { marcarFrontal(); if (!figCam.hidden) setTimeout(() => figCam.dispatchEvent(new Event('camara-lista')), 300); }).observe(figCam, { attributes: true, attributeFilter: ['hidden'] });
+  }
+
+  // Al abrir la app la cámara empieza apagada (se enciende con su botón).
+  try { localStorage.setItem('companion.cam.on', '0'); } catch { /* sin guardar */ }
+
+  // Solo dos cámaras: la frontal y UNA trasera, la virtual que junta las lentes (triple o doble), que pasa de
+  // gran angular a teleobjetivo con el zoom (pellizcando la vista previa). iOS lista hasta 7 (medido en un iPhone
+  // 16 Pro); el nombre que da WebKit va en inglés y aquí se traduce.
+  const TRASERAS = [/triple/i, /dual wide/i, /dual/i, /^back camera$|^cámara trasera$/i, /facing back|back|trasera/i];   // la última: Android («camera2 0, facing back»)
+  const listaCompleta = { fn: null };
+  const filtrarCamaras = () => {
+    const v = window.companion && window.companion.vision;
+    if (!v || listaCompleta.fn) return !!v;
+    listaCompleta.fn = v.listCams.bind(v);
+    v.listCams = async () => {
+      const todas = await listaCompleta.fn();
+      const frontal = todas.find((c) => /front|frontal/i.test(c.label));
+      let trasera = null;
+      for (const re of TRASERAS) { trasera = todas.find((c) => re.test(c.label)); if (trasera) break; }
+      const out = [];
+      if (frontal) out.push({ id: frontal.id, label: 'Cámara frontal' });
+      if (trasera) out.push({ id: trasera.id, label: 'Cámara trasera' });
+      return out.length ? out : todas;
+    };
+    return true;
+  };
+  const filtro = setInterval(() => { if (filtrarCamaras()) clearInterval(filtro); }, 200);
+
+  // Micrófono y salida: siempre los que el iPhone usa en ese momento (AirPods, auriculares, el del teléfono). Uno
+  // guardado de otra vez obligaba a usar ese aunque ahora haya otros conectados.
+  try { localStorage.removeItem('companion.mic'); localStorage.removeItem('companion.output'); } catch { /* sin guardar */ }
+  // Sin elegir uno a mano en Ajustes, el micrófono es siempre el predeterminado del iPhone (la lista de la página
+  // pone el primero, que no siempre es el que se está usando).
+  let micElegido = false;
+  const selMic = $('mic-select-2');
+  if (selMic) selMic.addEventListener('change', () => { micElegido = true; }, true);
+  const envolverMic = setInterval(() => {
+    const a = window.companion && window.companion.audio;
+    if (!a) return;
+    clearInterval(envolverMic);
+    const abrir = a.openMic.bind(a);
+    a.openMic = (id) => abrir(micElegido ? id : '');
+  }, 100);
+  let rutaT = 0;
+  on('audioRoute', () => {
+    const a = window.companion && window.companion.audio;
+    try { localStorage.removeItem('companion.mic'); } catch { /* sin guardar */ }
+    if (!a || !a.stream) return;
+    clearTimeout(rutaT);
+    rutaT = setTimeout(() => a.openMic('').then((m) => console.info('Micrófono:', m.label))
+      .catch((err) => console.warn('No pude cambiar de micrófono', err)), 600);
+  });
+
+  // Si iOS ya dio permiso al micrófono, se empieza solo (sin la tarjeta «Permitir micrófono»), con el micrófono
+  // y el altavoz que el iPhone usa en ese momento.
+  call('mic.permission').then((estado) => {
+    if (estado !== 'granted') return;
+    const empezar = setInterval(() => {
+      const btn = $('start-btn'), start = $('start');
+      if (!start || start.hidden) { clearInterval(empezar); return; }
+      if (!window.__companionConfig || !window.companion || !btn || !btn.onclick) return;
+      clearInterval(empezar);
+      btn.onclick();
+    }, 300);
+    setTimeout(() => clearInterval(empezar), 20000);
+  }).catch(() => {});
+
+  // Compartir pantalla (como en la PC): iOS solo deja ver otras apps con una «transmisión» (extensión Pantalla). El
+  // botón abre la hoja de iOS («Iniciar transmisión»); cada imagen llega aquí y va a la conversación como la pantalla
+  // compartida de la PC (una por segundo como mucho). Se para con el mismo botón, el de la vista previa o desde iOS.
+  const btnPantalla = $('screen'), figPantalla = $('preview-screen');
+  if (btnPantalla && figPantalla) {
+    btnPantalla.hidden = false;
+    btnPantalla.title = 'Compartir la pantalla: ve lo que tú ves en el iPhone';
+    const img = document.createElement('img');
+    img.alt = '';
+    figPantalla.querySelector('video').replaceWith(img);
+    style.textContent += ` #preview-screen img { display: block; width: 100%; aspect-ratio: 9 / 19.5; object-fit: cover; }
+      #preview-screen { width: 92px !important; }`;
+    let compartiendo = false, enviada = 0;
+    const marcar = (on) => {
+      compartiendo = on;
+      btnPantalla.classList.toggle('active', on);
+      figPantalla.hidden = !on;
+      if (!on) { img.removeAttribute('src'); window.companion && window.companion.send({ type: 'frame_stop', source: 'screen' }); }
+    };
+    on('pantallaEstado', (estado) => {
+      marcar(!!estado);
+      aviso(estado ? 'Compartiendo tu pantalla: ve lo que tú ves. Para dejarlo, vuelve aquí o toca la barra roja de arriba.'
+        : 'Dejaste de compartir la pantalla.');
+    });
+    on('pantalla', (b64) => {
+      if (!compartiendo) marcar(true);
+      if (!document.hidden) img.src = `data:image/jpeg;base64,${b64}`;
+      if (Date.now() - enviada < 1000 || !window.companion) return;
+      enviada = Date.now();
+      window.companion.send({ type: 'frame', source: 'screen', jpeg: b64 });
+    });
+    const alternar = async (e) => {
+      e.stopImmediatePropagation(); e.preventDefault();
+      if (compartiendo) { call('screen.stop').catch(() => {}); return; }
+      try { await call('screen.start'); } catch (err) { aviso(`No pude compartir la pantalla: ${err.message}`); }
+    };
+    btnPantalla.addEventListener('click', alternar, true);
+    const cerrarFig = figPantalla.querySelector('[data-stop]');
+    if (cerrarFig) cerrarFig.addEventListener('click', alternar, true);
+  }
+
+  // Ventana flotante: encendida de serie (como las apps de vídeo), en Ajustes › Dispositivos se apaga y se recuerda.
+  // El botón de flotar de la barra no se usa en el teléfono.
+  const flotar = $('float-btn');
+  if (flotar) flotar.remove();
+  style.textContent += ' #float-btn { display: none !important; }';
+  const tarjeta = document.createElement('div');
+  tarjeta.className = 'set-card';
+  tarjeta.innerHTML = `<div class="card-head"><h3>Ventana flotante</h3></div>
+    <label class="row set"><span><b>Al salir de la app, seguir en una ventanita</b>
+      <small>Tu personaje te acompaña encima de las demás apps, como un vídeo flotante.</small></span>
+      <input type="checkbox" id="pip-on" class="switch"></label>`;
+  const micCard = $('mic-select-2') && $('mic-select-2').closest('.set-card');
+  if (micCard) micCard.after(tarjeta);
+  const interruptor = tarjeta.querySelector('#pip-on');
+  interruptor.checked = !pipApagada();
+  interruptor.addEventListener('change', () => {
+    guardarPip(interruptor.checked);
+    if (!interruptor.checked) { if (pip.on) cerrarFlotante(); return; }
+    if (!pip.on) abrirFlotante(true).catch((err) => {
+      interruptor.checked = false; guardarPip(false);
+      aviso(`No pude preparar la ventana flotante: ${err.message}`);
+    });
+  });
+  const armar = setInterval(() => {
+    const av = window.companion && window.companion.avatar;
+    if (!av || !av.renderer || !av.vrm) return;
+    clearInterval(armar);
+    if (pipApagada() || pip.on) return;
+    abrirFlotante(true).catch((err) => console.warn('Ventana flotante', err));
+  }, 1000);
+
+  // La pestaña «Acciones y memoria» aquí solo tiene la memoria.
+  const pestana = document.querySelector('[data-stab="memoria"] b');
+  if (pestana) pestana.textContent = 'Memoria';
+
+  // Tocar fuera del chat cierra el teclado (en iOS no se cierra solo).
+  document.addEventListener('pointerdown', (e) => {
+    const input = $('text-input');
+    if (document.body.classList.contains('con-teclado') && input && !e.target.closest('#text-form')) input.blur();
+  }, true);
+
+  // Primer plano del personaje (de medio muslo a la cabeza), entre los botones de abajo y el nombre de arriba: se
+  // mide esa franja en la pantalla (con el teclado abierto no se recalcula, para que no salte).
+  const franja = () => {
+    const H = window.innerHeight || 1;
+    const head = document.querySelector('header'), bar = document.querySelector('footer > .controls');
+    const top = head ? head.getBoundingClientRect().bottom / H + 0.015 : 0.13;
+    const bottom = bar && bar.offsetParent ? bar.getBoundingClientRect().top / H - 0.015 : 0.85;
+    return { top, bottom };
+  };
+  const encuadrar = () => {
+    const av = window.companion && window.companion.avatar;
+    if (!av || document.body.classList.contains('con-teclado')) return false;
+    av.closeUp = document.body.classList.contains('en-pip') ? { top: 0.04, bottom: 0.98 } : franja();
+    if (!av.userMoved && av.frame) av.frame();
+    return true;
+  };
+  const cerca = setInterval(() => { if (encuadrar()) clearInterval(cerca); }, 200);
+  // El personaje solo se gira, se mueve o se toca empezando en su zona visible (entre el nombre y los botones). Un
+  // gesto que empieza sobre la interfaz (como el de ir a inicio, desde abajo) no lo mueve.
+  const fueraDeZona = (e) => {
+    const av = window.companion && window.companion.avatar;
+    if (!av || !av.renderer || e.target !== av.renderer.domElement) return;
+    const t = e.touches ? e.touches[0] : e;
+    if (!t) return;
+    const y = t.clientY / (window.innerHeight || 1), z = av.closeUp && av.closeUp.top ? av.closeUp : franja();
+    if (y < z.top - 0.01 || y > z.bottom + 0.01) { e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); }
+  };
+  for (const ev of ['pointerdown', 'touchstart', 'mousedown']) window.addEventListener(ev, fueraDeZona, { capture: true, passive: false });
+  window.addEventListener('resize', () => setTimeout(encuadrar, 50));
+  setTimeout(encuadrar, 1500);                    // cuando la barra ya tiene su tamaño final
+
+  // Sin zoom de la página (doble toque o pellizco): solo se acerca o aleja al personaje, con dos dedos sobre él.
+  const vp = document.querySelector('meta[name="viewport"]');
+  if (vp && !/user-scalable/.test(vp.content)) vp.content += ', maximum-scale=1, user-scalable=no';
+  style.textContent += ' html, body, button, input, textarea { touch-action: manipulation; }';
+
+  adaptarNodo(document.body);
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.type === 'characterData') adaptarNodo(m.target.parentNode || document.body);
+      else for (const n of m.addedNodes) adaptarNodo(n.nodeType === 1 ? n : (n.parentNode || document.body));
+    }
+    notas(window.__companionConfig);
+  }).observe(document.body, { childList: true, subtree: true, characterData: true });
+
+  // Selector de modo (0.9.1) en el teléfono: En vivo (recomendado), Solo nube y Todo en el teléfono.
+  const card = (m, title, tag, text, tags) => {
+    const b = document.querySelector(`#modes [data-mode="${m}"]`);
+    if (!b) return;
+    b.querySelector('.mode-top').replaceChildren(el('b', null, title), ...(tag ? [el('i', 'tag good', tag)] : []));
+    b.querySelector('small').textContent = text;
+    b.querySelector('.mode-tags').replaceChildren(...tags.map((t) => el('i', null, t)));
+  };
+  card('live', 'En vivo', 'Recomendado', 'Como una llamada: te oye, piensa y responde con su voz al instante, con Gemini Live.',
+    ['Sin descargas', 'Necesita internet y una clave']);
+  card('cloud', 'Nube', null, 'Piensa con Gemini y habla con las voces de Microsoft, por turnos.', ['Sin descargas', 'Necesita internet']);
+  card('local', 'Todo en el teléfono', null, 'Nada sale del teléfono y funciona sin internet. Más lento y gasta más batería.',
+    ['Máxima privacidad', 'Descarga unos 2,5 GB']);
+  const hybrid = document.querySelector('#modes [data-mode="hybrid"]');
+  if (hybrid) hybrid.hidden = true;
+  const localCard = document.querySelector('#modes [data-mode="local"]');
+  if (localCard) {
+    localCard.addEventListener('click', async (e) => {
+      if (window.__companionConfig && window.__companionConfig.mode === 'telefono') return;
+      const s = await refrescar().catch(() => null);
+      if (s && s.missing_bytes === 0) return;                 // ya están: cambia como en la PC
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      document.querySelector('[data-edit="local"]').click();  // primero, las descargas
+    }, true);
+  }
+
+  // «Teléfono» en Ajustes › Cerebro: si faltan los modelos, se abre el paso de descargas en vez de cambiar.
+  const local = document.querySelector('#provider [data-value="local"]');
+  if (local) {
+    const b = local.querySelector('b');
+    if (b) b.textContent = 'Teléfono';
+    local.addEventListener('click', async (e) => {
+      if (window.__companionConfig && window.__companionConfig.mode === 'telefono') return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      const s = await refrescar().catch(() => null);
+      if (s && s.missing_bytes === 0) { await api('/api/setup', { mode: 'telefono' }); location.reload(); return; }
+      document.querySelector('[data-edit="local"]').click();
+    }, true);
+  }
+  const cloud = document.querySelector('#provider [data-value="gemini"]');
+  if (cloud) {
+    cloud.addEventListener('click', async (e) => {
+      if (!window.__companionConfig || window.__companionConfig.mode !== 'telefono') return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      try { await api('/api/setup', { mode: 'nube' }); location.reload(); } catch (err) { console.warn(err); }
+    }, true);
+  }
+}

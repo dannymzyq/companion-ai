@@ -31,7 +31,11 @@ export class Vision {
 
   // Abre una cámara concreta (o la predeterminada). Sirve también para pedir el permiso y para la vista de prueba.
   async openCamera(deviceId) {
-    const base = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    // En un teléfono en vertical (la app de iOS), la imagen también en vertical: si no, sale recortada a lo ancho.
+    const vertical = navigator.maxTouchPoints > 0 && window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+    // (Medido en un iPhone 16 Pro: con ancho o alto pedidos, WebKit da 1280×720 en horizontal; sin ellos, 480×640 en
+    // vertical.)
+    const base = vertical ? {} : { width: { ideal: 1280 }, height: { ideal: 720 } };
     const video = deviceId ? { ...base, deviceId: { exact: deviceId } } : { ...base, facingMode: 'user' };
     for (let attempt = 1; ; attempt++) {
       try {

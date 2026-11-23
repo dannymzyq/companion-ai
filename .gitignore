@@ -19,3 +19,7 @@ models/piper/
 dist/
 # compilación de la edición ligera en Rust
 rust-live/target/
+# app del teléfono (movil/): lo generado y lo descargado
+movil/vendor/
+movil/ios/*.xcodeproj/
+movil/ios/build/

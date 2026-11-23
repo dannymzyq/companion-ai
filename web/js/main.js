@@ -444,7 +444,9 @@ function applyConfig(cfg) {
     if (!cfg.rust_live) loading.watch();
   }
   loadKey = key;
-  document.querySelector('#start .fine').textContent = (cfg.stt.engine === 'nube'
+  document.querySelector('#start .fine').textContent = cfg.gemini_live
+    ? `En vivo, tu voz, lo que escribes y las imágenes que compartas van a ${(cfg.live && cfg.live.name) || 'Gemini Live'}, que te oye y responde con su voz.`
+    : (cfg.stt.engine === 'nube'
     ? 'Tu voz se transcribe en la nube (Groq o Gemini).' : 'Tu voz se transcribe en esta PC.')
     + (cfg.llm.provider === 'gemini' ? ' Con el cerebro en la nube, el texto de la conversación y las imágenes que compartas van al proveedor que elegiste.' : '');
   // Primera vez: la bienvenida (perfil, cerebro, voz, modelo). Lo último, micrófono y cámara, es la tarjeta de inicio.
@@ -510,7 +512,9 @@ function applyConfig(cfg) {
   } else if (!live && !cfg.tts) {
     banner = cfg.voice_engine === 'ligera'
       ? `La voz ligera no está instalada: descárgala en Ajustes › Voz. ${cfg.name} responderá solo con texto.`
-      : `La voz completa no está disponible (su servidor no responde; mira data\\voz.log). ${cfg.name} responderá solo con texto; en Ajustes › Voz puedes pasar a la voz ligera.`;
+      : cfg.voice_engine === 'nube'
+        ? `La voz en la nube no está disponible ahora. ${cfg.name} responderá solo con texto.`
+        : `La voz completa no está disponible (su servidor no responde; mira data\\voz.log). ${cfg.name} responderá solo con texto; en Ajustes › Voz puedes pasar a la voz ligera.`;
   }
   $('banner').innerHTML = banner;
   $('banner').hidden = !banner;
@@ -811,7 +815,8 @@ async function withBusy(button, job) {
   try { return await job(); } finally { button.disabled = false; }
 }
 
-$('mic-allow').onclick = () => withBusy($('mic-allow'), async () => { if (await useMic(savedMic())) await allowCam(); });
+// En el teléfono la cámara empieza apagada y pide su permiso al encenderla (CAN.CAMERA_ON_DEMAND, boot.js).
+$('mic-allow').onclick = () => withBusy($('mic-allow'), async () => { if (await useMic(savedMic()) && !window.CAN?.CAMERA_ON_DEMAND) await allowCam(); });
 $('mic-allow-2').onclick = () => withBusy($('mic-allow-2'), () => useMic(savedMic()));
 $('mic-select').onchange = (e) => useMic(e.target.value);
 $('mic-select-2').onchange = (e) => useMic(e.target.value);
