@@ -61,14 +61,14 @@
   // --- 2. Explorador interactivo de los 4 modos de Cerebro y voz (v0.9.1+) ---
   const MODES = {
     live: {
-      badge: 'Recomendado · Latencia mínima',
+      badge: 'Recomendado · Sesiones largas estables',
       title: 'Conversación en vivo',
-      desc: 'Conexión directa por WebSocket con voz nativa de 24 kHz, oído en tiempo real, visión de cámara/pantalla con sonido del sistema, personalidad y acciones en tu PC, sin cargar modelos en tu GPU.',
+      desc: 'Conexión directa por WebSocket con voz nativa de 24 kHz, visión de cámara/pantalla con sonido (compatible con Discord), memoria duradera sin interrumpir la voz y reconexión fluida de contexto, sin cargar modelos en tu GPU.',
       providers: ['Gemini Live', 'OpenAI Realtime', 'xAI Grok Voice', 'Qwen Omni Realtime', 'Servidor propio'],
       stats: [
         { label: 'VRAM usada', value: '0 MB' },
         { label: 'Voz', value: 'Nativa 24 kHz' },
-        { label: 'Visión y audio', value: 'En vivo' },
+        { label: 'Memoria en vivo', value: 'Silenciosa' },
         { label: 'Ideal para', value: 'Jugar y multitarea' }
       ]
     },
