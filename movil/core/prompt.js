@@ -92,6 +92,12 @@ Después, si en la conversación aparece algún dato duradero NUEVO sobre {user}
 Conversación:
 {dialog}`;
 
+// Igual que prompt.TIDY de la PC (0.11.0): ordenar los recuerdos en una lista limpia (se puede deshacer).
+export const TIDY = `Estos son los datos que {name} recuerda sobre {user}, del más antiguo al más reciente:
+{facts}
+
+Ordénalos en una lista limpia: junta los que dicen lo mismo, quita los repetidos y, si dos se contradicen, quédate con el más reciente. No inventes nada ni añadas datos que no estén arriba, y conserva los detalles concretos (nombres, sitios, fechas). Escribe cada dato en una línea que empiece por «DATO:», en tercera persona y en una frase corta. Nada más.`;
+
 export const fill = (tpl, vals) => tpl.replace(/\{(\w+)\}/g, (_, k) => (k in vals ? vals[k] : `{${k}}`));
 
 // Como prompt.personality_block (0.9.1): la forma de ser de la personalidad elegida. Fijo mientras no se cambie.

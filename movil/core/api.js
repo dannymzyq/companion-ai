@@ -316,6 +316,7 @@ export function createApi(core) {
     'GET /api/memory': () => memory(),
     'GET /api/memory/diary': (_b, url) => store.diary(url.searchParams.get('q') || ''),
     'DELETE /api/memory': () => { store.forgetAll(); mood.reset(); return { ok: true }; },
+    'POST /api/memory/undo': () => { store.undoTidy(); return memory(); },
     'POST /api/memory/forget': (b) => { store.deleteMemory(String(b.fact || '')); return memory(); },
     'GET /api/reminders': () => ({ reminders: [] }),
     'GET /api/backpack': () => {
@@ -436,7 +437,7 @@ export function createApi(core) {
 
   function memory() {
     const fmt = (ts) => { const d = new Date(ts * 1000); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
-    return { facts: store.memories(200), summaries: store.summaries(50).map(([text, ts]) => ({ text, date: fmt(ts) })) };
+    return { facts: store.memories(200), summaries: store.summaries(50).map(([text, ts]) => ({ text, date: fmt(ts) })), can_undo: store.canUndoTidy() };
   }
 
   // fetch(/api/…) de la interfaz → Response

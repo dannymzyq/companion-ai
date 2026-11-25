@@ -1,7 +1,7 @@
 // Port de companion/store.py (mensajes, recuerdos y resúmenes) y de state.py (ajustes), guardados con kv.
 import { kv } from './platform.js';
 
-let db = { next: 1, nextMem: 1, messages: [], memories: [], summaries: [] };
+let db = { next: 1, nextMem: 1, messages: [], memories: [], summaries: [], tidy: null };
 let saveTimer = 0;
 const now = () => Date.now() / 1000;
 
@@ -111,7 +111,7 @@ export function diary(query = '') {
     .slice(-50)
     .filter((s) => !q || normalizeText(s.text).includes(q))
     .map((s) => ({ text: s.text, date: fmt(s.ts) }));
-  return { items, diary: sums, can_undo: false };
+  return { items, diary: sums, can_undo: canUndoTidy() };
 }
 
 export function exportMemories() {
@@ -190,8 +190,52 @@ export function deleteMemory(fact) {
 }
 
 export function forgetAll() {
-  db = { next: db.next, nextMem: 1, messages: [], memories: [], summaries: [] };
+  db = { next: db.next, nextMem: 1, messages: [], memories: [], summaries: [], tidy: null };
   save();
+}
+
+// ---------------------------------------------------------------- orden de recuerdos (store.py, 0.11.0)
+// Datos no fijados (los que se pueden ordenar).
+export const memoryCount = () => db.memories.filter((m) => !m.pinned).length;
+export const unpinnedFacts = () => db.memories.filter((m) => !m.pinned).map((m) => m.fact);
+// Cuántos datos quedaron tras el último orden (0 si nunca).
+export const lastTidyCount = () => (db.tidy ? db.tidy.after : 0);
+export const canUndoTidy = () => !!db.tidy;
+
+// Cambia los datos no fijados por la lista ordenada, conservando SIEMPRE los fijados, y guarda copia exacta de
+// antes (con `max_id`) para deshacer sin perder lo que se recuerde después.
+export function replaceMemories(facts) {
+  ensureMemoryIds();
+  const before = db.memories.map((m) => ({ ...m }));
+  const pinned = db.memories.filter((m) => m.pinned);
+  const pinnedLower = new Set(pinned.map((m) => m.fact.toLowerCase()));
+  const seen = new Set();
+  const t = now();
+  const cleaned = [];
+  for (const raw of facts) {
+    const f = String(raw || '').trim().replace(/\.+$/, '').trim();
+    const low = f.toLowerCase();
+    if (!f || isPrivateFact(f) || pinnedLower.has(low) || seen.has(low)) continue;
+    seen.add(low);
+    cleaned.push({ id: db.nextMem++, fact: f, ts: t + cleaned.length * 1e-3, pinned: false });
+  }
+  db.memories = [...pinned, ...cleaned];
+  db.tidy = { before, after: cleaned.length, max_id: db.nextMem - 1 };
+  save();
+  return cleaned.length;
+}
+
+// Vuelve a los datos de antes del último orden, conservando lo que se recordó después.
+export function undoTidy() {
+  if (!db.tidy) return false;
+  const { before, max_id: maxId } = db.tidy;
+  const later = db.memories.filter((m) => m.id > maxId);
+  const lower = new Set(before.map((m) => m.fact.toLowerCase()));
+  db.memories = [...before.map((m) => ({ ...m })), ...later.filter((m) => !lower.has(m.fact.toLowerCase()))];
+  db.tidy = null;
+  ensureMemoryIds();
+  save();
+  return true;
 }
 
 // ---------------------------------------------------------------- ajustes (equivale a data/settings.json)

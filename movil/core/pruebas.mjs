@@ -366,5 +366,28 @@ await prueba('api móvil: Mochila del Compañero (sin secretos), Pomodoro y Pres
   assert.equal(pre.data.presets.length, 1);
 });
 
+await prueba('ordenar recuerdos: conserva fijados, se puede deshacer y no pierde lo nuevo', async () => {
+  const { tidyFacts } = await import('./session.js');
+  store.forgetAll();
+  for (let i = 0; i < 12; i++) store.addMemory(`A Prueba le gusta la fruta número ${i}`);
+  store.updateMemory(1, { pinned: true });
+  assert.equal(store.canUndoTidy(), false);
+  assert.equal(tidyFacts('DATO: solo uno larguito', 11), null, 'demasiado corta: no se fía');
+  const neu = tidyFacts(Array.from({ length: 6 }, (_, i) => `DATO: A Prueba le gustan las frutas ${i}.`).join('\n'), 11);
+  assert.equal(neu.length, 6);
+  store.replaceMemories(neu);
+  assert.equal(store.memoryCount(), 6);
+  assert.ok(store.memories(200).includes('A Prueba le gusta la fruta número 0'), 'el fijado sigue');
+  assert.equal(store.canUndoTidy(), true);
+  assert.equal(store.diary().can_undo, true);
+  store.addMemory('A Prueba le encanta el mar en invierno');
+  assert.equal(store.undoTidy(), true);
+  const now = store.memories(200);
+  assert.equal(now.length, 13, 'los 12 de antes y el nuevo');
+  assert.ok(now.includes('A Prueba le encanta el mar en invierno'));
+  assert.equal(store.canUndoTidy(), false);
+  store.forgetAll();
+});
+
 console.log(fallos ? `\n${fallos} pruebas fallaron` : '\nTodas bien');
 process.exit(fallos ? 1 : 0);
