@@ -23,7 +23,8 @@ jobs:
           uv pip install --python "$RUNNER_TEMP/venv/bin/python" -r requirements-mac.lock
 
       - name: Pruebas unitarias (Python)
-        run: "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s tests -t .
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s tests -t .
 
       - name: Verificar BOM UTF-8 en scripts PowerShell
         run: |
