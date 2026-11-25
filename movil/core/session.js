@@ -3,7 +3,7 @@
 // web/js/main.js no sabe que no hay servidor.
 import * as llm from './llm.js';
 import * as store from './store.js';
-import { adultActive, buildSystemPrompt, fill, GENDERS, GREETING, localTime, samplingFor, SUMMARIZE, turnContext } from './prompt.js';
+import { adultActive, buildSystemPrompt, fill, GENDERS, GREETING, localTime, samplingFor, SUMMARIZE, TIDY, turnContext } from './prompt.js';
 import { TagStream } from './tags.js';
 import * as mood from './mood.js';
 import { MIN_SPEECH_FRAMES, TurnDetector } from './vad.js';
@@ -11,6 +11,7 @@ import { MIN_SPEECH_FRAMES, TurnDetector } from './vad.js';
 const HISTORY_KEEP = 14, HISTORY_MAX = 28;
 const FRAME_MAX_AGE = 6000;        // una imagen más vieja ya no cuenta como «lo que ve ahora» (como session.py)
 const SUMMARY_MIN = 8, SUMMARY_QUIET = 12_000;
+const TIDY_AT = 30, TIDY_EVERY = 10;   // se ordenan los recuerdos con 30 datos o más y 10 nuevos desde la última vez
 const SYSTEM_SUMMARIES = 8;
 const FACT = /^\W*dato\s*:\s*(.+)$/i;
 const PRIVATE = /\d[\d \-.]{5,}\d|contraseñ|password|clave|pin\b|tarjeta|cuenta bancaria|dni|pasaporte/i;
@@ -28,6 +29,20 @@ export function splitSummary(text) {
     }
   }
   return [summary.join(' ').trim(), facts];
+}
+
+// La lista ordenada que devolvió el modelo, o null si no es de fiar (vacía, demasiado corta o más larga).
+export function tidyFacts(text, before) {
+  const facts = [];
+  for (const raw of text.replace(/\[[^\]]*\]/g, '').split(/\r?\n/)) {
+    const m = FACT.exec(raw.trim());
+    if (!m) continue;
+    const fact = m[1].trim().replace(/^[«»"' ]+|[«»"' ]+$/g, '').replace(/\.+$/, '');
+    if (fact.length >= 8 && fact.length <= 200 && !PRIVATE.test(fact)
+        && !facts.some((f) => f.toLowerCase() === fact.toLowerCase())) facts.push(fact);
+  }
+  if (!facts.length || facts.length > before || facts.length < Math.max(3, before * 0.4)) return null;
+  return facts;
 }
 
 export class Session {
@@ -337,7 +352,7 @@ export class Session {
     if (Date.now() - this.lastTalk < SUMMARY_QUIET || Date.now() < this.summaryRetry || !llm.status().ready) return;
     if (llm.simulated()) return;              // el cerebro de prueba del simulador no sabe resumir
     const rows = store.unsummarized(this.anchor);
-    if (rows.length < SUMMARY_MIN) return;
+    if (rows.length < SUMMARY_MIN) return this._maybeTidy();
     this.summarizing = true;
     const name = this.persona().name, user = this.ctx.profile().name;
     const dialog = rows.map(([, role, text]) => `${role === 'user' ? user : name}: ${text}`).join('\n');
@@ -350,6 +365,27 @@ export class Session {
       if (summary.length > 20) store.addSummary(summary.slice(0, 900), rows[0][0], rows[rows.length - 1][0], rows[rows.length - 1][3]);
     } catch (e) {
       console.warn('No pude resumir la conversación', e.message);
+      this.summaryRetry = Date.now() + 300_000;
+    } finally {
+      llm.popNotices();
+      this.summarizing = false;
+    }
+  }
+
+  // En otro rato de calma, junta los recuerdos repetidos o que se contradicen (Ajustes › Memoria permite deshacerlo).
+  async _maybeTidy() {
+    if (store.memoryCount() < Math.max(TIDY_AT, store.lastTidyCount() + TIDY_EVERY)) return;
+    const facts = store.unpinnedFacts();
+    this.summarizing = true;
+    try {
+      const text = await llm.complete([{ role: 'user', content: fill(TIDY, {
+        user: this.ctx.profile().name, name: this.persona().name,
+        facts: facts.map((f) => `- ${f}`).join('\n').slice(0, 12000) }) }], 900);
+      const neu = tidyFacts(text, facts.length);
+      if (neu) store.replaceMemories(neu);
+      else this.summaryRetry = Date.now() + 1_800_000;
+    } catch (e) {
+      console.warn('No pude ordenar los recuerdos', e.message);
       this.summaryRetry = Date.now() + 300_000;
     } finally {
       llm.popNotices();

@@ -132,7 +132,7 @@ Trae `main` 0.11.0. Lo nuevo de la interfaz (web/) llega solo:
 - cabina de fotos, ambiente y luz, accesorios, presets, Pomodoro, mochila.
 
 En `movil/core`:
-- `POST /api/memory/undo` y `can_undo: false`: el teléfono no reordena los recuerdos;
+- ordenar los recuerdos en ratos de calma y deshacerlo (`POST /api/memory/undo`, `can_undo`), como la PC;
 - `GET /api/pairing` apagado;
 - en `ui_movil.js`, los ajustes ocupan toda la pantalla (en la PC ahora son una hoja centrada que en el teléfono se
   salía por la derecha).
