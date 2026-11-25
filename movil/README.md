@@ -130,7 +130,7 @@ Misma versión que la PC. El icono pasa al nuevo de la 0.9.2 (`scripts/instalaci
 esquinas redondeadas ni transparencia, que iOS recorta solo). Incluye los arreglos compartidos con Android: la cámara
 pide permiso solo al encenderla, el teclado no tapa la bienvenida y textos del teléfono.
 
-## Android (0.9.2, 22 nov 2026)
+## Android (0.11.0, 25 nov 2026)
 `movil/android`: la misma interfaz (web/) y el mismo núcleo (movil/core) en un WebView, con un puente nativo que tiene
 los mismos comandos que el de iOS (`Bridge.kt` ↔ `Bridge.swift`). Lo que cambia:
 - **Archivos:** `assets/www` (lo copia `bundle_web.sh` antes de cada compilación) servido en

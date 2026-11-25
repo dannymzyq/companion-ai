@@ -178,8 +178,10 @@ class MainActivity : ComponentActivity() {
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val d = resources.displayMetrics.density
             web.evaluateJavascript(
-                "document.documentElement.style.setProperty('--sat','${(bars.top / d).toInt()}px');" +
-                "document.documentElement.style.setProperty('--sab','${(nav / d).toInt()}px')", null)
+                // Antes de que cargue la página no hay documentElement (daba «null.style» al arrancar).
+                "(()=>{const e=document.documentElement;if(!e)return;" +
+                "e.style.setProperty('--sat','${(bars.top / d).toInt()}px');" +
+                "e.style.setProperty('--sab','${(nav / d).toInt()}px')})()", null)
             ViewCompat.onApplyWindowInsets(v, insets)
         }
     }
