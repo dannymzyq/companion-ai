@@ -132,7 +132,7 @@ Trae `main` 0.11.0. Lo nuevo de la interfaz (web/) llega solo:
 - cabina de fotos, ambiente y luz, accesorios, presets, Pomodoro, mochila.
 
 En `movil/core`:
-- ordenar los recuerdos en ratos de calma y deshacerlo (`POST /api/memory/undo`, `can_undo`), como la PC;
+- recuerdos ordenados en ratos de calma, como en la PC (`TIDY` en `session.js`; `replaceMemories`/`undoTidy` en `store.js`), con `POST /api/memory/undo` y `can_undo` para deshacerlo;
 - `GET /api/pairing` apagado;
 - en `ui_movil.js`, los ajustes ocupan toda la pantalla (en la PC ahora son una hoja centrada que en el teléfono se
   salía por la derecha).
@@ -148,7 +148,7 @@ Misma versión que la PC. El icono pasa al nuevo de la 0.9.2 (`scripts/instalaci
 esquinas redondeadas ni transparencia, que iOS recorta solo). Incluye los arreglos compartidos con Android: la cámara
 pide permiso solo al encenderla, el teclado no tapa la bienvenida y textos del teléfono.
 
-## Android (0.9.2, 22 nov 2026)
+## Android (0.11.0, 25 nov 2026)
 `movil/android`: la misma interfaz (web/) y el mismo núcleo (movil/core) en un WebView, con un puente nativo que tiene
 los mismos comandos que el de iOS (`Bridge.kt` ↔ `Bridge.swift`). Lo que cambia:
 - **Archivos:** `assets/www` (lo copia `bundle_web.sh` antes de cada compilación) servido en
