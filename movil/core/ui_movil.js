@@ -18,6 +18,7 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 // ---------------------------------------------------------------- textos de la PC → del teléfono
 const TEXTOS = [
   ['Permitir micrófono y cámara', 'Permitir micrófono'],
+  ['Mochila y Modo En Casa', 'Mochila'], ['Enfoque y mini-juegos', 'Enfoque'], ['Diario de recuerdos y avisos', 'Diario de recuerdos'],
   ['Último paso: elige tu micrófono y tu cámara.', 'Último paso: comprueba tu micrófono.'],
   [' y, con la mirada en vivo, también cada pocos segundos por su cuenta', ''],   // la mirada en vivo es de la PC ['Micrófono y cámara', 'Micrófono'],
   ['Sin micrófono · sin cámara', 'Sin micrófono'], [' · sin cámara', ''],
@@ -365,6 +366,9 @@ export function init() {
     footer { padding-bottom: calc(env(safe-area-inset-bottom) + 6px) !important; }
     #banner { margin-top: env(safe-area-inset-top); }
     #settings > * { padding-top: calc(env(safe-area-inset-top) + 12px); }
+    /* 0.11.0: los ajustes son una hoja centrada (estilo macOS); en el teléfono ocupan toda la pantalla. */
+    #settings { padding: 0 !important; }
+    #settings .sheet { width: 100vw !important; height: 100% !important; border-radius: 0 !important; border: 0 !important; }
     #onboard { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
     #start, #loading { padding-top: env(safe-area-inset-top); }
     #modes [data-mode="hybrid"], .row:has(#cloud-only), .row:has(#voice-auto), #voice-auto-note, #ear, .modo-telefono .set:has(#ear), .set:has(#output-select),

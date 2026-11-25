@@ -317,6 +317,8 @@ export function createApi(core) {
     'GET /api/memory/diary': (_b, url) => store.diary(url.searchParams.get('q') || ''),
     'DELETE /api/memory': () => { store.forgetAll(); mood.reset(); return { ok: true }; },
     'POST /api/memory/undo': () => { store.undoTidy(); return memory(); },
+    // Modo En Casa: el teléfono no sirve la interfaz a otros; la fila se oculta en boot.js.
+    'GET /api/pairing': () => ({ enabled: false }),
     'POST /api/memory/forget': (b) => { store.deleteMemory(String(b.fact || '')); return memory(); },
     'GET /api/reminders': () => ({ reminders: [] }),
     'GET /api/backpack': () => {
