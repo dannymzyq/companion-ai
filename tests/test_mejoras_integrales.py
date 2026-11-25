@@ -2,6 +2,7 @@
 import asyncio
 from datetime import datetime
 import json
+import sys
 import unittest
 from unittest import mock
 
@@ -204,6 +205,7 @@ class MejorasEarlySttNube(unittest.IsolatedAsyncioTestCase):
 
 
 class MejorasAccionesCompuestasYBrevedad(unittest.IsolatedAsyncioTestCase):
+    @unittest.skipUnless(sys.platform == "win32", "manejar aplicaciones solo funciona en Windows")
     def test_guess_reconoce_abrir_y_reproducir_aun_con_app_cerrada(self):
         fake_apps = [{"name": "Apple Music", "id": "AppleInc.AppleMusicWin_nzyj5cx40ttqa!App"}]
         with mock.patch.dict("os.environ", {"COMPANION_ACTIONS_APPS": json.dumps(fake_apps)}), \
@@ -236,6 +238,7 @@ class MejorasAccionesCompuestasYBrevedad(unittest.IsolatedAsyncioTestCase):
                 live=prev.get("live"),
             )
 
+    @unittest.skipUnless(sys.platform == "win32", "manejar aplicaciones solo funciona en Windows")
     async def test_ask_abre_primero_y_espera_ventana_en_controlar(self):
         ws = mock.AsyncMock()
         s = session.Session(ws, {"name": "Mika", "age": 22, "voice": {}, "traits": {}, "speech_style": {}}, mock.Mock(ready=False))
