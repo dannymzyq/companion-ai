@@ -67,7 +67,15 @@ jobs:
           $exe = "dist/Companion-Setup-$env:VERSION.exe"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("dist/SHA256SUMS.txt", "$hash  Companion-Setup-$env:VERSION.exe`n", (New-Object Text.UTF8Encoding $false))
-          gh release create "${{ github.ref_name }}" $exe "dist/SHA256SUMS.txt" --title "Companion $env:VERSION" --notes-file notas.md
+          # Si la etiqueta se movió y el Release ya existe, se sustituyen sus archivos en lugar de fallar.
+          gh release view "${{ github.ref_name }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "${{ github.ref_name }}" $exe "dist/SHA256SUMS.txt" --clobber
+            gh release edit "${{ github.ref_name }}" --title "Companion $env:VERSION" --notes-file notas.md
+          } else {
+            gh release create "${{ github.ref_name }}" $exe "dist/SHA256SUMS.txt" --title "Companion $env:VERSION" --notes-file notas.md
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # La app para Mac se crea y se prueba en un Mac de GitHub (mac.yml) y se añade al mismo Release.
   mac:
