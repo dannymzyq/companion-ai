@@ -316,6 +316,10 @@ export function createApi(core) {
     'GET /api/memory': () => memory(),
     'GET /api/memory/diary': (_b, url) => store.diary(url.searchParams.get('q') || ''),
     'DELETE /api/memory': () => { store.forgetAll(); mood.reset(); return { ok: true }; },
+    // 0.11.0: en la PC los recuerdos se ordenan solos y se puede deshacer; el teléfono no los reordena (can_undo falso).
+    'POST /api/memory/undo': () => memory(),
+    // Modo En Casa: el teléfono no sirve la interfaz a otros; la fila se oculta en boot.js.
+    'GET /api/pairing': () => ({ enabled: false }),
     'POST /api/memory/forget': (b) => { store.deleteMemory(String(b.fact || '')); return memory(); },
     'GET /api/reminders': () => ({ reminders: [] }),
     'GET /api/backpack': () => {
@@ -436,7 +440,7 @@ export function createApi(core) {
 
   function memory() {
     const fmt = (ts) => { const d = new Date(ts * 1000); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
-    return { facts: store.memories(200), summaries: store.summaries(50).map(([text, ts]) => ({ text, date: fmt(ts) })) };
+    return { can_undo: false, facts: store.memories(200), summaries: store.summaries(50).map(([text, ts]) => ({ text, date: fmt(ts) })) };
   }
 
   // fetch(/api/…) de la interfaz → Response

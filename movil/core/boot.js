@@ -9,6 +9,9 @@
   window.CAN = { ACTIONS: false, SCREEN: true, FLOAT: true, CLONE: false, CUSTOM_MODELS: true, CAMERA: true, CAMERA_ON_DEMAND: true };
   const hide = ['#screen-sound', '#dock', '#quit',
     'details[data-group="compartir"]', 'details[data-group="acciones"]',
+    'label.row:has(#pairing-on)', '#pairing-box', '#desk-app-card', '.set-card:has(#mcp-on)',
+    // 0.11.0 sin núcleo en el teléfono todavía: juegos, resumen matutino, recordatorios y tecla para hablar.
+    '.set:has([data-game])', '#rps-bar', 'label.row:has(#morning-briefing)', '.set:has(#reminders-list)', '.set:has(#ptt-key)',
     '#ob-voice-add', '#ob-voice-form', '#cam-picker', '#cloud-only-note', '#drop'];
   const css = `${hide.join(',')}{display:none!important}
     #cloud-only{pointer-events:none}

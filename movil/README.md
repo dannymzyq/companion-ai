@@ -125,6 +125,24 @@ No descarga ni carga ningún modelo (ni WhisperKit, ni MLX, ni Piper).
 - **Micrófono y salida:** siempre los que el iPhone usa en ese momento; si cambian (auriculares), se reabre el
   micrófono predeterminado. Con el permiso de iOS ya dado, la app empieza sin la tarjeta «Permitir micrófono».
 
+## iOS 0.11.0 (25 nov 2026)
+Trae `main` 0.11.0. Lo nuevo de la interfaz (web/) llega solo:
+- la cara en reposo vuelve a su ánimo, porque el núcleo ya manda `mood` en `reply_end`;
+- reacciones pequeñas al cambiar de emoción;
+- cabina de fotos, ambiente y luz, accesorios, presets, Pomodoro, mochila.
+
+En `movil/core`:
+- `POST /api/memory/undo` y `can_undo: false`: el teléfono no reordena los recuerdos;
+- `GET /api/pairing` apagado;
+- en `ui_movil.js`, los ajustes ocupan toda la pantalla (en la PC ahora son una hoja centrada que en el teléfono se
+  salía por la derecha).
+
+Ocultos en el teléfono (`boot.js`), porque no tienen núcleo ahí:
+- Modo En Casa, MCP, la tarjeta de la app de escritorio, la tecla para hablar;
+- juegos, resumen matutino y recordatorios.
+
+El release lleva un `.ipa` sin firmar: se firma con tu Apple ID (Xcode, AltStore o Sideloadly) antes de instalar.
+
 ## iOS 0.9.2 (22 nov 2026)
 Misma versión que la PC. El icono pasa al nuevo de la 0.9.2 (`scripts/instalacion/crear_icono.py`, dibujado a sangre: sin
 esquinas redondeadas ni transparencia, que iOS recorta solo). Incluye los arreglos compartidos con Android: la cámara
