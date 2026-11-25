@@ -26,6 +26,30 @@ struct FrameEntry {
 enum InternalMsg {
     Live(LiveEvent),
     TimerDone { label: String, secs: u64 },
+    PttState(bool),
+}
+
+#[cfg(windows)]
+fn ptt_vk(key: &str) -> i32 {
+    match key {
+        "F9" => 0x78,
+        "F8" => 0x77,
+        "CapsLock" => 0x14,
+        "ControlRight" => 0xA3,
+        _ => 0xA5, // AltRight (VK_RMENU)
+    }
+}
+
+fn pick_rps_choice() -> &'static str {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    match nanos % 3 {
+        0 => "piedra",
+        1 => "papel",
+        _ => "tijera",
+    }
 }
 
 pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
@@ -65,6 +89,11 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
     let mut frames: HashMap<String, FrameEntry> = HashMap::new();
     let mut last_frame_sent = Instant::now() - std::time::Duration::from_secs(5);
     let mut pending_actions: HashMap<String, PreparedAction> = HashMap::new();
+    let mut resume_handle: Option<String> = None;
+    let mut go_away_pending = false;
+    let mut live_mixed_at: Option<Instant> = None;
+    let mut ptt_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut game_mode: Option<String> = None;
 
     let send_json = |tx: &mpsc::Sender<Message>, val: Value| {
         let _ = tx.try_send(Message::Text(val.to_string().into()));
@@ -83,6 +112,8 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
         int_tx: &mpsc::Sender<InternalMsg>,
         out_tx: &mpsc::Sender<Message>,
         cur_state: &mut String,
+        resume_handle: &mut Option<String>,
+        frames: &HashMap<String, FrameEntry>,
     ) -> bool {
         if live_handle.is_some() {
             return true;
@@ -91,7 +122,8 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
         let lv = cfg.live_config();
         let pers = personality::active(cfg);
         let base_mood = pers.get("base_mood").and_then(|v| v.as_str()).unwrap_or("neutral");
-        let mood_desc = state.mood.describe(base_mood);
+        let speaks = cfg.speaks();
+        let mood_desc = state.mood.describe_for(base_mood, &speaks);
         let gap = mood::since_last_talk(state.store.previous_ts());
         let memories = state.store.memories(40);
         let recent: Vec<(String, String)> = state
@@ -104,8 +136,20 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
         let temp = temperature_for(&pers);
         let actions_on = actions::get_config(cfg).enabled;
 
-        match connect_live(lv, system, temp, actions_on).await {
+        let mut res = connect_live(lv.clone(), system.clone(), temp, actions_on, resume_handle.clone()).await;
+        if res.is_err() && resume_handle.is_some() {
+            *resume_handle = None;
+            res = connect_live(lv, system, temp, actions_on, None).await;
+        }
+
+        match res {
             Ok((handle, mut ev_rx)) => {
+                // Re-sync freshest frame if still recent
+                for f in frames.values() {
+                    if f.at.elapsed().as_secs_f64() <= FRAME_MAX_AGE_SECS {
+                        let _ = handle.send_image(f.jpeg.clone()).await;
+                    }
+                }
                 *live_handle = Some(handle);
                 let tx = int_tx.clone();
                 tokio::spawn(async move {
@@ -134,6 +178,8 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                 if let Some(h) = live_handle.take() {
                     h.close().await;
                 }
+                resume_handle = None;
+                go_away_pending = false;
                 turn_open = false;
                 in_buf.clear();
                 out_buf.clear();
@@ -141,6 +187,9 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
             }
             Some(internal) = int_rx.recv() => {
                 match internal {
+                    InternalMsg::PttState(down) => {
+                        send_json(&out_tx, json!({"type": "ptt_state", "down": down}));
+                    }
                     InternalMsg::TimerDone { label, secs } => {
                         let msg = if label.is_empty() {
                             format!("(Acaba de sonar el temporizador de {}. Avisa al usuario con naturalidad.)", actions::fmt_duration(secs))
@@ -148,13 +197,25 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                             format!("(Acaba de sonar el temporizador «{label}» de {}. Avisa al usuario con naturalidad.)", actions::fmt_duration(secs))
                         };
                         live_user = false;
-                        if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state).await {
+                        if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state, &mut resume_handle, &frames).await {
                             if let Some(h) = &live_handle {
                                 let _ = h.send_text(msg, vec![]).await;
                             }
                         }
                     }
                     InternalMsg::Live(ev) => match ev {
+                        LiveEvent::SessionResume(h) => {
+                            resume_handle = Some(h);
+                        }
+                        LiveEvent::GoAway => {
+                            if !turn_open {
+                                if let Some(h) = live_handle.take() {
+                                    h.close().await;
+                                }
+                            } else {
+                                go_away_pending = true;
+                            }
+                        }
                         LiveEvent::InText(chunk) => {
                             live_user = true;
                             in_buf.push_str(&chunk);
@@ -218,6 +279,7 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                             let mut responses = Vec::new();
                             let mut to_exec: Vec<PreparedAction> = Vec::new();
                             let act_cfg = actions::get_config(&state.config);
+                            let is_mixed = live_mixed_at.map(|t| t.elapsed().as_secs_f64() < 15.0).unwrap_or(false);
 
                             for fc in calls {
                                 if fc.name == "expresar" {
@@ -239,8 +301,10 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                                     }
                                     responses.push(json!({"id": fc.id, "name": fc.name, "response": {"ok": true}}));
                                 } else if fc.name == "recordar" {
-                                    if let Some(fact) = fc.args.get("dato").and_then(|v| v.as_str()) {
-                                        state.store.add_memory(fact);
+                                    if !is_mixed {
+                                        if let Some(fact) = fc.args.get("dato").and_then(|v| v.as_str()) {
+                                            state.store.add_memory(fact);
+                                        }
                                     }
                                     responses.push(json!({"id": fc.id, "name": fc.name, "response": {"ok": true}}));
                                 } else if fc.name == "ejecutar_accion" {
@@ -274,11 +338,18 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                             }
 
                             for act in to_exec.into_iter().take(actions::MAX_PER_REPLY) {
-                                let auto_ok = act_cfg.full || !act_cfg.ask || act_cfg.always.iter().any(|a| a == &act.name);
+                                let auto_ok = !is_mixed && (act_cfg.full || !act_cfg.ask || act_cfg.always.iter().any(|a| a == &act.name));
                                 if auto_ok {
                                     run_prepared_action(&act, "auto", &state, &out_tx, &int_tx);
                                 } else {
-                                    send_json(&out_tx, json!({"type": "action_ask", "request": act.public(&state.config)}));
+                                    let mut req = act.public(&state.config);
+                                    if let Some(obj) = req.as_object_mut() {
+                                        obj.insert("type".into(), json!("action_request"));
+                                        if is_mixed {
+                                            obj.insert("confirm".into(), json!(true));
+                                        }
+                                    }
+                                    send_json(&out_tx, req);
                                     pending_actions.insert(act.id.clone(), act);
                                 }
                             }
@@ -294,10 +365,11 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                         LiveEvent::TurnComplete => {
                             let reply = clean_spoken_text(&out_buf);
                             let user_said = in_buf.trim().to_string();
+                            let is_mixed = live_mixed_at.map(|t| t.elapsed().as_secs_f64() < 15.0).unwrap_or(false);
                             if !user_said.is_empty() {
                                 state.store.add_message("user", &user_said, None);
-                                // Check short voice approval/denial for pending action cards
-                                if !pending_actions.is_empty() {
+                                // Check short voice approval/denial for pending action cards (disabled when screen/mixed audio active)
+                                if !pending_actions.is_empty() && !is_mixed {
                                     let p = plain(&user_said);
                                     let words: Vec<&str> = p.split_whitespace().collect();
                                     if words.len() <= 3 {
@@ -315,24 +387,43 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                                                     run_prepared_action(&act, "allow", &state, &out_tx, &int_tx);
                                                 } else {
                                                     actions::log_entry(&state.config, &act.name, &act.detail, "deny", "cancelado");
-                                                    send_json(&out_tx, json!({"type": "action_result", "id": act.id, "ok": false, "detail": "Cancelado"}));
+                                                    send_json(&out_tx, json!({
+                                                        "type": "action_done",
+                                                        "id": act.id,
+                                                        "action": act.name,
+                                                        "ok": false,
+                                                        "text": "Cancelado"
+                                                    }));
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
+                            let pers = personality::active(&state.config);
+                            let base_mood = pers.get("base_mood").and_then(|v| v.as_str()).unwrap_or("neutral");
                             if !reply.is_empty() {
                                 state.store.add_message("assistant", &reply, Some(&emotion));
-                                let pers = personality::active(&state.config);
-                                let base_mood = pers.get("base_mood").and_then(|v| v.as_str()).unwrap_or("neutral");
                                 let expr = pers.get("traits").and_then(|t| t.get("expressiveness")).and_then(|v| v.as_f64()).unwrap_or(0.6);
                                 state.mood.feel(&emotion, base_mood, expr);
                             }
                             if turn_open {
+                                let mood_emo = state
+                                    .mood
+                                    .public(base_mood)
+                                    .get("emotion")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("neutral")
+                                    .to_string();
                                 send_json(&out_tx, json!({"type": "sentence_end", "id": sentence_id}));
-                                send_json(&out_tx, json!({"type": "reply_end", "text": reply}));
+                                send_json(&out_tx, json!({"type": "reply_end", "text": reply, "mood": mood_emo}));
                                 turn_open = false;
+                            }
+                            if go_away_pending {
+                                go_away_pending = false;
+                                if let Some(h) = live_handle.take() {
+                                    h.close().await;
+                                }
                             }
                             live_user = false;
                             live_emo.clear();
@@ -344,6 +435,7 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                         }
                         LiveEvent::Closed(reason) => {
                             live_handle = None;
+                            go_away_pending = false;
                             turn_open = false;
                             let note = match reason {
                                 Some(r) => format!("Conexión en vivo cerrada ({r}); se reconectará en el siguiente turno."),
@@ -370,7 +462,7 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                             continue;
                         }
                         let chunk = std::mem::take(&mut pcm_buf);
-                        if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state).await {
+                        if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state, &mut resume_handle, &frames).await {
                             if let Some(h) = &live_handle {
                                 let _ = h.send_audio(chunk).await;
                             }
@@ -388,21 +480,30 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                                 live_gesture = play::guess(&text).map(|s| s.to_string());
                                 send_json(&out_tx, json!({"type": "user_text", "text": text}));
                                 set_state(&mut cur_state, "thinking", &out_tx);
-                                if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state).await {
+                                let mut prompt_to_send = text.clone();
+                                if game_mode.as_deref() == Some("rps") {
+                                    let p = plain(&text);
+                                    if p.contains("piedra") || p.contains("papel") || p.contains("tijera") {
+                                        let choice = pick_rps_choice();
+                                        send_json(&out_tx, json!({"type": "rps", "choice": choice}));
+                                        prompt_to_send = format!("{text}\n(En esta ronda de piedra, papel o tijera tú elegiste «{choice}». Reacciona con espontaneidad al resultado.)");
+                                    }
+                                }
+                                if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state, &mut resume_handle, &frames).await {
                                     let fresh: Vec<String> = frames
                                         .values()
                                         .filter(|f| f.at.elapsed().as_secs_f64() <= FRAME_MAX_AGE_SECS)
                                         .map(|f| f.jpeg.clone())
                                         .collect();
                                     if let Some(h) = &live_handle {
-                                        let _ = h.send_text(text, fresh).await;
+                                        let _ = h.send_text(prompt_to_send, fresh).await;
                                     }
                                 }
                             }
                             "start" => {
                                 live_user = false;
                                 set_state(&mut cur_state, "thinking", &out_tx);
-                                if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state).await {
+                                if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state, &mut resume_handle, &frames).await {
                                     if let Some(h) = &live_handle {
                                         let _ = h.send_text(GREETING.to_string(), vec![]).await;
                                     }
@@ -417,12 +518,71 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                                     } else {
                                         format!("(El usuario te está mirando de cerca: {zone}. Reacciona de forma breve.)")
                                     };
-                                    if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state).await {
+                                    if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state, &mut resume_handle, &frames).await {
                                         if let Some(h) = &live_handle {
                                             let _ = h.send_text(note, vec![]).await;
                                         }
                                     }
                                 }
+                            }
+                            "game" => {
+                                let mode = data.get("mode").and_then(|v| v.as_str()).unwrap_or("").trim();
+                                if mode.is_empty() || mode == "stop" {
+                                    game_mode = None;
+                                    continue;
+                                }
+                                game_mode = Some(mode.to_string());
+                                live_user = false;
+                                let game_prompt = match mode {
+                                    "rps" => {
+                                        let choice = pick_rps_choice();
+                                        send_json(&out_tx, json!({"type": "rps", "choice": choice}));
+                                        format!("(El usuario inició Piedra, Papel o Tijera contigo. Cuenta «¡Piedra, papel o tijera!» con emoción y revela que sacaste «{choice}», preguntándole qué sacó.)")
+                                    }
+                                    "trivia" => "(El usuario inició una ronda de Trivia contigo. Hazle una pregunta curiosa y divertida con 3 opciones breves y espera su respuesta.)".to_string(),
+                                    "twenty" => "(El usuario inició el juego de las 20 preguntas. Piensa en un objeto, animal o personaje conocido en secreto y dile que ya lo tienes pensado para que empiece a hacerte preguntas de sí o no.)".to_string(),
+                                    "ispy" => "(El usuario inició «Veo, veo» contigo. Si tienes imagen de cámara o pantalla activa, elige algo visible; si no, imagina algo típico de un escritorio y di «¡Veo, veo! ¿Qué ves?» dando una pista del color o inicial.)".to_string(),
+                                    _ => continue,
+                                };
+                                set_state(&mut cur_state, "thinking", &out_tx);
+                                if ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state, &mut resume_handle, &frames).await {
+                                    let fresh: Vec<String> = frames
+                                        .values()
+                                        .filter(|f| f.at.elapsed().as_secs_f64() <= FRAME_MAX_AGE_SECS)
+                                        .map(|f| f.jpeg.clone())
+                                        .collect();
+                                    if let Some(h) = &live_handle {
+                                        let _ = h.send_text(game_prompt, fresh).await;
+                                    }
+                                }
+                            }
+                            "ptt_config" => {
+                                if let Some(t) = ptt_task.take() {
+                                    t.abort();
+                                }
+                                let enabled = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                                #[cfg(windows)]
+                                if enabled {
+                                    let key_name = data.get("key").and_then(|v| v.as_str()).unwrap_or("AltRight");
+                                    let vk = ptt_vk(key_name);
+                                    let tx = int_tx.clone();
+                                    ptt_task = Some(tokio::spawn(async move {
+                                        use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+                                        let mut was_down = false;
+                                        loop {
+                                            tokio::time::sleep(std::time::Duration::from_millis(35)).await;
+                                            let down = unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 };
+                                            if down != was_down {
+                                                was_down = down;
+                                                if tx.send(InternalMsg::PttState(down)).await.is_err() {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }));
+                                }
+                                #[cfg(not(windows))]
+                                let _ = enabled;
                             }
                             "interrupt" => {
                                 turn_open = false;
@@ -435,6 +595,9 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                                 let src = data.get("source").and_then(|v| v.as_str()).unwrap_or("");
                                 let jpeg = data.get("jpeg").and_then(|v| v.as_str()).unwrap_or("");
                                 if (src == "camera" || src == "screen") && jpeg.starts_with("/9j/") && jpeg.len() <= 2_500_000 {
+                                    if src == "screen" {
+                                        live_mixed_at = Some(Instant::now());
+                                    }
                                     frames.insert(src.to_string(), FrameEntry { jpeg: jpeg.to_string(), at: Instant::now() });
                                     if live_handle.is_some() && last_frame_sent.elapsed().as_secs_f64() >= 1.0 {
                                         last_frame_sent = Instant::now();
@@ -453,10 +616,11 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                                 if !frames.contains_key("screen") || client_playing {
                                     continue;
                                 }
+                                live_mixed_at = Some(Instant::now());
                                 if let Some(b64) = data.get("pcm").and_then(|v| v.as_str()) {
                                     if let Ok(mut raw) = B64.decode(b64) {
                                         if raw.len() % 2 == 1 { raw.pop(); }
-                                        if !raw.is_empty() && ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state).await {
+                                        if !raw.is_empty() && ensure_live(&mut live_handle, &state, &int_tx, &out_tx, &mut cur_state, &mut resume_handle, &frames).await {
                                             if let Some(h) = &live_handle {
                                                 for chunk in raw.chunks(3200) {
                                                     let _ = h.send_audio(chunk.to_vec()).await;
@@ -479,7 +643,13 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
                                         }
                                         _ => {
                                             actions::log_entry(&state.config, &act.name, &act.detail, "deny", "cancelado");
-                                            send_json(&out_tx, json!({"type": "action_result", "id": act.id, "ok": false, "detail": "Cancelado"}));
+                                            send_json(&out_tx, json!({
+                                                "type": "action_done",
+                                                "id": act.id,
+                                                "action": act.name,
+                                                "ok": false,
+                                                "text": "Cancelado"
+                                            }));
                                         }
                                     }
                                 }
@@ -500,6 +670,9 @@ pub async fn run_ws_session(socket: WebSocket, state: Arc<AppState>) {
         }
     }
 
+    if let Some(t) = ptt_task.take() {
+        t.abort();
+    }
     if let Some(h) = live_handle {
         h.close().await;
     }
@@ -525,13 +698,29 @@ fn run_prepared_action(
         Ok(res) => {
             actions::log_entry(&state.config, &act.name, &act.detail, decision, &res);
             let _ = out_tx.try_send(Message::Text(
-                json!({"type": "action_result", "id": act.id, "ok": true, "detail": res}).to_string().into(),
+                json!({
+                    "type": "action_done",
+                    "id": act.id,
+                    "action": act.name,
+                    "ok": true,
+                    "text": res
+                })
+                .to_string()
+                .into(),
             ));
         }
         Err(err) => {
             actions::log_entry(&state.config, &act.name, &act.detail, decision, &err);
             let _ = out_tx.try_send(Message::Text(
-                json!({"type": "action_result", "id": act.id, "ok": false, "detail": err}).to_string().into(),
+                json!({
+                    "type": "action_done",
+                    "id": act.id,
+                    "action": act.name,
+                    "ok": false,
+                    "text": err
+                })
+                .to_string()
+                .into(),
             ));
         }
     }

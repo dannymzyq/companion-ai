@@ -30,6 +30,10 @@
       <strong id="name">Mika</strong>
       <span id="status">Conectando…</span>
     </div>
+    <button id="focus-chip" class="chip focus-chip" hidden title="Compañera de enfoque (clic para abrir ajustes)"></button>
+    <button id="photo-open" class="icon" aria-label="Cabina de fotos" title="Cabina de fotos">
+      <svg viewBox="0 0 24 24"><path d="M4 7.5h3l1.8-2.2h6.4L17 7.5h3A2.5 2.5 0 0 1 22.5 10v8A2.5 2.5 0 0 1 20 20.5H4A2.5 2.5 0 0 1 1.5 18v-8A2.5 2.5 0 0 1 4 7.5Z"/><circle cx="12" cy="14" r="3.6"/></svg>
+    </button>
     <button id="brain" class="chip" title="Cerebro en uso"></button>
     <button id="open-settings" class="icon" aria-label="Ajustes" title="Ajustes">
       <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-1.8-1L15 3.5h-4l-.3 2.6a7.6 7.6 0 0 0-1.8 1l-2.3-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 1.8 1l.3 2.6h4l.3-2.6a7.6 7.6 0 0 0 1.8-1l2.3 1 2-3.4-2-1.5Z"/></svg>
@@ -239,23 +243,23 @@
 
       <div class="settings-body">
         <nav class="settings-nav" role="tablist" aria-label="Secciones de ajustes">
-          <button class="snav active" role="tab" aria-selected="true" data-stab="personaje">
+          <button class="snav active" id="stab-btn-personaje" role="tab" aria-selected="true" aria-controls="stab-panel-personaje" data-stab="personaje">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
             <span><b>Personaje</b><small id="sum-tu"></small></span>
           </button>
-          <button class="snav" role="tab" aria-selected="false" data-stab="cerebro">
+          <button class="snav" id="stab-btn-cerebro" role="tab" aria-selected="false" aria-controls="stab-panel-cerebro" data-stab="cerebro">
             <svg viewBox="0 0 24 24"><path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-1.5 5.3A3 3 0 0 0 8 17.5a2.5 2.5 0 0 0 4 1.5V5.5A2.5 2.5 0 0 0 9 4.5ZM15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 1.5 5.3 3 3 0 0 1-3.5 4.7 2.5 2.5 0 0 1-4 1.5"/></svg>
             <span><b>Cerebro y voz</b><small id="sum-cerebro"></small></span>
           </button>
-          <button class="snav" role="tab" aria-selected="false" data-stab="escritorio">
+          <button class="snav" id="stab-btn-escritorio" role="tab" aria-selected="false" aria-controls="stab-panel-escritorio" data-stab="escritorio">
             <svg viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="12" rx="2.5"/><path d="M8.5 20h7M12 16.5V20"/></svg>
             <span><b>Dispositivos</b><small id="sum-dispositivos"></small></span>
           </button>
-          <button class="snav" role="tab" aria-selected="false" data-stab="memoria">
+          <button class="snav" id="stab-btn-memoria" role="tab" aria-selected="false" aria-controls="stab-panel-memoria" data-stab="memoria">
             <svg viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>
             <span><b>Acciones y memoria</b><small id="sum-acciones"></small></span>
           </button>
-          <button class="snav" role="tab" aria-selected="false" data-stab="estado">
+          <button class="snav" id="stab-btn-estado" role="tab" aria-selected="false" aria-controls="stab-panel-estado" data-stab="estado">
             <svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>
             <span><b>Estado</b><small id="sum-estado"></small></span>
           </button>
@@ -263,7 +267,7 @@
 
         <div class="settings-panels">
           <!-- TAB 1: Personaje (Tú, Modelo 3D y Personalidad) -->
-          <section class="stab-panel active" data-stab-panel="personaje">
+          <section class="stab-panel active" id="stab-panel-personaje" role="tabpanel" aria-labelledby="stab-btn-personaje" data-stab-panel="personaje">
             <div class="set-card">
               <div class="card-head">
                 <h3>Tú y tu modelo 3D</h3>
@@ -296,6 +300,29 @@
                     <small class="tip" id="tip-hobby" hidden>Si pasas un rato sin usar la app, hace pasatiempos por su cuenta y a los 3 minutos echa una siesta.</small></span>
                   <input type="checkbox" id="hobby" class="switch">
                 </label>
+              </div>
+              <div class="set-split">
+                <div class="set">
+                  <div class="set-head"><b>Ambiente y luz 3D</b></div>
+                  <div class="picker"><select id="scene-select" aria-label="Ambiente de iluminación"></select></div>
+                </div>
+                <label class="row set">
+                  <span><b>Resumen matutino</b><button class="info" data-tip="tip-brief" aria-label="Qué es esto">i</button>
+                    <small class="tip" id="tip-brief" hidden>Al abrir por primera vez en el día te saluda recordando tus avisos pendientes y tu racha.</small></span>
+                  <input type="checkbox" id="morning-briefing" class="switch" checked>
+                </label>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Accesorios 3D</b></div>
+                <div id="accessory-chips" class="chips"></div>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Presets de personaje</b></div>
+                <div id="preset-list" class="model-list"></div>
+                <div class="line">
+                  <input id="preset-name" type="text" class="inline-input" maxlength="40" placeholder="Nombre del preset actual…">
+                  <button type="button" id="preset-save" class="mini primary-mini">Guardar preset</button>
+                </div>
               </div>
             </div>
 
@@ -364,7 +391,7 @@
           </section>
 
           <!-- TAB 2: Cerebro y Voz. Un solo selector de modo; debajo, solo lo que ese modo usa (21 nov 2026). -->
-          <section class="stab-panel" data-stab-panel="cerebro">
+          <section class="stab-panel" id="stab-panel-cerebro" role="tabpanel" aria-labelledby="stab-btn-cerebro" data-stab-panel="cerebro">
             <div class="set-card">
               <div class="card-head">
                 <h3>¿Cómo quieres que funcione?</h3>
@@ -477,7 +504,7 @@
           </section>
 
           <!-- TAB 3: Dispositivos, Visión y Escritorio -->
-          <section class="stab-panel" data-stab-panel="escritorio">
+          <section class="stab-panel" id="stab-panel-escritorio" role="tabpanel" aria-labelledby="stab-btn-escritorio" data-stab-panel="escritorio">
             <div class="set-card">
               <div class="card-head">
                 <h3>Micrófono, oído y cámara</h3>
@@ -555,6 +582,18 @@
                   <small class="tip" id="tip-desk-autostart" hidden>Abre Companion automáticamente cuando inicias sesión en Windows o macOS.</small></span>
                 <input type="checkbox" id="desk-autostart" class="switch">
               </label>
+              <details class="adv" style="margin-top:10px">
+                <summary>Personalizar combinación de atajos</summary>
+                <div class="picker" style="margin-top:8px">
+                  <label for="desk-sc-mute">Silenciar micrófono</label>
+                  <input id="desk-sc-mute" type="text" maxlength="40" placeholder="CommandOrControl+Shift+M">
+                  <label for="desk-sc-float">Alternar modo flotante</label>
+                  <input id="desk-sc-float" type="text" maxlength="40" placeholder="CommandOrControl+Shift+F">
+                  <label for="desk-sc-stop">Detener voz</label>
+                  <input id="desk-sc-stop" type="text" maxlength="40" placeholder="CommandOrControl+Shift+S">
+                  <button type="button" id="desk-sc-save" class="mini primary-mini" style="align-self:flex-end;margin-top:4px">Guardar atajos</button>
+                </div>
+              </details>
             </div>
 
             <div class="set-card" id="pet-group" hidden>
@@ -609,7 +648,31 @@
           </section>
 
           <!-- TAB 4: Acciones y Memoria -->
-          <section class="stab-panel" data-stab-panel="memoria">
+          <section class="stab-panel" id="stab-panel-memoria" role="tabpanel" aria-labelledby="stab-btn-memoria" data-stab-panel="memoria">
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Enfoque y mini-juegos</h3>
+                <small class="card-meta">Pomodoro con racha y juegos por voz</small>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Compañera de enfoque</b></div>
+                <p class="note" id="focus-status">Sin sesión activa.</p>
+                <div class="buttons buttons-inline">
+                  <button type="button" id="focus-25" class="ghost">Pomodoro 25 / 5 min</button>
+                  <button type="button" id="focus-50" class="ghost">Bloque largo 50 / 10 min</button>
+                  <button type="button" id="focus-stop" class="danger" hidden style="margin-top:0">Detener enfoque</button>
+                </div>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Jugar un rato</b></div>
+                <div class="chips">
+                  <button type="button" data-game="rps">✊✋✌️ Piedra, papel o tijera</button>
+                  <button type="button" data-game="trivia">🧠 Trivia rápida</button>
+                  <button type="button" data-game="twenty">❓ 20 preguntas</button>
+                  <button type="button" data-game="ispy">👁️ Veo, veo</button>
+                </div>
+              </div>
+            </div>
             <div class="set-card">
               <div class="card-head">
                 <h3>Acciones en tu PC</h3>
@@ -635,13 +698,37 @@
 
             <div class="set-card">
               <div class="card-head">
-                <h3>Memoria</h3>
-                <small id="sum-memoria" class="card-meta">Lo que recuerda de ti entre sesiones</small>
+                <h3>Diario de recuerdos y avisos</h3>
+                <small id="sum-memoria" class="card-meta">Búsqueda instantánea, fijado 📌 y edición</small>
               </div>
               <div class="set">
-                <div class="set-head"><b>Recuerdos guardados</b><button class="info" data-tip="tip-memory" aria-label="Qué es esto">i</button></div>
-                <p class="tip" id="tip-memory" hidden>Datos duraderos y resúmenes de conversaciones pasadas que <span class="ob-name">Mika</span> guarda en esta PC.</p>
+                <div class="picker">
+                  <input type="text" id="memory-search" placeholder="Buscar en recuerdos y charlas pasadas…" aria-label="Buscar en recuerdos">
+                </div>
+                <div class="set-head" style="margin-top:10px"><b>Recuerdos y diario</b><button class="info" data-tip="tip-memory" aria-label="Qué es esto">i</button></div>
+                <p class="tip" id="tip-memory" hidden>Datos duraderos y resúmenes de conversaciones pasadas que <span class="ob-name">Mika</span> guarda en esta PC. Fija con 📌 los que nunca quieras que se resuman.</p>
                 <div id="memory-list" class="memory-list"></div>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Recordatorios y temporizadores pendientes</b></div>
+                <div id="reminders-list" class="memory-list"></div>
+              </div>
+            </div>
+
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Herramientas MCP locales (avanzado)</h3>
+                <small class="card-meta">Solo 127.0.0.1 / localhost</small>
+              </div>
+              <label class="row set">
+                <span><b>Activar puente MCP local</b><small>Conecta herramientas locales (ej. notas o calendario local) con confirmación.</small></span>
+                <input type="checkbox" id="mcp-on" class="switch">
+              </label>
+              <div id="mcp-list" class="memory-list"></div>
+              <div class="line" style="gap:8px;flex-wrap:wrap">
+                <input id="mcp-name" type="text" class="inline-input" style="max-width:130px" maxlength="24" placeholder="Nombre">
+                <input id="mcp-url" type="url" class="inline-input" placeholder="http://127.0.0.1:8765/mcp">
+                <button type="button" id="mcp-add" class="mini">Añadir</button>
               </div>
             </div>
 
@@ -662,13 +749,40 @@
           </section>
 
           <!-- TAB 5: Estado del sistema -->
-          <section class="stab-panel" data-stab-panel="estado">
+          <section class="stab-panel" id="stab-panel-estado" role="tabpanel" aria-labelledby="stab-btn-estado" data-stab-panel="estado">
             <div class="set-card">
               <div class="card-head">
                 <h3>Estado del sistema</h3>
                 <small class="card-meta">Diagnóstico en vivo de cada módulo</small>
               </div>
               <dl id="health"></dl>
+            </div>
+
+            <div class="set-card">
+              <div class="card-head">
+                <h3>Mochila y Modo En Casa</h3>
+                <small class="card-meta">Sincronización portátil sin claves secretas</small>
+              </div>
+              <div class="set">
+                <div class="set-head"><b>Mochila del compañero</b></div>
+                <p class="note">Exporta o importa tu personalidad, recuerdos y preferencias entre PC, Rust-Live y móvil (nunca incluye claves de API).</p>
+                <div class="buttons buttons-inline">
+                  <button type="button" id="backpack-export" class="ghost">Exportar mochila (.json)</button>
+                  <button type="button" id="backpack-import-btn" class="ghost">Importar mochila</button>
+                  <input type="file" id="backpack-file" accept=".json,application/json" hidden>
+                </div>
+              </div>
+              <label class="row set">
+                <span><b>Modo En Casa (red local)</b><small>Permite conectar la app móvil a esta PC dentro de tu Wi-Fi con un token efímero.</small></span>
+                <input type="checkbox" id="pairing-on" class="switch">
+              </label>
+              <div id="pairing-box" class="set" hidden>
+                <code id="pairing-url" class="pair-code"></code>
+                <div class="buttons buttons-inline">
+                  <button type="button" id="pairing-copy" class="mini primary-mini">Copiar enlace</button>
+                  <button type="button" id="pairing-rotate" class="mini">Renovar código</button>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -687,6 +801,41 @@
 
   <div id="drop" hidden><p>Suelta el modelo <b>.vrm</b></p></div>
   <div id="toast" hidden></div>
+
+  <!-- Barra rápida de Piedra, Papel o Tijera -->
+  <div id="rps-bar" class="rps-bar" hidden>
+    <small>Elige o dilo en voz alta:</small>
+    <button type="button" data-rps="¡Piedra!">✊ Piedra</button>
+    <button type="button" data-rps="¡Papel!">✋ Papel</button>
+    <button type="button" data-rps="¡Tijera!">✌️ Tijera</button>
+    <button type="button" id="rps-close" aria-label="Cerrar juego">✕</button>
+  </div>
+
+  <!-- Cabina de Fotos 3D (N-05) -->
+  <div id="photo-modal" class="photo-modal" hidden>
+    <div class="card photo-card" role="dialog" aria-label="Cabina de fotos">
+      <div class="card-head">
+        <h3>Cabina de fotos</h3>
+        <button type="button" id="photo-close" class="mini">Cerrar</button>
+      </div>
+      <div class="picker">
+        <label for="photo-pose">Postura / gesto</label>
+        <select id="photo-pose"></select>
+        <label for="photo-emo">Expresión</label>
+        <select id="photo-emo"></select>
+        <label for="photo-bg">Fondo</label>
+        <select id="photo-bg">
+          <option value="transparent">Transparente (PNG)</option>
+          <option value="scene">Ambiente actual</option>
+        </select>
+        <label class="row" style="margin-top:4px;padding:8px 11px">
+          <span><b>Cuerpo entero</b></span>
+          <input type="checkbox" id="photo-full" class="switch">
+        </label>
+        <button type="button" id="photo-snap" class="primary" style="margin-top:6px">Guardar foto PNG</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="js/main.js"></script>
 </body>

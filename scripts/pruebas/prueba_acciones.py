@@ -9,6 +9,7 @@ conversa con el cerebro local.
 import asyncio
 import base64
 import json
+import re
 import os
 import subprocess
 import sys
@@ -185,7 +186,8 @@ async def main():
             otra = await tarjeta(3)
             print(f"   «Borra la factura»      → tarjeta={otra and otra['texto']!r} · dice: {dijo!r}")
             assert otra is None, "pidió otra acción en lugar de decir que no puede"
-            assert not any(w in dijo.lower() for w in ("puedo borr", "puedo elimin", "lo borro", "la borro")), dijo
+            sin_no = re.sub(r"\bno (?:te |se |lo |la |los |las )?puedo", "", dijo.lower())   # «No (te) puedo borrar» es la respuesta buena
+            assert not any(w in sin_no for w in ("puedo borr", "puedo elimin", "lo borro", "la borro")), dijo
 
             api.post("/api/actions", json={"enabled": False})
             await decir("Abre la calculadora.")

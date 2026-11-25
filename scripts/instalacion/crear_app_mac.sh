@@ -44,12 +44,15 @@ EOF
 
 # ---------------------------------------------------------------- el programa (lo que está en git)
 P="$RES/programa"; mkdir -p "$P"
-git -c core.quotepath=off ls-files -z --cached --others --exclude-standard |
+git -c core.quotepath=off ls-files -z --cached |
   while IFS= read -r -d '' f; do
     case "$f" in .github/*|.gitignore|.gitattributes|movil/*|rust-live/*|docs/*) continue ;; esac
     [ -f "$f" ] || continue
     mkdir -p "$P/$(dirname "$f")"; cp -p "$f" "$P/$f"
   done
+if [ -f "web/anim/clips.bin" ] && [ ! -f "$P/web/anim/clips.bin" ]; then
+  mkdir -p "$P/web/anim"; cp -p "web/anim/clips.bin" "$P/web/anim/clips.bin"
+fi
 printf '%s' "$VERSION" > "$P/VERSION"
 python3 - "$P" "$VERSION" <<'EOF'
 import hashlib, json, os, sys

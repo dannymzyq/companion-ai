@@ -305,6 +305,37 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   en `settings.json`; personalizar una incluida la copia. Textos de la interfaz sin género (emociones como
   sustantivos: `EMOTION_NAMES` en `web/js/personality.js`). Ánimo entre turnos: `companion/mood.py` (va en
   `turn_context`, nunca en el prompt de sistema). Pruebas: `tests/test_personalidad.py`.
+- Órdenes dentro de una aplicación (24 nov 2026):
+  - Fallo: el filtro nuevo de `actions.guess` contra títulos de ventana pedía el nombre entero, así que «en el
+    reproductor…» o «en mi Word» ya no se reconocían. Arreglo: se quita el artículo y basta una palabra de 4 letras o
+    más del nombre.
+  - Seguir en la misma app: tras `abrir_app`, durante 10 minutos, «pon X», «reproduce X» o «busca X» van a esa app
+    (`actions.follow_up`, `Session._recent_app`). Va en los dos caminos, normal y Gemini Live. Así el modelo pequeño no
+    elige Apple Music por copiar el ejemplo del prompt.
+  - `prueba_control.py` y `prueba_acciones.py` pasan con gemma4:e4b-it-qat. `_prueba.Servidor` cierra antes la base
+    de prueba si la prueba importó `companion.store`.
+- Kokoro (24 nov 2026):
+  - `kokoro-onnx==0.6.1` en `requirements.txt` y en los dos locks. Trae espeakng-loader, phonemizer, joblib,
+    cloudpickle y dlinfo; el resto de versiones no cambió. Los locks se resolvieron con el lock anterior como
+    restricción, sin `fijar_versiones.ps1`, porque `.venv` en esta PC es el de ComfyUI.
+  - Archivos del Release `model-files-v1.0` con su SHA-256 en `tts_kokoro.FILES`. Una descarga que no coincide se
+    borra y no se usa (`tests/test_kokoro.py`).
+  - Medido en un entorno aparte: ef_dora y em_alex hablan español en la CPU, 2,9 s de audio en 0,6 s ya cargado.
+  - `models/kokoro/` está en `.gitignore`.
+- MCP: un servidor nuevo NO es de solo lectura (con tarjeta siempre) y `readOnlyHint` no cuenta. Lo que devuelve
+  una herramienta no va al registro.
+- Ideas de Animama (23 nov 2026; su código es AGPL: solo se tomaron ideas, nada de código):
+  - Cara de reposo: `reply_end` lleva `mood` (`Session._rest`, la emoción más cercana al ánimo de `mood.py`).
+    `main.js` vuelve a ella a los 7 s de callarse, en lugar de a neutral.
+  - Reacciones: `REACTIONS` en `web/js/main.js`. Cuando llega una emoción nueva sin gesto del modelo, un gesto
+    pequeño al azar con probabilidad 0,45, sin repetir el anterior y como mucho uno cada 25 s.
+  - Orden de recuerdos: `Session._tidy` (prompt `TIDY`). Corre en un rato de calma cuando hay 30 datos o más y 10
+    nuevos desde la última vez. `tidy_facts` descarta la lista si es más larga, si queda por debajo del 40 % o si
+    lleva datos privados. `store.replace_memories` guarda una sola copia en `memory_backups`;
+    `POST /api/memory/undo` la restaura y conserva lo recordado después. «Olvidar todo» también borra esa copia.
+    Pruebas: `tests/test_memoria.py`.
+  - No se trajo: detectar el fin de turno por la voz (Smart Turn de Pipecat), porque hay que descargar su modelo,
+    ni el editor de gestos, ni el conversor de VRChat.
 - Recursos: `profile.resources` reparte la memoria de vídeo (escritorio 2 GB + oído 1,1 GB + voz) y recomienda
   voz y modelo local; `profile.LOCAL_MODELS` es el catálogo (12B, E4B, E2B, Qwen 3 1.7B, Gemma 3 1B; los dos
   últimos no ven imágenes; `TOP_RECOMMENDED` es el mayor que se llega a recomendar). El modelo local que elige el usuario es el que se carga (`llm.choose_local`): no lo cambies
@@ -428,7 +459,29 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `mood.feel` al acabar cada respuesta. Gemini 3.1 Flash Live rechaza `enableAffectiveDialog` (1007).
   Cerebro en la nube: `PRESETS` con Anthropic, xAI, DeepSeek, Qwen, Cerebras y Together (sin probar); Ollama propios:
   `llm.local_info` (fuera los de embeddings; los «-cloud» no piden vídeo).
-- Memoria: `store.py` (messages, memories, summaries); los resúmenes los hace `Session._summarize` en ratos de calma.
+- Memoria: `store.py` (messages, memories, summaries con modo WAL, `RLock` e índice SQLite FTS5 `memories_fts` /
+  `summaries_fts`, recuerdos fijados `pinned` y filtro `_PRIVATE` contra contraseñas, claves API y tarjetas); los
+  resúmenes los hace `Session._summarize` en ratos de calma.
+- Mejoras técnicas y nuevos módulos (24 nov 2026):
+  - **Seguridad y aislamiento**: `TrustedHostMiddleware` (`127.0.0.1` / `localhost`, ampliado dinámicamente a la IP LAN
+    solo si el usuario enciende *Modo En Casa* con token de sesión `HttpOnly` en `companion/pairing.py`); claves de
+    Gemini enviadas siempre por cabecera `x-goog-api-key` (en Python, `rust-live`, iOS y Android, nunca `?key=` en URL);
+    protección anti-ZipSlip en `instalador/Lanzador.cs`; `ShellExecuteW` y DPAPI en `rust-live`; e IPC ReplayKit en iOS
+    cifrado con `ChaChaPoly` de 256 bits sobre puerto efímero en App Group Keychain (`ReceptorPantalla.swift` /
+    `SampleHandler.swift`). En la web se eliminó todo `innerHTML` con datos dinámicos en favor de construcción DOM segura.
+  - **Voz, oído y lip-sync**: tercer motor local `companion/tts_kokoro.py` (`kokoro-onnx` 82M CPU/ONNX, 24 kHz);
+    `voz/servidor.py` con `torch.inference_mode()`, fundidos de 10 ms/25 ms y guardián de PID padre + Job Object Win32
+    (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) en `voz_proc.py`; filtro FIR antialiasing de 5 tomas en `web/js/mic-worklet.js`;
+    y `web/js/lipsync.js` con buffer circular sin asignaciones y centroides de 24 kHz para sibilantes/fricativas.
+  - **Gráficos 3D y animaciones**: `scripts/herramientas/convertir_animaciones.py --empaquetar-bin` genera
+    `web/anim/clips.bin` (`CLPB` binario ~3,5× menor que JSON) tras canonicalizar ramas Euler XYZ y desenrollar saltos de
+    $\pm 2\pi$; `avatar.js` incorpora luz de contorno (*rim light*), sombra radial de contacto, colisionadores esféricos en
+    manos para SpringBones, micro-brisa en pelo, lectura PBO sin fugas de `fenceSync` y compilación asíncrona de shaders.
+  - **Nuevas funciones interactivas**: `web/js/music.js` (detector de pulsos musicales sobre audio compartido),
+    `web/js/photo.js` (cabina de fotos 2K PNG), `companion/focus.py` (Pomodoro con racha diaria), `companion/games.py`
+    (Piedra-papel-tijera 1-2-3, Trivia, 20 preguntas, Veo-veo), `companion/mcp_client.py` (cliente MCP `stdio` opt-in con
+    confirmación obligatoria), `web/js/extras.js` (presets, accesorios 3D en `props.js`, diario FTS5 y Mochila
+    `companion-backpack-v1`), y `update.py` con descarga verificada contra `SHA256SUMS.txt`.
 
 ## Reglas
 - Personaje siempre adulto. Los temas +18 solo existen con el LLM local, y ahí van implícitos, sin interruptor

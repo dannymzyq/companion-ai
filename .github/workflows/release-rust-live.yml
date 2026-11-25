@@ -24,16 +24,19 @@ jobs:
           $vrm = "3.5.5"
           $cdn = "https://cdn.jsdelivr.net/npm"
           $files = @(
-            @{ url = "$cdn/three@$three/build/three.module.min.js";                 dst = "web/vendor/three/build/three.module.min.js" },
-            @{ url = "$cdn/three@$three/build/three.core.min.js";                   dst = "web/vendor/three/build/three.core.min.js" },
-            @{ url = "$cdn/three@$three/examples/jsm/loaders/GLTFLoader.js";        dst = "web/vendor/three/examples/jsm/loaders/GLTFLoader.js" },
-            @{ url = "$cdn/three@$three/examples/jsm/utils/BufferGeometryUtils.js"; dst = "web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js" },
-            @{ url = "$cdn/three@$three/examples/jsm/controls/OrbitControls.js";    dst = "web/vendor/three/examples/jsm/controls/OrbitControls.js" },
-            @{ url = "$cdn/@pixiv/three-vrm@$vrm/lib/three-vrm.module.min.js";      dst = "web/vendor/three-vrm/three-vrm.module.min.js" }
+            @{ url = "$cdn/three@$three/build/three.module.min.js";                 dst = "web/vendor/three/build/three.module.min.js";                 sha = "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6" },
+            @{ url = "$cdn/three@$three/build/three.core.min.js";                   dst = "web/vendor/three/build/three.core.min.js";                   sha = "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de" },
+            @{ url = "$cdn/three@$three/examples/jsm/loaders/GLTFLoader.js";        dst = "web/vendor/three/examples/jsm/loaders/GLTFLoader.js";        sha = "67ac5551fdafa6e349bd80c8f8e5e39c136d6b2fb1ad647db9abb21dc86f9e4a" },
+            @{ url = "$cdn/three@$three/examples/jsm/utils/BufferGeometryUtils.js"; dst = "web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js"; sha = "fda7e946b8e0b5ab39b779206589e7a1079a22eb24efb89d7223e03fdfb1f751" },
+            @{ url = "$cdn/three@$three/examples/jsm/controls/OrbitControls.js";    dst = "web/vendor/three/examples/jsm/controls/OrbitControls.js";    sha = "b97879c748170baadeb3fb84cea1ffdf4674e283dc06042f34e2acb95a76042c" },
+            @{ url = "$cdn/@pixiv/three-vrm@$vrm/lib/three-vrm.module.min.js";      dst = "web/vendor/three-vrm/three-vrm.module.min.js";               sha = "99f943e956e52dbf52bbe418899e8a8ae5e35f5c79a94ab8e404926afc620bf2" }
           )
           foreach ($f in $files) {
             New-Item -ItemType Directory -Force (Split-Path -Parent $f.dst) | Out-Null
             Invoke-WebRequest -Uri $f.url -OutFile $f.dst -UseBasicParsing
+            if ((Get-FileHash $f.dst -Algorithm SHA256).Hash.ToLowerInvariant() -ne $f.sha) {
+              throw "Suma SHA-256 inválida en $($f.dst)"
+            }
           }
 
       - name: Instalar toolchain Rust estable (MSVC)
@@ -76,4 +79,6 @@ jobs:
           Descarga **`Companion-Live-Windows-x64.exe`** y haz doble clic. Guarda tus datos en una carpeta `data/` al lado del ejecutable.
           "@
           [IO.File]::WriteAllText("notas-rust-live.md", $notas, (New-Object Text.UTF8Encoding $false))
-          gh release create "$tag" "dist/Companion-Live-Windows-x64.exe" --title "Companion Live Portable ($tag)" --notes-file notas-rust-live.md --prerelease
+          $hash = (Get-FileHash "dist/Companion-Live-Windows-x64.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("dist/SHA256SUMS.txt", "$hash  Companion-Live-Windows-x64.exe`n", (New-Object Text.UTF8Encoding $false))
+          gh release create "$tag" "dist/Companion-Live-Windows-x64.exe" "dist/SHA256SUMS.txt" --title "Companion Live Portable ($tag)" --notes-file notas-rust-live.md --prerelease

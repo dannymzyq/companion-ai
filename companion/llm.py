@@ -359,7 +359,7 @@ def _images_ollama(messages: list[dict], images) -> list[dict]:
 async def _gemini(model: str, messages: list[dict], sampling: dict) -> AsyncIterator[str]:
     body = {"model": model, "messages": messages, "stream": True,
             "temperature": sampling["temperature"], "top_p": sampling["top_p"],
-            "max_tokens": sampling["max_tokens"] + 256}       # el razonamiento mínimo también gasta tokens
+            "max_tokens": sampling["max_tokens"] + 140}       # margen justo para razonamiento mínimo sin monólogos
     if _is_gemini() and settings.gemini_reasoning and model not in _no_reasoning:
         body["reasoning_effort"] = settings.gemini_reasoning
     headers = {"Authorization": f"Bearer {settings.gemini_api_key}"}
@@ -544,8 +544,14 @@ async def choose_local() -> str:
     choice = models[0]
     _ours.update(models)
     if gpu is not None:
+        from . import profile, stt, voz_proc
         ours = sum(int(m.get("size_vram", 0) / 2**20) for name, m in loaded.items() if name in _ours)   # se libera al cambiar
-        free = gpu["total"] - gpu["used"] + ours
+        pending_mb = 0
+        if profile.ear_engine() == "local" and not stt.on_gpu:
+            pending_mb += int(profile.ear_gb() * 1024)
+        if settings.voice_engine == "completa" and voz_proc.installed() and not voz_proc.running():
+            pending_mb += int(profile.VOICE_ENGINES["completa"]["vram_gb"] * 1024)
+        free = max(0, gpu["total"] - gpu["used"] + ours - pending_mb)
         need = need_mb(choice)
         log.info("Memoria de vídeo libre para el modelo local: %d MB · %s pide ~%d MB", free, choice, need)
         if free < need and choice not in loaded:
@@ -677,7 +683,7 @@ async def _free_voice(model: str) -> bool:
     if settings.voice_engine != "completa" or profile._squeezed:
         return False
     profile.squeeze()
-    profile.apply()
+    await asyncio.to_thread(profile.apply)
     if settings.voice_engine != "ligera":
         return False                      # cambio automático apagado o voz ligera sin descargar
     await asyncio.to_thread(voz_proc.stop)

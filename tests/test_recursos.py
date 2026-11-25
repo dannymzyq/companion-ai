@@ -252,10 +252,6 @@ class Personajes(unittest.TestCase):
             self.assertEqual(models.active_id(), "avatar1")        # el de Mika ya no existe: el de por defecto
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OidoSegunLaTarjeta(unittest.TestCase):
     """18 nov 2026: en tarjetas de 4-6 GB el turbo (1,3 GB) y la voz completa (1,1 GB) no cabían juntos."""
 
@@ -335,3 +331,7 @@ class VozRapida(unittest.TestCase):
             self.assertFalse(self.vp.fast())
         self.assertEqual(get.call_count, 1)
         self.assertIsNone(self.vp._fast)
+
+
+if __name__ == "__main__":
+    unittest.main()

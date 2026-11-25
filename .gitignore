@@ -15,6 +15,7 @@ voz/.venv/
 voz/modelos/
 models/whisper/
 models/piper/
+models/kokoro/
 # instaladores creados con scripts\instalacion\crear_instalador.ps1
 dist/
 # compilación de la edición ligera en Rust

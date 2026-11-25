@@ -106,7 +106,8 @@ impl MoodEngine {
         self.save(&st);
     }
 
-    pub fn describe(&self, base_mood: &str) -> String {
+    pub fn describe_for(&self, base_mood: &str, speaks: &str) -> String {
+        let masc = speaks == "m";
         let now = now_secs();
         let st = self.state.lock().unwrap();
         if st.v.is_none() {
@@ -125,13 +126,13 @@ impl MoodEngine {
             } else if v > 0.2 {
                 "de buen humor"
             } else if v < -0.4 && a < 0.0 {
-                "algo decaída"
+                if masc { "algo decaído" } else { "algo decaída" }
             } else if v < -0.3 {
-                "molesta o tensa"
+                if masc { "molesto o tenso" } else { "molesta o tensa" }
             } else if v < -0.15 {
-                "un poco baja de ánimo"
+                if masc { "un poco bajo de ánimo" } else { "un poco baja de ánimo" }
             } else {
-                "tranquila"
+                if masc { "tranquilo" } else { "tranquila" }
             };
             let energy = if a > 0.5 {
                 " y con mucha energía"
@@ -147,10 +148,21 @@ impl MoodEngine {
         if let Some(l) = last {
             if now - last_t < REMEMBER {
                 let mins = ((now - last_t) / 60.0).round().max(1.0) as u64;
-                let word = match l.as_str() {
-                    "timida" => "tímida",
-                    "carinosa" => "cariñosa",
-                    other => other,
+                let word = match (l.as_str(), masc) {
+                    ("timida", true) => "tímido",
+                    ("timida", false) => "tímida",
+                    ("carinosa", true) => "cariñoso",
+                    ("carinosa", false) => "cariñosa",
+                    ("emocionada", true) => "emocionado",
+                    ("sonrojada", true) => "sonrojado",
+                    ("molesta", true) => "molesto",
+                    ("sorprendida", true) => "sorprendido",
+                    ("pensativa", true) => "pensativo",
+                    ("enamorada", true) => "enamorado",
+                    ("nerviosa", true) => "nervioso",
+                    ("asustada", true) => "asustado",
+                    ("confundida", true) => "confundido",
+                    (other, _) => other,
                 };
                 parts.push(format!("hace {mins} min te sentiste {word}"));
             }

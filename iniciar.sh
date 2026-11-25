@@ -15,6 +15,19 @@ esac
 
 [ -x .venv/bin/python ] || bash instalar.sh
 [ -f .env ] || cp .env.example .env
+mkdir -p data
+LOCKDIR="data/iniciar.lock"
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  OLD_PID="$(cat "$LOCKDIR/pid" 2>/dev/null || echo 0)"
+  if [ "$OLD_PID" -gt 0 ] && kill -0 "$OLD_PID" 2>/dev/null; then
+    for _ in $(seq 1 60); do [ ! -d "$LOCKDIR" ] && break; sleep 1; done
+  fi
+  rm -rf "$LOCKDIR" 2>/dev/null || true
+  mkdir -p "$LOCKDIR"
+fi
+echo $$ > "$LOCKDIR/pid"
+trap 'rm -rf "$LOCKDIR" 2>/dev/null || true' EXIT
+
 leer_puerto() { grep -E '^\s*PORT\s*=' .env | head -1 | tr -dc '0-9' || true; }
 PUERTO="$(leer_puerto)"; PUERTO="${PUERTO:-8200}"
 URL="http://127.0.0.1:$PUERTO"
@@ -22,13 +35,23 @@ vivo() { curl -fsS "$URL/api/config" >/dev/null 2>&1; }
 ocupado() { .venv/bin/python -c "import socket,sys; s=socket.socket(); sys.exit(s.connect_ex(('127.0.0.1', int(sys.argv[1]))) != 0)" "$1"; }
 
 if command -v ollama >/dev/null 2>&1 && ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-  mkdir -p data   # se anota que lo abrió el companion: detener.sh lo cierra al salir (si ya estaba abierto, no)
   if [ "$(uname -s)" = Darwin ] && [ -d /Applications/Ollama.app ]; then open -ga Ollama && echo app >data/ollama.started
   else nohup ollama serve >/dev/null 2>&1 & echo $! >data/ollama.started; fi
 fi
 if ! vivo; then
-  if ocupado "$PUERTO"; then   # otro programa usa ese puerto: se elige uno libre y se guarda en .env
-    NUEVO="$(.venv/bin/python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1])")"
+  if ocupado "$PUERTO"; then   # otro programa usa ese puerto: se elige uno libre en 8200..8299 (nunca puertos bloqueados por navegadores)
+    NUEVO="$(.venv/bin/python -c "import socket
+for p in range(8202, 8300):
+    if p == 8210: continue
+    s = socket.socket()
+    try:
+        s.bind(('127.0.0.1', p))
+        print(p); break
+    except OSError:
+        pass
+    finally:
+        s.close()")"
+    [ -n "$NUEVO" ] || { echo "No encontre ningun puerto libre entre 8202 y 8299."; exit 1; }
     echo "El puerto $PUERTO lo usa otro programa: el companion usara el $NUEVO."
     if grep -qE '^\s*PORT\s*=' .env; then sed -i.bak -E "s/^\s*PORT\s*=.*/PORT=$NUEVO/" .env && rm -f .env.bak
     else printf '\nPORT=%s\n' "$NUEVO" >>.env; fi

@@ -1,14 +1,16 @@
+import CryptoKit
 import Network
 import ReplayKit
 import UIKit
 
 /// Recibe la pantalla compartida de la extensión de transmisión (Pantalla/SampleHandler.swift) por una conexión
-/// local (solo 127.0.0.1: el puerto no se abre a la red) y pasa cada imagen a la página (`pantalla`).
+/// local autenticada y cifrada con ChaChaPoly en un puerto efímero sobre 127.0.0.1 (compartido por App Group Keychain).
 @MainActor
 final class ReceptorPantalla {
-    static let puerto: NWEndpoint.Port = 47_621
+    static let ipcSlot = "pantalla_ipc"
     private var listener: NWListener?
     private var conexion: NWConnection?
+    private var clave: SymmetricKey?
     private var buffer = Data()
     var alCuadro: ((Data) -> Void)?
     var alCambiar: ((Bool) -> Void)?
@@ -17,14 +19,27 @@ final class ReceptorPantalla {
 
     func escuchar() throws {
         guard listener == nil else { return }
+        let sym = SymmetricKey(size: .bits256)
+        clave = sym
+        let keyB64 = sym.withUnsafeBytes { Data($0).base64EncodedString() }
         let p = NWParameters.tcp
-        p.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: Self.puerto)
-        p.allowLocalEndpointReuse = true
+        p.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         let l = try NWListener(using: p)
         l.stateUpdateHandler = { estado in
-            #if PRUEBAS
-            if case .failed(let e) = estado { Task { @MainActor in Registro.anotar("Pantalla compartida: no pude escuchar: \(e)") } }
-            #endif
+            switch estado {
+            case .ready:
+                if let port = l.port?.rawValue {
+                    Keychain.sharedSet(Self.ipcSlot, "\(port):\(keyB64)")
+                }
+            case .failed(let e):
+                #if PRUEBAS
+                Task { @MainActor in Registro.anotar("Pantalla compartida: no pude escuchar: \(e)") }
+                #else
+                _ = e
+                #endif
+            default:
+                break
+            }
         }
         l.newConnectionHandler = { [weak self] c in
             Task { @MainActor in self?.aceptar(c) }
@@ -65,12 +80,19 @@ final class ReceptorPantalla {
     }
 
     private func sacarCuadros() {
+        guard let clave else { buffer.removeAll(); return }
         while buffer.count >= 4 {
             let largo = buffer.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
-            guard largo > 0, largo < 8 << 20 else { buffer.removeAll(); return }
+            guard largo > 28, largo < 8 << 20 else { buffer.removeAll(); return }
             guard buffer.count >= 4 + largo else { return }
-            let jpeg = buffer.subdata(in: buffer.startIndex + 4 ..< buffer.startIndex + 4 + largo)
+            let cifrado = buffer.subdata(in: buffer.startIndex + 4 ..< buffer.startIndex + 4 + largo)
             buffer.removeSubrange(buffer.startIndex ..< buffer.startIndex + 4 + largo)
+            guard let box = try? ChaChaPoly.SealedBox(combined: cifrado),
+                  let jpeg = try? ChaChaPoly.open(box, using: clave) else {
+                conexion?.cancel()
+                buffer.removeAll()
+                return
+            }
             alCuadro?(jpeg)
             #if PRUEBAS
             cuenta += 1

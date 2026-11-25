@@ -151,6 +151,7 @@ export class Effects {
     this.group.renderOrder = 20;
     scene.add(this.group);
     this.parts = [];                        // partículas vivas
+    this._pool = [];                        // pool reutilizable de Sprites (evita reservar/liberar por fotograma)
     this.blush = [this._sprite('blush'), this._sprite('blush')];
     this.blushW = 0;
     this.cheeks = null;                     // rubor pegado a la cara (attachBlush): planos hijos del hueso de la cabeza
@@ -220,12 +221,36 @@ export class Effects {
     for (let i = 0; i < n; i++) this._spawn(kind, i * 0.08, true, size);
   }
 
+  _acquireSprite(kind) {
+    const s = this._pool.pop();
+    if (s) {
+      s.material.map = this.tex[kind];
+      s.material.opacity = 0;
+      s.material.rotation = 0;
+      s.material.needsUpdate = true;
+      s.visible = false;
+      return s;
+    }
+    return this._sprite(kind);
+  }
+
+  _releaseSprite(s) {
+    s.visible = false;
+    s.material.opacity = 0;
+    if (this._pool.length < 48) {
+      this._pool.push(s);
+    } else {
+      this.group.remove(s);
+      s.material.dispose();
+    }
+  }
+
   // Una partícula: nace junto a la cabeza y sube (o cae, si es una gota o una lágrima) mientras se desvanece.
   _spawn(kind, delay = 0, burst = false, scale = 1) {
     const falls = kind === 'drop' || kind === 'tear';
     const side = Math.random() < 0.5 ? -1 : 1;
     const p = {
-      sprite: this._sprite(kind), kind, age: -delay, falls,
+      sprite: this._acquireSprite(kind), kind, age: -delay, falls,
       life: (falls ? 1.5 : kind === 'spark' ? 0.9 : kind === 'exclaim' || kind === 'question' ? 1.3 : kind === 'puff' ? 1.2 : 1.9) * (scale > 1.3 ? 1.3 : 1),
       // posición en «cabezas»: x a los lados, y hacia arriba desde la altura de los ojos
       x: kind === 'tear' ? side * 0.36 : falls ? side * rand(0.78, 0.95) : kind === 'exclaim' || kind === 'question' ? side * rand(0.55, 1.0) : rand(-1.15, 1.15),
@@ -253,8 +278,16 @@ export class Effects {
     this._u.setFromMatrixColumn(cam.matrixWorld, 1);
     const k = head.unit;
 
-    for (const p of this.parts) {
+    for (let i = 0; i < this.parts.length; i++) {
+      const p = this.parts[i];
       p.age += dt;
+      if (p.age >= p.life) {
+        this._releaseSprite(p.sprite);
+        this.parts[i] = this.parts[this.parts.length - 1];
+        this.parts.pop();
+        i--;
+        continue;
+      }
       if (p.age < 0) continue;
       const a = p.age / p.life;
       p.x += p.vx * dt; p.y += p.vy * dt;
@@ -267,12 +300,6 @@ export class Effects {
       p.sprite.material.opacity = clamp(a * 8) * clamp((1 - a) * 3);
       p.sprite.visible = true;
     }
-    this.parts = this.parts.filter((p) => {
-      if (p.age < p.life) return true;
-      this.group.remove(p.sprite);
-      p.sprite.material.dispose();
-      return false;
-    });
 
     // Rubor: sobre cada mejilla, solo cuando se le ve la cara. Con un VRM, pegado a la cara (attachBlush): cada
     // mejilla se apaga según cuánto mira a la cámara; en la esfera, los carteles de siempre.
@@ -318,11 +345,22 @@ export class Effects {
   }
 
   clear() {
-    for (const p of this.parts) { this.group.remove(p.sprite); p.sprite.material.dispose(); }
-    this.parts = [];
+    for (const p of this.parts) this._releaseSprite(p.sprite);
+    this.parts.length = 0;
     this.blushW = this.holdW = 0;
     this.blush.forEach((s) => (s.visible = false));
     if (this.cheeks) this.cheeks.forEach((m) => (m.visible = false));
     this.hold.visible = false;
+  }
+
+  dispose() {
+    this.clear();
+    this.detachBlush();
+    for (const s of [...this._pool, ...this.blush, this.hold]) {
+      this.group.remove(s);
+      s.material.dispose();
+    }
+    this._pool.length = 0;
+    for (const k in this.tex) this.tex[k].dispose();
   }
 }

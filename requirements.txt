@@ -17,3 +17,5 @@ pillow>=11                                   # captura de la ventana que maneja,
 # Whisper en la GPU (CTranslate2 necesita cuBLAS 12 y cuDNN 9). Sin ellas, el oído cae a CPU.
 nvidia-cublas-cu12
 nvidia-cudnn-cu12>=9,<10
+# Voz intermedia (Kokoro-82M en ONNX, en el procesador). Sus archivos (~345 MB) se bajan a models\kokoro al elegirla.
+kokoro-onnx>=0.4

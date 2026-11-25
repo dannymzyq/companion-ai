@@ -159,10 +159,6 @@ class SoloNube(unittest.TestCase):
         self.assertFalse(profile.cloud_only())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OidoSaturado(unittest.TestCase):
     """18 nov 2026: un 503 o un proveedor que no contesta descansa 5 min y se prueba el siguiente."""
 
@@ -173,7 +169,6 @@ class OidoSaturado(unittest.TestCase):
         stt_cloud._rest.clear()
 
     def test_503_pasa_al_siguiente_y_descansa(self):
-        import httpx
         calls = []
 
         def post(url, **kw):
@@ -188,8 +183,6 @@ class OidoSaturado(unittest.TestCase):
         self.assertTrue(stt_cloud._resting("groq"))
 
     def test_sin_respuesta_descansa(self):
-        import httpx
-
         def post(url, **kw):
             if "groq" in url:
                 raise httpx.ReadTimeout("lento")
@@ -199,3 +192,7 @@ class OidoSaturado(unittest.TestCase):
                 mock.patch.object(stt_cloud._client, "post", post):
             self.assertEqual(stt_cloud.transcribe(np.zeros(16000, dtype=np.float32)), "hola")
         self.assertTrue(stt_cloud._resting("groq"))
+
+
+if __name__ == "__main__":
+    unittest.main()

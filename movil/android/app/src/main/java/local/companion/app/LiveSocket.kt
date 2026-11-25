@@ -18,13 +18,16 @@ class LiveSocket(private val id: Int, private val bridge: Bridge) {
     fun open(url: String, keyName: String?) {
         val u = url.replaceFirst("wss://", "https://").toHttpUrlOrNull()
         if (!url.startsWith("wss://") || u == null || u.host !in HOSTS) throw BridgeError("En vivo solo se conecta a la Live API de Google")
-        val b = u.newBuilder()
+        val cleanUrl = u.newBuilder().removeAllQueryParameters("key").build()
+        val reqBuilder = Request.Builder().url(cleanUrl)
         if (keyName != null) {
             val key = Secretos.get(bridge.ctx, bridge.secreto(keyName)) ?: throw BridgeError("Falta la clave")
-            b.removeAllQueryParameters("key").addQueryParameter("key", key)
+            reqBuilder.header("x-goog-api-key", key)
         }
-        ws = bridge.http.newWebSocket(Request.Builder().url(b.build()).build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {}
+        ws = bridge.http.newWebSocket(reqBuilder.build(), object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (ws === webSocket) bridge.evento(id, "open", null)
+            }
             override fun onMessage(webSocket: WebSocket, text: String) = bridge.evento(id, "message", text)
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) = bridge.evento(id, "message", bytes.utf8())
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -40,7 +43,6 @@ class LiveSocket(private val id: Int, private val bridge: Bridge) {
                 bridge.evento(id, "error", "En vivo se cortó: sin conexión (${t.javaClass.simpleName})")
             }
         })
-        bridge.evento(id, "open", null)
     }
 
     fun send(text: String) {

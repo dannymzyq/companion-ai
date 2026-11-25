@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::Command;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -126,12 +127,26 @@ pub fn public_state(cfg: &AppConfig) -> Value {
 }
 
 pub fn history(cfg: &AppConfig, limit: usize) -> Vec<Value> {
+    use std::io::{Read, Seek, SeekFrom};
     let path = cfg.data_dir.join("acciones.jsonl");
-    let Ok(text) = fs::read_to_string(&path) else {
+    let Ok(mut f) = fs::File::open(&path) else {
         return vec![];
     };
-    let mut items: Vec<Value> = text
-        .lines()
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    if len > 32768 {
+        let _ = f.seek(SeekFrom::End(-32768));
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return vec![];
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let lines_iter: Box<dyn Iterator<Item = &str>> = if len > 32768 {
+        Box::new(text.lines().skip(1))
+    } else {
+        Box::new(text.lines())
+    };
+    let mut items: Vec<Value> = lines_iter
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .collect();
     items.reverse();
@@ -141,12 +156,17 @@ pub fn history(cfg: &AppConfig, limit: usize) -> Vec<Value> {
 
 pub fn log_entry(cfg: &AppConfig, action: &str, detail: &str, decision: &str, result: &str) {
     let path = cfg.data_dir.join("acciones.jsonl");
+    let safe_res = if action == "portapapeles" {
+        "(contenido del portapapeles omitido)".to_string()
+    } else {
+        result.chars().take(300).collect::<String>()
+    };
     let entry = json!({
         "when": Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         "action": action,
         "detail": detail.chars().take(300).collect::<String>(),
         "decision": decision,
-        "result": result.chars().take(300).collect::<String>(),
+        "result": safe_res,
     });
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(f, "{}", entry);
@@ -269,9 +289,14 @@ fn user_home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn resolve_folder(raw: &str) -> Result<PathBuf, String> {
+pub fn resolve_folder(raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    // Freno crítico de seguridad: rechazar rutas de red UNC antes de tocar el sistema de archivos (evita fugas SMB/NTLM).
+    if trimmed.starts_with(r"\\") || trimmed.starts_with("//") {
+        return Err("Por seguridad no abro rutas de red.".into());
+    }
     let home = user_home();
-    let k = plain(raw);
+    let k = plain(trimmed);
     let candidate = match k.as_str() {
         "escritorio" | "desktop" => home.join("Desktop"),
         "descargas" | "downloads" => home.join("Downloads"),
@@ -281,14 +306,20 @@ fn resolve_folder(raw: &str) -> Result<PathBuf, String> {
         "videos" | "video" => home.join("Videos"),
         "inicio" | "usuario" | "home" => home.clone(),
         _ => {
-            let p = PathBuf::from(raw);
+            let p = PathBuf::from(trimmed);
+            if p.to_string_lossy().starts_with(r"\\") || p.to_string_lossy().starts_with("//") {
+                return Err("Por seguridad no abro rutas de red.".into());
+            }
             if p.is_dir() {
                 p
             } else {
-                home.join(raw)
+                home.join(trimmed)
             }
         }
     };
+    if candidate.to_string_lossy().starts_with(r"\\") || candidate.to_string_lossy().starts_with("//") {
+        return Err("Por seguridad no abro rutas de red.".into());
+    }
     if candidate.is_dir() {
         Ok(candidate)
     } else {
@@ -326,35 +357,61 @@ pub fn fmt_duration(secs: u64) -> String {
     parts.join(" ")
 }
 
-fn exec_open_url(url: &str) -> Result<String, String> {
-    if !url.starts_with("https://") && !url.starts_with("http://") {
-        return Err("Solo se permiten direcciones http:// o https://".into());
+#[cfg(windows)]
+fn shell_open_win32(target: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let op: Vec<u16> = std::ffi::OsStr::new("open").encode_wide().chain(std::iter::once(0)).collect();
+    let file: Vec<u16> = std::ffi::OsStr::new(target).encode_wide().chain(std::iter::once(0)).collect();
+    let res = unsafe {
+        ShellExecuteW(
+            null::<core::ffi::c_void>() as _,
+            op.as_ptr(),
+            file.as_ptr(),
+            null(),
+            null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if (res as isize) <= 32 {
+        return Err(format!("Windows no pudo abrir «{target}» (código {}).", res as isize));
+    }
+    Ok(())
+}
+
+pub fn open_url_safe(url: &str) -> Result<String, String> {
+    let u = url.trim();
+    if (!u.starts_with("https://") && !u.starts_with("http://"))
+        || u.chars().any(|c| c.is_control() || matches!(c, ' ' | '"' | '<' | '>' | '|'))
+    {
+        return Err("Solo se permiten direcciones http:// o https:// válidas".into());
     }
     #[cfg(windows)]
     {
-        Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        shell_open_win32(u)?;
     }
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg(url).spawn().map_err(|e| e.to_string())?;
+        Command::new("open").arg(u).spawn().map_err(|e| e.to_string())?;
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        Command::new("xdg-open").arg(url).spawn().map_err(|e| e.to_string())?;
+        Command::new("xdg-open").arg(u).spawn().map_err(|e| e.to_string())?;
     }
-    Ok(format!("Abierto {url}"))
+    Ok(format!("Abierto {u}"))
+}
+
+fn exec_open_url(url: &str) -> Result<String, String> {
+    open_url_safe(url)
 }
 
 fn exec_open_path(path: &Path) -> Result<String, String> {
     #[cfg(windows)]
     {
-        Command::new("explorer")
-            .arg(path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        shell_open_win32(&path.to_string_lossy())?;
     }
     #[cfg(target_os = "macos")]
     {
@@ -372,37 +429,31 @@ fn exec_open_app(name: &str) -> Result<String, String> {
     #[cfg(windows)]
     {
         let alias = match k.as_str() {
-            "calculadora" | "calculator" => Some("calc"),
-            "bloc de notas" | "notepad" => Some("notepad"),
-            "paint" => Some("mspaint"),
-            "explorador" | "explorer" => Some("explorer"),
+            "calculadora" | "calculator" => Some("calc.exe"),
+            "bloc de notas" | "notepad" => Some("notepad.exe"),
+            "paint" => Some("mspaint.exe"),
+            "explorador" | "explorer" => Some("explorer.exe"),
             "configuracion" | "ajustes" | "settings" => Some("ms-settings:"),
-            "chrome" | "google chrome" => Some("chrome"),
-            "edge" | "microsoft edge" => Some("msedge"),
-            "firefox" => Some("firefox"),
+            "chrome" | "google chrome" => Some("chrome.exe"),
+            "edge" | "microsoft edge" => Some("msedge.exe"),
+            "firefox" => Some("firefox.exe"),
             "spotify" => Some("spotify:"),
             "apple music" => Some("music:"),
             "discord" => Some("discord:"),
             "steam" => Some("steam:"),
             "vscode" | "visual studio code" | "code" => Some("code"),
-            "word" => Some("winword"),
-            "excel" => Some("excel"),
-            "powerpoint" => Some("powerpnt"),
+            "word" => Some("winword.exe"),
+            "excel" => Some("excel.exe"),
+            "powerpoint" => Some("powerpnt.exe"),
             _ => None,
         };
         if let Some(target) = alias {
-            Command::new("cmd")
-                .args(["/C", "start", "", target])
-                .spawn()
-                .map_err(|e| e.to_string())?;
+            shell_open_win32(target)?;
             return Ok(format!("Abierta {name}"));
         }
         // Search Start Menu .lnk shortcuts
         if let Some(lnk) = find_start_menu_shortcut(&k) {
-            Command::new("cmd")
-                .args(["/C", "start", "", &lnk.to_string_lossy()])
-                .spawn()
-                .map_err(|e| e.to_string())?;
+            shell_open_win32(&lnk.to_string_lossy())?;
             return Ok(format!("Abierta {name}"));
         }
         return Err(format!("No encontré la aplicación «{name}»."));
@@ -545,5 +596,22 @@ fn exec_volume(cmd: &str) -> Result<String, String> {
     {
         let _ = k;
         Err("El control de volumen solo está disponible en Windows.".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocks_unc_network_paths() {
+        assert!(resolve_folder(r"\\192.168.1.10\share").is_err());
+        assert!(resolve_folder("//attacker.example/share").is_err());
+    }
+
+    #[test]
+    fn rejects_unsafe_urls() {
+        assert!(open_url_safe("file:///C:/Windows/System32/calc.exe").is_err());
+        assert!(open_url_safe("https://example.com/hola\"&calc").is_err());
     }
 }

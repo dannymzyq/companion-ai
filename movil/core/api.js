@@ -310,12 +310,82 @@ export function createApi(core) {
       if (core.swap && llm.isLive()) core.swap();
       return { ...personality.pub(), mood: mood.pub(personality.active()) };
     },
-    // El teléfono se actualiza reinstalando desde Xcode: no hay aviso de versión nueva.
+    // El teléfono se actualiza reinstalando desde Xcode o Android Studio: no hay aviso de versión nueva.
     'GET /api/update': () => ({ available: false }),
     'POST /api/voices/custom': () => { throw new HttpError(422, 'Las voces propias se crean en la app de la PC o del Mac: en el teléfono no se pueden clonar voces.'); },
     'GET /api/memory': () => memory(),
-    'DELETE /api/memory': () => { store.forgetAll(); return { ok: true }; },
+    'GET /api/memory/diary': (_b, url) => store.diary(url.searchParams.get('q') || ''),
+    'DELETE /api/memory': () => { store.forgetAll(); mood.reset(); return { ok: true }; },
     'POST /api/memory/forget': (b) => { store.deleteMemory(String(b.fact || '')); return memory(); },
+    'GET /api/reminders': () => ({ reminders: [] }),
+    'GET /api/backpack': () => {
+      const { memories: mems, summaries: sums } = store.exportMemories();
+      return {
+        schema: 'companion-backpack-v1',
+        exported_at: new Date().toISOString(),
+        character: character(),
+        profile: profile(),
+        personality_id: (personality.active() || {}).id || 'confianza',
+        presets: Array.isArray(S().presets) ? S().presets : [],
+        memories: mems,
+        summaries: sums,
+      };
+    },
+    'POST /api/backpack': async (b) => {
+      if (!b || b.schema !== 'companion-backpack-v1') throw new HttpError(400, 'Formato de mochila no reconocido.');
+      const changes = {};
+      if (b.profile && b.profile.name) {
+        try { changes.profile = cleanProfile(b.profile); } catch { /* perfil incompleto opcional */ }
+      }
+      if (Array.isArray(b.presets)) changes.presets = b.presets.slice(0, 24);
+      if (Object.keys(changes).length) await store.saveSettings(changes);
+      if (b.personality_id) { try { await personality.select(String(b.personality_id)); } catch { /* mantener actual */ } }
+      const imported = store.importMemories(b.memories || [], b.merge !== false);
+      if (core.swap && llm.isLive()) core.swap();
+      return { ok: true, imported_memories: imported };
+    },
+    'GET /api/focus': () => focusSnapshot(),
+    'POST /api/focus': (b) => {
+      const action = String((b && b.action) || 'start');
+      focusSnapshot();
+      if (action === 'stop') {
+        focusRt.phase = 'idle';
+        focusRt.endTs = 0;
+      } else {
+        const mins = Math.min(180, Math.max(1, Number((b && b.work_min) || 25)));
+        focusRt.phase = 'work';
+        focusRt.endTs = Date.now() / 1000 + mins * 60;
+      }
+      return focusSnapshot();
+    },
+    'GET /api/presets': () => ({ presets: Array.isArray(S().presets) ? S().presets : [] }),
+    'POST /api/presets': async (b) => {
+      const name = String((b && b.name) || 'Mi preset').trim().slice(0, 48);
+      if (!name) throw new HttpError(400, 'Escribe un nombre para el preset.');
+      const entry = {
+        id: `p_${Date.now().toString(36)}`,
+        name,
+        model_id: modelId(),
+        personality_id: (personality.active() || {}).id || 'confianza',
+        voice: (voice() || {}).id || '',
+        accessories: Array.isArray(b && b.accessories) ? b.accessories : [],
+      };
+      const list = [...(Array.isArray(S().presets) ? S().presets : []), entry].slice(-24);
+      await store.saveSettings({ presets: list });
+      return { ok: true, preset: entry, presets: list };
+    },
+    'POST /api/presets/apply': async (b) => {
+      const list = Array.isArray(S().presets) ? S().presets : [];
+      const found = list.find((p) => p.id === (b && b.id));
+      if (!found) throw new HttpError(404, 'Preset no encontrado.');
+      const changes = {};
+      if (found.model_id) changes.model_id = found.model_id;
+      if (found.voice && voices().some((v) => v.id === found.voice)) changes.voice = found.voice;
+      if (Object.keys(changes).length) await store.saveSettings(changes);
+      if (found.personality_id) { try { await personality.select(found.personality_id); } catch { /* ok */ } }
+      if (core.swap && llm.isLive()) core.swap();
+      return { ok: true, preset: found };
+    },
     'GET /api/actions': () => ({ enabled: false, ask: false, always: [], available: false, catalog: {}, history: [] }),
     'POST /api/actions': () => ({ enabled: false, ask: false, always: [], available: false, catalog: {}, history: [] }),
     'POST /api/owner': () => ({ ok: true }),
@@ -343,6 +413,27 @@ export function createApi(core) {
     },
   };
 
+  const focusRt = { phase: 'idle', endTs: 0, streak: 0, completedToday: 0, today: '' };
+  function focusSnapshot() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (focusRt.today !== today) { focusRt.today = today; focusRt.completedToday = 0; }
+    const now = Date.now() / 1000;
+    if ((focusRt.phase === 'work' || focusRt.phase === 'break') && now >= focusRt.endTs) {
+      if (focusRt.phase === 'work') {
+        focusRt.completedToday += 1;
+        if (focusRt.completedToday === 1) focusRt.streak += 1;
+      }
+      focusRt.phase = 'idle';
+      focusRt.endTs = 0;
+    }
+    return {
+      phase: focusRt.phase,
+      remaining_sec: focusRt.phase === 'idle' ? 0 : Math.max(0, Math.round(focusRt.endTs - now)),
+      streak: focusRt.streak,
+      completed_today: focusRt.completedToday,
+    };
+  }
+
   function memory() {
     const fmt = (ts) => { const d = new Date(ts * 1000); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
     return { facts: store.memories(200), summaries: store.summaries(50).map(([text, ts]) => ({ text, date: fmt(ts) })) };
@@ -352,6 +443,17 @@ export function createApi(core) {
   return async function handle(method, url, body, realFetch) {
     await propiosListos;
     const path = url.pathname;
+    if (method === 'PATCH' && path.startsWith('/api/memory/item/')) {
+      const mid = Number(decodeURIComponent(path.slice('/api/memory/item/'.length)));
+      if (!store.updateMemory(mid, body || {})) return json(400, { detail: 'Recuerdo no válido o no encontrado.' });
+      return json(200, store.diary(''));
+    }
+    if (method === 'DELETE' && path.startsWith('/api/presets/')) {
+      const pid = decodeURIComponent(path.slice('/api/presets/'.length));
+      const list = (Array.isArray(S().presets) ? S().presets : []).filter((p) => p.id !== pid);
+      await store.saveSettings({ presets: list });
+      return json(200, { presets: list });
+    }
     if (method === 'GET' && path === '/api/model') {
       const own = propios.find((x) => x.id === modelId());
       if (own) return realFetch(vrm.url(own.id));

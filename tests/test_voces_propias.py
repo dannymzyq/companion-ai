@@ -102,9 +102,9 @@ class VocesPropias(unittest.TestCase):
                                       headers={"Origin": "https://malicioso.example"}).status_code, 403)
             self.assertEqual(web.post("/api/voices/custom", params={"name": "Otra"}, content=b"nada",
                                       headers=origin).status_code, 400)
-        vid = r.json()["voice"]["id"]
-        self.assertEqual(vid, "p_jose_maria")
-        self.assertEqual(web.post("/api/setup", json={"voice": vid}, headers=origin).status_code, 200)
+            vid = r.json()["voice"]["id"]
+            self.assertEqual(vid, "p_jose_maria")
+            self.assertEqual(web.post("/api/setup", json={"voice": vid}, headers=origin).status_code, 200)
         self.assertEqual(profile.voice()["name"], "José María")       # el personaje se llama como la voz
         self.assertEqual(profile.character({"name": "Mika"})["name"], "José María")
         r = web.delete(f"/api/voices/custom/{vid}", headers=origin)

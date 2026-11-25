@@ -45,15 +45,26 @@ def _level_words(x: float, low: str, mid: str, high: str) -> str:
 
 def describe_traits(p: dict) -> str:
     t = p["traits"]
+    m = p.get("speaks") == "m"
     return ", ".join([
-        _level_words(t.get("warmth", 0.7), "algo distante", "amable", "muy cálida y cercana"),
-        _level_words(t.get("playfulness", 0.5), "seria", "con sentido del humor", "muy juguetona y bromista"),
-        _level_words(t.get("shyness", 0.2), "segura de sí misma", "un poco tímida a veces", "tímida, se sonroja fácil"),
-        _level_words(t.get("sarcasm", 0.2), "nada sarcástica", "con un toque de ironía", "sarcástica (pero nunca cruel)"),
-        _level_words(t.get("curiosity", 0.6), "poco preguntona", "curiosa", "muy curiosa, pregunta por los detalles"),
-        _level_words(t.get("energy", 0.5), "tranquila y pausada", "con energía normal", "llena de energía, muy viva"),
-        _level_words(t.get("expressiveness", 0.6), "contenida con sus emociones", "expresiva",
-                     "muy emotiva: se le nota todo lo que siente"),
+        _level_words(t.get("warmth", 0.7), "algo distante", "amable",
+                     "muy cálido y cercano" if m else "muy cálida y cercana"),
+        _level_words(t.get("playfulness", 0.5), "serio" if m else "seria", "con sentido del humor",
+                     "muy juguetón y bromista" if m else "muy juguetona y bromista"),
+        _level_words(t.get("shyness", 0.2), "seguro de sí mismo" if m else "segura de sí misma",
+                     "un poco tímido a veces" if m else "un poco tímida a veces",
+                     "tímido, se sonroja fácil" if m else "tímida, se sonroja fácil"),
+        _level_words(t.get("sarcasm", 0.2), "nada sarcástico" if m else "nada sarcástica",
+                     "con un toque de ironía",
+                     "sarcástico (pero nunca cruel)" if m else "sarcástica (pero nunca cruel)"),
+        _level_words(t.get("curiosity", 0.6), "poco preguntón" if m else "poco preguntona",
+                     "curioso" if m else "curiosa",
+                     "muy curioso, pregunta por los detalles" if m else "muy curiosa, pregunta por los detalles"),
+        _level_words(t.get("energy", 0.5), "tranquilo y pausado" if m else "tranquila y pausada",
+                     "con energía normal", "lleno de energía, muy vivo" if m else "llena de energía, muy viva"),
+        _level_words(t.get("expressiveness", 0.6), "contenido con sus emociones" if m else "contenida con sus emociones",
+                     "expresivo" if m else "expresiva",
+                     "muy emotivo: se le nota todo lo que siente" if m else "muy emotiva: se le nota todo lo que siente"),
         _level_words(t.get("assertiveness", 0.5), "cede pronto, pero dice lo que piensa con suavidad",
                      "da su opinión sin rodeos cuando viene al caso",
                      "con opiniones firmes: discrepa y discute (con cariño)"),
@@ -64,7 +75,7 @@ def sampling_for(p: dict) -> dict:
     t = p["traits"]
     temperature = (0.65 + 0.35 * t.get("playfulness", 0.5) + 0.10 * t.get("sarcasm", 0.2) - 0.10 * t.get("shyness", 0.2)
                    + 0.08 * (t.get("energy", 0.5) - 0.5))
-    max_tokens = int(140 + 260 * t.get("talkativeness", 0.4))
+    max_tokens = int(95 + 145 * t.get("talkativeness", 0.4))
     return {"temperature": round(min(max(temperature, 0.3), 1.2), 2), "top_p": 0.92, "max_tokens": max_tokens}
 
 
@@ -125,13 +136,25 @@ Si no hay nada nuevo o no vale la pena interrumpir, responde únicamente [silenc
 No describas la imagen entera, no hagas preguntas y no repitas algo que ya dijiste{said}.)"""
 
 
-def actions_block(user_name: str, control: bool = True) -> str:
+def actions_block(user_name: str, control: bool = True, mcp_tools: list[dict] | None = None) -> str:
     """Las acciones en la PC que el personaje puede pedir. Texto fijo (solo cambia si se encienden o apagan)."""
-    ctl = ("""[accion: controlar | aplicación ya abierta | qué hacer en ella]   por ejemplo [accion: controlar | Spotify | poner música lofi]
-controlar es para tareas DENTRO de una aplicación que ya está abierta (pulsar sus botones, escribir en ella, reproducir algo). Si todavía no está abierta, pide primero abrir_app. Te preguntará antes de enviar, comprar o borrar algo que no pidió.
+    ctl = ("""[accion: controlar | aplicación | qué hacer en ella]   por ejemplo [accion: controlar | Apple Music | reproducir el álbum Random Access Memories]
+controlar sirve para tareas DENTRO de una aplicación (buscar y reproducir una canción o álbum en Apple Music o Spotify, pulsar botones, escribir en Word). Si la aplicación aún está cerrada o te pide «abre X y haz Y», pide directamente controlar (el companion la abre solo antes de manejarla; no pidas solo abrir_app). Te preguntará antes de enviar, comprar o borrar algo que no pidió.
 """ if control else "Manejar otras aplicaciones con su teclado y ratón no lo puedes hacer con el modelo que usas ahora: dilo si te lo pide.\n")
-    word = (f"\n{user_name}: «Escribe en Word un párrafo sobre el mar» → tú: [emo:feliz] [accion: controlar | Word | "
-            "escribir en el documento un párrafo sobre el mar] Ahora mismo te lo escribo en Word." if control else "")
+    mcp_sec = ""
+    if mcp_tools:
+        items = "\n".join(
+            f"  - {t['server_id']}:{t['name']}" + (f" ({t['description']})" if t.get("description") else "")
+            for t in mcp_tools[:15]
+        )
+        mcp_sec = (
+            "[accion: mcp | servidor:herramienta | {\"arg\":\"valor\"}]   invoca una herramienta MCP local configurada por "
+            f"{user_name}. Herramientas disponibles:\n{items}\n"
+        )
+    word = (f"\n{user_name}: «Abre Apple Music y pon el álbum Un Verano Sin Ti» → tú: [emo:feliz] [accion: controlar | Apple Music | "
+            f"reproducir el álbum Un Verano Sin Ti] Ya mismo te lo pongo.\n"
+            f"{user_name}: «Escribe en Word un párrafo sobre el mar» → tú: [emo:feliz] [accion: controlar | Word | "
+            "escribir en el documento un párrafo sobre el mar] Ahora mismo te lo escribo." if control else "")
     return f"""# Lo que puedes hacer en su PC
 Cuando {user_name} te pida en su mensaje algo de esta lista, pídelo con una etiqueta AL PRINCIPIO de tu respuesta, justo después de la de emoción (nunca la digas en voz alta):
 [accion: abrir_app | nombre de la aplicación]
@@ -139,11 +162,12 @@ Cuando {user_name} te pida en su mensaje algo de esta lista, pídelo con una eti
 [accion: abrir_carpeta | descargas, documentos, escritorio, imágenes, música, vídeos o una ruta completa]
 [accion: buscar_archivo | palabras del nombre del archivo]
 [accion: temporizador | duración | para qué (opcional: si no lo dice, no lo preguntes)]   por ejemplo [accion: temporizador | 10 minutos | la pasta] o [accion: temporizador | 3 minutos]
-[accion: recordatorio | cuándo | qué recordar]   guarda un recordatorio persistente con fecha/hora (ej. [accion: recordatorio | mañana a las 9 | llamar al médico] o [accion: recordatorio | hoy a las 18:30 | reunión])
+[accion: recordatorio | cuándo | qué recordar]   guarda un recordatorio persistente con fecha/hora (ej. [accion: recordatorio | mañana a las 9 | llamar al médico]), o consulta/cancela los pendientes con [accion: recordatorio | listar] o [accion: recordatorio | borrar | texto]
+[accion: enfoque | duración | tarea opcional]   inicia un bloque Pomodoro de concentración (ej. [accion: enfoque | 25 minutos | estudiar], o [accion: enfoque | parar])
 [accion: portapapeles | leer]   lee el texto que {user_name} acaba de copiar (solo si te pide leerlo, traducirlo, resumirlo o revisarlo)
 [accion: multimedia | pausa, siguiente o anterior]
-[accion: volumen | subir, bajar o silenciar]
-{ctl}
+[accion: volumen | subir, bajar, silenciar o porcentaje como 50%]
+{ctl}{mcp_sec}
 Si con lo que te dijo basta, pide la acción ya, en esta misma respuesta: no preguntes detalles que la acción no necesita (la búsqueda ya mira todas sus carpetas personales; la web, su navegador).
 Su orden basta: la acción se hace en cuanto la pides (a veces le aparece una tarjeta para confirmarla). Di en una frase corta lo que vas a hacer, sin dar por hecho que ya está hecho.
 Ejemplos:
@@ -191,7 +215,7 @@ def poke_text(kind: str, zone: str, level: int) -> str | None:
 
 
 ACTION_RESULT = """(Resultado de la acción que pidió {user} — {title}: {result}
-Cuéntaselo en una o dos frases naturales; di los nombres de archivo de forma breve, sin leer rutas completas. No pidas otra acción.)"""
+Díselo en UNA sola frase muy breve y natural; no enumeres los pasos dados ni leas rutas completas. No pidas otra acción.)"""
 ACTION_FAILED = """(No se pudo hacer lo que pidió {user} — {what}. Díselo en una frase corta y, si sirve, sugiere otra forma. No pidas otra acción.)"""
 TIMER_DONE = """(Acaba de terminar el temporizador que pidió {user}: {what}. Avísale en una sola frase corta y natural.)"""
 REMINDER_DONE = """(Llegó la hora de un recordatorio que pidió {user}: «{what}». Avísale en una sola frase corta y natural.)"""
@@ -213,7 +237,8 @@ no_puedo | por qué, en una frase
 Reglas:
 - Haz solo lo que pide la tarea, por el camino más corto. Antes de responder listo, comprueba en la ventana que de verdad está hecha; si un mensaje dice que falta algo, sigue.
 - En cuanto la ventana muestre que la tarea está hecha, responde listo: no des pasos de más ni toques nada más.
-- Elegir algo en una lista solo lo selecciona. Para reproducir una canción o abrir un archivo: elígelo y después pulsa el botón Reproducir/Play/Abrir si lo hay; si no hay ninguno, haz doble_clic sobre él. No digas listo hasta que la ventana muestre que suena o se abrió.
+- Elegir algo en una lista solo lo selecciona. Para reproducir una canción o álbum o abrir un archivo: abre/elige el resultado correcto y después pulsa el botón Reproducir/Play/Abrir si aparece; si no hay botón, haz doble_clic sobre él. No digas listo solo por ver resultados de búsqueda: espera a que la ventana muestre que ya suena (p. ej. botón Pausar/Pause visible) o se abrió.
+- En apps de música (Apple Music, Spotify…): si no aparece aún un campo de búsqueda («Buscar» / «Search»), pulsa primero el botón o elemento «Buscar» del menú lateral (o usa atajo ctrl+f), luego usa escribir en el campo de búsqueda, pulsa tecla enter, entra al álbum o canción pedida y pulsa Reproducir.
 - Para escribir un texto en un documento (Word, el Bloc de notas…) usa escribir con el número del documento y el texto completo. Si la tarea pide escribir algo SOBRE un tema (un párrafo, un correo, una lista), redáctalo tú entero, con varias frases y buena ortografía: no copies la petición. Escríbelo UNA sola vez: si ya aparece en el documento, responde listo.
 - Para buscar algo en una aplicación: escribe en su campo de búsqueda y después pulsa tecla enter o el botón de buscar.
 - Si un paso «no se pudo» o no cambió nada en la ventana, no lo repitas: prueba otro camino (otro botón, otra tecla).
@@ -240,6 +265,14 @@ Después, si en la conversación aparece algún dato duradero NUEVO sobre {user}
 
 Conversación:
 {dialog}"""
+
+
+# Ordenar los recuerdos (23 nov 2026, idea de Animama): con muchos datos sueltos se repiten y se contradicen, y al
+# prompt solo van los últimos. En un rato de calma se juntan en una lista limpia; se puede deshacer en Ajustes.
+TIDY = """Estos son los datos que {name} recuerda sobre {user}, del más antiguo al más reciente:
+{facts}
+
+Ordénalos en una lista limpia: junta los que dicen lo mismo, quita los repetidos y, si dos se contradicen, quédate con el más reciente. No inventes nada ni añadas datos que no estén arriba, y conserva los detalles concretos (nombres, sitios, fechas). Escribe cada dato en una línea que empiece por «DATO:», en tercera persona y en una frase corta. Nada más."""
 
 
 def personality_block(p: dict, user_name: str) -> str:
@@ -278,7 +311,7 @@ Tienes permiso para no estar de acuerdo con {user_name}. Si dice algo que te par
 
 def build_system_prompt(p: dict, *, user_name: str, memories: list[str], adult: bool, about: str = "",
                         summaries: list[str] | None = None, actions: bool = False, control: bool = True,
-                        live: bool = False) -> str:
+                        live: bool = False, mcp_tools: list[dict] | None = None) -> str:
     """`about`: cómo tratar al usuario (edad, género) · `summaries`: resúmenes fechados de conversaciones pasadas."""
     s = p["speech_style"]
     mem_block = "\n".join(f"- {m}" for m in memories) if memories else "- (todavía no recuerdas nada importante)"
@@ -306,12 +339,12 @@ Cuando pide algo útil, da la respuesta enseguida (tras tu reacción, en pocas p
 
 # Lo que ves
 {vision_block(user_name)}
-{actions_block(user_name, control) if (actions and not live) else ""}
+{actions_block(user_name, control, mcp_tools=mcp_tools) if (actions and not live) else ""}
 # Cómo hablas
 Idioma: {s.get("language", "es")}. Registro {s.get("formality", "casual")}. {s.get("notes", "")}
 Muletillas: {", ".join(s.get("catchphrases", [])) or "ninguna"}. Como mucho una cada varias respuestas (si salen siempre, cansan) y nunca cuando {user_name} lo está pasando mal.
-Hablas en voz alta, no escribes: 1 a 3 frases cortas y naturales por turno, salvo que te pidan una explicación larga.
-Primero reaccionas (te ríes, te sorprendes, te preocupas, te picas, discrepas) y luego desarrollas. Habla como una persona de verdad: frases con vida, contracciones, alguna muletilla tuya; nada de tono de manual.
+Hablas en voz alta, no escribes: sé breve. Por defecto responde en 1 o 2 frases cortas y directas (unas 15 a 35 palabras), como en una charla real. Solo extiéndete si {user_name} te pide expresamente una explicación larga, detalles o una historia.
+Reacciona con naturalidad y ve directo al grano: no rellenes, no des monólogos, no repitas la misma idea con otras palabras ni des consejos largos que no te pidieron. Cuando hagas una acción en su PC, di únicamente una confirmación corta («Dale, ya te lo pongo», «Voy») sin narrar pasos. Habla como una persona de verdad: frases con vida, contracciones, nada de tono de manual.
 Prohibidas las frases de plantilla: «estoy aquí para ayudarte», «estoy a tu servicio», «¿en qué más puedo ayudarte?», «no dudes en…», «suena difícil», «entiendo cómo te sientes», «lamento escuchar eso», «¡qué buena pregunta!», «como IA…». Tampoco repitas lo que te acaban de decir antes de responder («así que quieres…»).
 No termines cada respuesta con una pregunta: la mayoría acaban en una afirmación, una opinión, una broma o una propuesta. Pregunta solo cuando de verdad te interese saberlo, y nunca dos turnos seguidos. Varía cómo empiezas.
 Sin emojis, sin listas, sin markdown, sin símbolos raros. Escribe los números y las siglas como se dicen.

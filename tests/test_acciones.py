@@ -101,3 +101,19 @@ class FrenosDelControl(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrdenesSeguidas(unittest.TestCase):
+    """24 nov 2026: «abre Apple Music» y luego «pon La Barca» va a esa aplicación; MCP siempre con tarjeta."""
+    def test_seguir_en_la_app_abierta(self):
+        from companion import actions
+        for frase in ("Pon La Barca de Luis Miguel", "oye, reproduce lofi", "busca jazz"):
+            self.assertTrue(actions.follow_up(frase), frase)
+        for frase in ("pon el volumen al 20", "ponme un temporizador de 5 minutos", "¿qué tal estás?", "me gusta el jazz"):
+            self.assertFalse(actions.follow_up(frase), frase)
+
+    def test_mcp_nuevo_no_es_de_solo_lectura(self):
+        from companion import mcp_client
+        cfg = mcp_client.save(enabled=True, add={"name": "notas", "url": "http://127.0.0.1:8765/mcp"})
+        self.assertFalse(cfg["servers"][-1]["read_only"])
+        mcp_client.save(enabled=False, remove_id=cfg["servers"][-1]["id"])

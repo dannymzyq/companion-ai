@@ -12,18 +12,20 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import sys
-import re
 import tempfile
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s voz: %(message)s")
 log = logging.getLogger("voz")
@@ -31,29 +33,55 @@ RAIZ = Path(__file__).resolve().parent
 MODELO = RAIZ / "modelos" / "f5-spanish"
 VOCOS = RAIZ / "modelos" / "vocos"
 VOCES = Path(os.getenv("VOICES_DIR") or RAIZ.parent / "voices")
-# Las voces propias que sube el usuario (companion/voice_import.py): llevan el prefijo p_ y viven con sus datos.
 PROPIAS = Path(os.getenv("VOICES_CUSTOM_DIR") or RAIZ.parent / "data" / "voces")
 POR_DEFECTO = os.getenv("TTS_VOICE", "mika_es")
 SR = 24000
 PAUSA_S = 0.12
-# Calidad frente a rapidez (medido el 13 nov 2026 con Whisper sobre respuestas típicas): con 16 pasos se perdían
-# ~9 % de las palabras; con 32 pasos y un ritmo de 0,9, ~4 %. Cuesta ~0,6 s más por frase.
 NFE = int(os.getenv("VOZ_NFE", "32"))
 RITMO = float(os.getenv("VOZ_RITMO", "0.9"))
-# Muestra corta (VOZ_REF_CORTA=1, el companion lo pone en el Mac): con la de 8 s, F5 en la GPU del Mac tardaba
-# 6–10 s por frase; con 4–5 s, la mitad (16 nov 2026). En la PC no gana nada (1,15 s por frase con las dos: en CUDA
-# el coste es fijo), así que allí va la entera. (Dar más duración a las frases largas no evita que alguna vez se
-# coma el final: lo empeoraba, medido con 10 tiradas por frase.)
 CORTA_REF = os.getenv("VOZ_REF_CORTA") == "1"
-# Frases largas: se parten a partir de LARGA letras, en las comas y, si no hay, antes de una conjunción (el primer
-# trozo suena antes, y un trozo corto se genera antes de que acabe de sonar el anterior). En el Mac, donde cada
-# frase tarda más, voz_proc lo baja a 90.
 LARGA = int(os.getenv("VOZ_LARGA", "150"))
-LENTA_S = float(os.getenv("VOZ_LENTA_S", "2.5"))   # una frase corta más lenta que esto: modo rápido (_medir_tarjeta)
+LENTA_S = float(os.getenv("VOZ_LENTA_S", "2.5"))
 _CONJ = re.compile(r"\s(?=(?:y|e|o|u|pero|porque|que|cuando|aunque|mientras|para|si)\s)", re.IGNORECASE)
-CORTA, MIN_S = 25, 1.7                     # una frase de menos letras recibe al menos MIN_S segundos para decirse
+_SENT_SPLIT = re.compile(r"(?<!\bSr)(?<!\bSra)(?<!\bDr)(?<!\bDra)(?<!\bAv)(?<!\betc)(?<!\bp\. ej)(?<=[.!?…])(?!\d)\s+|\n+")
+CORTA, MIN_S = 25, 1.7
 _ref_s: dict[str, float] = {}
 estado = {"tts": None, "error": "", "voz": None, "dispositivo": "", "listo": False}
+
+
+def _parent_alive(pid: int) -> bool:
+    if pid <= 0:
+        return True
+    if sys.platform == "win32":
+        import ctypes
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(h)
+        return bool(ok and code.value == 259)  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _watch_parent():
+    raw = os.getenv("COMPANION_PARENT_PID", "").strip()
+    if not raw.isdigit():
+        return
+    pid = int(raw)
+
+    def loop():
+        while True:
+            time.sleep(5.0)
+            if not _parent_alive(pid):
+                log.info("El proceso padre (%d) terminó: cierro el servidor de voz", pid)
+                os._exit(0)
+
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def _parche_torchaudio():
@@ -91,9 +119,6 @@ def _voz(nombre: str) -> tuple[Path, dict]:
 
 
 def _muestra_corta(wav: Path, corta: dict) -> tuple[Path, str, float]:
-    """El tramo corto de la muestra (`short` en su .json, de scripts/herramientas/recortar_muestras.py): F5 genera la muestra junto
-    con cada frase, así que con 4–5 s en vez de 8 cada frase tarda la mitad. Se recorta una vez y se guarda en la
-    carpeta temporal. Devuelve (wav, su texto, ajuste de velocidad para que hable al mismo ritmo que con la entera)."""
     import soundfile as sf
     t0, t1 = float(corta["start"]), float(corta["end"])
     destino = Path(tempfile.gettempdir()) / "companion_voz" / f"{wav.stem}_{wav.stat().st_mtime_ns}_{t0:.2f}_{t1:.2f}.wav"
@@ -112,10 +137,10 @@ def _muestra_corta(wav: Path, corta: dict) -> tuple[Path, str, float]:
 
 
 def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:
-    """Una cláusula → audio float32 a 24 kHz, sin el silencio de los extremos."""
+    """Una cláusula → audio float32 a 24 kHz, sin el silencio de los extremos y con fundido suave."""
     import librosa
-    import torch
     import soundfile as sf
+    import torch
     wav, cfg = _voz(nombre)
     velocidad *= RITMO
     ref_text = cfg["ref_text"]
@@ -124,36 +149,40 @@ def _decir(texto: str, nombre: str, velocidad: float) -> np.ndarray:
         velocidad *= ajuste
     fijo = None
     if len(texto) < CORTA:
-        # F5 calcula la duración por la longitud del texto: a una frase corta le da tan poco tiempo que se la come
-        # («¡Hola, Danny!» → «Dani»). Se le da un mínimo.
         ref = _ref_s.setdefault(f"{wav}:{wav.stat().st_mtime_ns}", sf.info(str(wav)).duration)
         est = ref / max(1, len(ref_text.encode("utf-8"))) * len(texto.encode("utf-8")) / velocidad
         if est < MIN_S:
             fijo = ref + MIN_S
-    audio, sr, _ = estado["tts"].infer(ref_file=str(wav), ref_text=ref_text, gen_text=texto,
-                                       nfe_step=max(NFE, int(cfg.get("stream_nfe_step", 16))), speed=velocidad,
-                                       fix_duration=fijo, show_info=lambda *a, **k: None, progress=_SinBarra,
-                                       remove_silence=False)
+    with torch.inference_mode():
+        audio, sr, _ = estado["tts"].infer(
+            ref_file=str(wav), ref_text=ref_text, gen_text=texto,
+            nfe_step=max(NFE, int(cfg.get("stream_nfe_step", 16))), speed=velocidad,
+            fix_duration=fijo, show_info=lambda *a, **k: None, progress=_SinBarra,
+            remove_silence=False,
+        )
     audio = np.asarray(audio, dtype=np.float32)
     if sr != SR:
         audio = librosa.resample(audio, orig_sr=sr, target_sr=SR)
     audio, _ = librosa.effects.trim(audio, top_db=40, frame_length=1024, hop_length=256)
     audio = audio.copy()
-    n = min(len(audio), int(SR * 0.025))
-    if n:
-        audio[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)
-    if estado["voz"] != nombre:                 # al cambiar de voz se devuelve la memoria de vídeo sobrante
+    fin = min(len(audio), int(SR * 0.010))
+    if fin:
+        audio[:fin] *= np.linspace(0.0, 1.0, fin, dtype=np.float32)
+    fout = min(len(audio), int(SR * 0.025))
+    if fout:
+        audio[-fout:] *= np.linspace(1.0, 0.0, fout, dtype=np.float32)
+    changed_voice = estado["voz"] != nombre
+    if changed_voice:
         estado["voz"] = nombre
-        if torch.cuda.is_available():
+    if torch.cuda.is_available():
+        if changed_voice or (torch.cuda.memory_reserved() - torch.cuda.memory_allocated() > 400 * 1024 * 1024):
             torch.cuda.empty_cache()
-        elif torch.backends.mps.is_available():
-            torch.mps.empty_cache()
+    elif changed_voice and torch.backends.mps.is_available():
+        torch.mps.empty_cache()
     return audio
 
 
 def _por_conjuncion(t: str) -> list[str]:
-    """Un trozo que sigue siendo largo (sin comas) se corta antes de la conjunción más cercana a la mitad, si deja
-    al menos 25 letras a cada lado; si no hay, se queda entero (cortar en cualquier palabra rompe la entonación)."""
     if len(t) <= LARGA:
         return [t]
     cortes = [m.start() for m in _CONJ.finditer(t) if 25 <= m.start() <= len(t) - 25]
@@ -164,15 +193,14 @@ def _por_conjuncion(t: str) -> list[str]:
 
 
 def partir(texto: str) -> list[str]:
-    """Frases; las largas se parten en las comas y las muy cortas («Hola,») se unen a la siguiente, porque
-    F5 dice mal los trozos de una o dos palabras."""
-    frases = [f.strip() for f in re.split(r"(?<=[.!?…])\s+|\n+", texto.strip()) if f.strip()]
+    """Frases; respeta abreviaturas y decimales, parte las largas en comas y une las muy cortas."""
+    frases = [f.strip() for f in _SENT_SPLIT.split(texto.strip()) if f.strip()]
     trozos: list[str] = []
     for f in frases:
         if len(f) > LARGA:
             actual = ""
             for parte in re.split(r"(?<=[,;:])\s+", f):
-                if actual and len(actual) + len(parte) > int(LARGA * 0.73):      # 110 con el umbral de 150
+                if actual and len(actual) + len(parte) > int(LARGA * 0.73):
                     trozos.append(actual)
                     actual = parte
                 else:
@@ -194,11 +222,6 @@ def partir(texto: str) -> list[str]:
 
 
 def _medir_tarjeta():
-    """Modo rápido en tarjetas lentas (18 nov 2026): en una RTX 3050 de laptop cada frase tardaba 5-6,5 s (la GPU al
-    100 %; en la 5070 Ti, 1,1 s), más lenta que lo que dura. Se mide una frase corta tras el calentamiento y, si pasa
-    de LENTA_S, se usa lo mismo que en el Mac: 16 pasos, la muestra corta y frases partidas antes. Se pierde algo de
-    precisión (con 16 pasos se comía más palabras) a cambio de empezar a hablar varias veces antes. VOZ_NFE o
-    VOZ_REF_CORTA en el entorno lo fijan a mano."""
     global NFE, CORTA_REF, LARGA
     t = time.perf_counter()
     _decir("Vale, ahora mismo te lo cuento.", POR_DEFECTO, 1.0)
@@ -217,12 +240,10 @@ def cargar():
         import torch
         _parche_torchaudio()
         from f5_tts.api import F5TTS
-        # VOZ_DISPOSITIVO=cpu|mps|cuda lo fija (la prueba en un Mac virtual de GitHub: su GPU se cuelga con Metal).
         dispositivo = os.getenv("VOZ_DISPOSITIVO") or (
-            "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")   # mps: la GPU de un Mac
+            "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
         if dispositivo == "cpu" and not os.getenv("VOZ_DISPOSITIVO") and sys.platform != "darwin" and shutil.which("nvidia-smi"):
-            # Hay tarjeta NVIDIA pero PyTorch no la ve (casi siempre: un driver anterior al CUDA de esta versión de
-            # PyTorch). En el procesador F5 tarda decenas de segundos por frase: mejor avisar y que suene la ligera.
             raise RuntimeError("PyTorch no puede usar la tarjeta NVIDIA (el driver es más antiguo que el CUDA de "
                                f"PyTorch {torch.__version__}). Vuelve a ejecutar el instalador o actualiza el driver.")
         ckpt = next(MODELO.glob("model_*.safetensors"))
@@ -232,25 +253,21 @@ def cargar():
                                   vocoder_local_path=str(VOCOS) if (VOCOS / "config.yaml").is_file() else None,
                                   device=disp)
             if disp == "mps" and os.getenv("VOZ_F16", "1") == "1":
-                # F5 solo usa float16 en CUDA; en la GPU del Mac cargaba en float32. Con float16, 1,4–1,7 veces más
-                # rápido y sin perder palabras (M5 Pro, 16 nov 2026). El vocoder sigue en float32 (F5 le pasa la mel así).
                 estado["tts"].ema_model.half()
             estado["dispositivo"] = disp
             t = time.perf_counter()
-            _decir("Hola, ¿qué tal estás hoy?", POR_DEFECTO, 1.0)      # calentamiento: la primera frase tarda más
+            _decir("Hola, ¿qué tal estás hoy?", POR_DEFECTO, 1.0)
             log.info("F5-TTS listo en %s (%s, calentamiento %.1f s) · voces en %s", disp, ckpt.name,
                      time.perf_counter() - t, VOCES)
             if disp == "cuda":
                 _medir_tarjeta()
-            # Lista solo ahora: antes, el companion le pedía la primera respuesta mientras medía la tarjeta, las dos
-            # se frenaban y la medida salía el doble (laptop RTX 3050, 18 nov 2026: primer audio a los 30 s).
             estado["listo"] = True
         try:
             preparar(dispositivo)
         except Exception:  # noqa: BLE001
             if dispositivo != "mps":
                 raise
-            log.exception("La GPU del Mac falló con F5-TTS: sigo en el procesador")     # más lenta, pero suena
+            log.exception("La GPU del Mac falló con F5-TTS: sigo en el procesador")
             estado["tts"] = None
             preparar("cpu")
     except Exception as e:  # noqa: BLE001
@@ -261,12 +278,21 @@ def cargar():
 
 @asynccontextmanager
 async def vida(_: FastAPI):
-    asyncio.get_running_loop().run_in_executor(None, cargar)       # carga sin frenar el arranque
+    _watch_parent()
+    asyncio.get_running_loop().run_in_executor(None, cargar)
     yield
 
 
 app = FastAPI(title="Voz del companion", lifespan=vida)
-candado = asyncio.Lock()                                           # una síntesis a la vez en la GPU
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+candado = asyncio.Lock()
+
+_LOCAL_ORIGIN = re.compile(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$", re.I)
+
+
+def _check_origin(origin: str | None):
+    if origin and not _LOCAL_ORIGIN.match(origin.strip()):
+        raise HTTPException(403, "Origen no permitido")
 
 
 @app.get("/health")
@@ -287,11 +313,12 @@ class Peticion(BaseModel):
 
 
 @app.post("/v1/audio/speech")
-async def speech(p: Peticion):
+async def speech(p: Peticion, origin: str | None = Header(default=None)):
+    _check_origin(origin)
     if not estado["tts"] or not estado["listo"]:
         raise HTTPException(503, estado["error"] or "La voz todavía está cargando")
     nombre = p.voice or POR_DEFECTO
-    _voz(nombre)                                                   # 404 antes de empezar a responder
+    _voz(nombre)
     trozos = partir(p.input[:1500])
     velocidad = min(1.3, max(0.7, p.speed))
 

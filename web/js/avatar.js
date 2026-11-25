@@ -16,13 +16,17 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VRMLoaderPlugin, VRMUtils, VRMSpringBoneCollider, VRMSpringBoneColliderShapeCapsule, VRMSpringBoneColliderShapePlane } from '@pixiv/three-vrm';
+import { VRMLoaderPlugin, VRMUtils, VRMSpringBoneCollider, VRMSpringBoneColliderShapeCapsule, VRMSpringBoneColliderShapePlane, VRMSpringBoneColliderShapeSphere } from '@pixiv/three-vrm';
 import { Effects } from './effects.js';
 import { Orb, ORB_Y } from './orb.js';
 import { ClipLib, Layer, applyLayer } from './clips.js';
 import { addParts, EMO_PARTS, LIP_PARTS, Micro } from './face.js';
 import { Lipsync } from './lipsync.js';
-import { Device } from './props.js';
+import { Device, createAccessory } from './props.js';
+
+// Pools estáticos reutilizables para IK (_legIK, _ikChain, _leanIK): cero asignaciones por fotograma.
+const _IK_V = Array.from({ length: 18 }, () => new THREE.Vector3());
+const _IK_Q = Array.from({ length: 10 }, () => new THREE.Quaternion());
 
 const FOV = 26;
 const SIDES = ['left', 'right'];
@@ -95,12 +99,15 @@ class Pose {
   }
   add(bone, v, w = 1) { const r = this.r[bone]; r[0] += v[0] * w; r[1] += v[1] * w; r[2] += v[2] * w; }
   set(bone, v, w = 1) { const r = this.r[bone]; r[0] = lerp(r[0], v[0], w); r[1] = lerp(r[1], v[1], w); r[2] = lerp(r[2], v[2], w); }
-  // Brazo entero escrito para el izquierdo; `side` lo refleja. u = brazo, l = antebrazo, h = mano, c = dedos,
-  // ix = índice estirado (0..1), sp = dedos separados (0..1).
+  addXYZ(bone, x, y, z, w = 1) { const r = this.r[bone]; r[0] += x * w; r[1] += y * w; r[2] += z * w; }
+  setXYZ(bone, x, y, z, w = 1) { const r = this.r[bone]; r[0] = lerp(r[0], x, w); r[1] = lerp(r[1], y, w); r[2] = lerp(r[2], z, w); }
+  // Brazo entero escrito para el izquierdo; `side` lo refleja sin reservar arrays intermedios.
   arm(side, { u, l, h, c, ix, sp, hs }, w = 1, mode = 'set') {
     const s = side === 'left' ? 1 : -1;
-    const put = (bone, v) => v && this[mode](side + bone, [v[0], v[1] * s, v[2] * s], w);
-    put('UpperArm', u); put('LowerArm', l); put('Hand', h);
+    const fn = mode === 'add' ? 'addXYZ' : 'setXYZ';
+    if (u) this[fn](side + 'UpperArm', u[0], u[1] * s, u[2] * s, w);
+    if (l) this[fn](side + 'LowerArm', l[0], l[1] * s, l[2] * s, w);
+    if (h) this[fn](side + 'Hand', h[0], h[1] * s, h[2] * s, w);
     if (hs && mode === 'set') this.hand(side, hs, w);     // hs = postura de mano (HANDS)
     if (c !== undefined || ix !== undefined || sp !== undefined) this.handSet = Math.max(this.handSet, mode === 'set' ? w : 0);
     if (c !== undefined) this.curl[side] = lerp(this.curl[side], c, w);
@@ -108,7 +115,7 @@ class Pose {
     if (sp !== undefined) this.spread[side] = lerp(this.spread[side], sp, w);
   }
   both(pose, w = 1, mode = 'set') { this.arm('left', pose, w, mode); this.arm('right', pose, w, mode); }
-  shoulders(up, w = 1) { this.add('leftShoulder', [0, 0, up], w); this.add('rightShoulder', [0, 0, -up], w); }
+  shoulders(up, w = 1) { this.addXYZ('leftShoulder', 0, 0, up, w); this.addXYZ('rightShoulder', 0, 0, -up, w); }
 }
 
 // La pose reflejada (izquierda ↔ derecha): se cambian los huesos de cada lado y se invierten los giros en Y y Z.
@@ -422,15 +429,25 @@ const GESTURES = {
   _bailar: { dur: 9, run(p, t, w, side, a) {
     if (!a._dance || t < a._danceT) a._dance = pick(Object.keys(DANCES).filter((k) => k !== 'clip' || a.lib?.has('dance')), a._dance);
     a._danceT = t;
-    DANCES[a._dance](p, t, w, side, a);
+    const tempo = clamp((a.musicBpm || 120) / 120, 0.72, 1.42);
+    DANCES[a._dance](p, t * tempo, w, side, a);
     a.faceX = { parts: { eyeJoy: 0.45, mthFun: 0.5, brwJoy: 0.4 }, preset: { happy: 0.45 }, w };
     a._notes(t, 0.9);
   } },
   _saltar: { dur: 1.9, run(p, t, w, side, a) {
     const up = clamp((t - 0.35) / 0.8);                         // en el aire de 0,35 a 1,15 s
-    const name = t < 0.35 ? 'jump_start' : t < 1.15 ? 'jump_loop' : 'jump_land';
-    const L = a._hob(name, { arms: 0.7 });
-    if (L) { L.t = name === 'jump_start' ? 0.6 + t : name === 'jump_loop' ? t : 0.1 + (t - 1.15) * 1.2; applyLayer(p, a.lib, L, w, a.hipsY); }
+    const wStart = 1 - clamp((t - 0.29) / 0.12);
+    const wLand = clamp((t - 1.09) / 0.12);
+    const wLoop = Math.max(0, 1 - wStart - wLand);
+    for (const [name, subW, subT] of [
+      ['jump_start', wStart, 0.6 + t],
+      ['jump_loop', wLoop, t],
+      ['jump_land', wLand, 0.1 + Math.max(0, t - 1.09) * 1.2],
+    ]) {
+      if (subW < 0.01) continue;
+      const L = a._hob(name, { arms: 0.7 });
+      if (L) { L.t = subT; applyLayer(p, a.lib, L, w * subW, a.hipsY); }
+    }
     p.lift += Math.sin(Math.PI * up) * 0.22 * a.hipsY * (up > 0 && up < 1 ? 1 : 0) * w;
     p.lift -= 0.05 * a.hipsY * Math.max(0, 1 - Math.abs(t - 0.25) / 0.2) * w;   // coge impulso
     p.both({ u: [-0.25, 0, 0.55], l: [0, -0.35, 0], hs: 'open' }, w * Math.sin(Math.PI * up));   // brazos arriba, en V
@@ -518,10 +535,20 @@ const GESTURES = {
   // ---- Más pasatiempos (18 nov 2026), con las animaciones grabadas de Quaternius (CC0) si están.
   _ninja: { dur: 2.8, run(p, t, w, side, a) {
     const up = clamp((t - 0.55) / 1.1);
-    const name = t < 0.55 ? 'ninja_start' : t < 1.65 ? 'ninja_loop' : 'ninja_land';
-    const L = a._hob(name, { arms: 0.9 });
-    if (L) { L.t = name === 'ninja_start' ? t * 1.3 : name === 'ninja_loop' ? t - 0.55 : (t - 1.65) * 1.1; applyLayer(p, a.lib, L, w, a.hipsY); }
-    else p.both({ u: [-0.2, 0, -0.9], l: [0, -1.3, 0], c: 0.8 }, w);
+    const wStart = 1 - clamp((t - 0.48) / 0.14);
+    const wLand = clamp((t - 1.58) / 0.14);
+    const wLoop = Math.max(0, 1 - wStart - wLand);
+    let anyClip = false;
+    for (const [name, subW, subT] of [
+      ['ninja_start', wStart, t * 1.3],
+      ['ninja_loop', wLoop, Math.max(0, t - 0.55)],
+      ['ninja_land', wLand, Math.max(0, t - 1.58) * 1.1],
+    ]) {
+      if (subW < 0.01) continue;
+      const L = a._hob(name, { arms: 0.9 });
+      if (L) { anyClip = true; L.t = subT; applyLayer(p, a.lib, L, w * subW, a.hipsY); }
+    }
+    if (!anyClip) p.both({ u: [-0.2, 0, -0.9], l: [0, -1.3, 0], c: 0.8 }, w);
     p.lift += Math.sin(Math.PI * up) * 0.26 * a.hipsY * (up > 0 && up < 1 ? 1 : 0) * w;
     a.faceX = { parts: { eyeFun: 0.4, mthFun: 0.35, brwAngry: 0.25 }, preset: { happy: 0.3 }, w };
   } },
@@ -584,6 +611,7 @@ const GESTURES = {
     const L = a._hob('consume', { legs: 0.4 });
     if (L) { L.t = t * 0.45; applyLayer(p, a.lib, L, w, a.hipsY); }
     else p.arm('right', ARMS.chin, w);
+    if (a) a._drinkShow = Math.max(a._drinkShow || 0, w);
     a.faceX = { parts: { eyeJoy: 0.5 * Math.sin(Math.PI * clamp(t / 3)) }, preset: {}, w };
   } },
   _curiosear: { dur: 5, run(p, t, w, side, a) {
@@ -713,6 +741,10 @@ const GESTURES = {
     p.add('head', [0.2, 0.35 * side, 0.08 * side], w);
     p.gaze[0] += 0.45 * side * w; p.gaze[1] -= 0.25 * w;
   } },
+  // Piedra, papel o tijera 1-2-3 (N-08): tres bombeos con puño cerrado y revelación de la mano en t = 1,1 s.
+  _rps_piedra: { dur: 2.8, run(p, t, w, side, a) { a._rpsPose(p, t, w, 'fist'); } },
+  _rps_papel:  { dur: 2.8, run(p, t, w, side, a) { a._rpsPose(p, t, w, 'open'); } },
+  _rps_tijera: { dur: 2.8, run(p, t, w, side, a) { a._rpsPose(p, t, w, 'peace'); } },
 };
 // Lo mismo, a petición (17 nov 2026): «¿puedes bailar?» → [gesto:bailar] (prompt.py y companion/play.py).
 for (const [pub, own] of [['bailar', '_bailar'], ['saltar', '_saltar'], ['girar', '_girar'], ['estirarse', '_estirarse'],
@@ -957,7 +989,32 @@ export class Avatar {
 
     const key = new THREE.DirectionalLight(0xffffff, Math.PI * 0.85);
     key.position.set(0.6, 1.2, 1.5);
-    this.scene.add(key, new THREE.AmbientLight(0xffffff, 0.55));
+    const amb = new THREE.AmbientLight(0xffffff, 0.55);
+    const rim = new THREE.DirectionalLight(0x9ec5ff, 0.42);
+    rim.position.set(-0.9, 1.55, -1.35);
+    this.keyLight = key;
+    this.ambLight = amb;
+    this.rimLight = rim;
+    this.scene.add(key, amb, rim);
+
+    // Sombra suave de contacto bajo los pies (textura radial generada en memoria).
+    const shCanvas = document.createElement('canvas');
+    shCanvas.width = shCanvas.height = 64;
+    const shCtx = shCanvas.getContext('2d');
+    const shGrad = shCtx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    shGrad.addColorStop(0, 'rgba(0,0,0,0.34)');
+    shGrad.addColorStop(0.6, 'rgba(0,0,0,0.12)');
+    shGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    shCtx.fillStyle = shGrad;
+    shCtx.fillRect(0, 0, 64, 64);
+    const shTex = new THREE.CanvasTexture(shCanvas);
+    this.shadowMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.56, 0.56),
+      new THREE.MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false }),
+    );
+    this.shadowMesh.rotation.x = -Math.PI / 2;
+    this.shadowMesh.position.y = 0.002;
+    this.scene.add(this.shadowMesh);
 
     // Cámara libre (16 nov 2026, petición del usuario): gira del todo en horizontal y en vertical, se desplaza
     // con el botón derecho y la rueda acerca o aleja hacia el punto que señala el ratón.
@@ -1047,6 +1104,13 @@ export class Avatar {
     this.sleepYaw = 0;
     this.sleepShift = 0;            // recostada en una esquina: se acerca al borde de la pantalla
     this.device = null;             // la tablet o el móvil (props.js)
+    this._drinkMug = null;          // taza temporal en _beber
+    this._drinkShow = 0;
+    this._accIds = [];
+    this._accObjs = [];
+    this.musicBeat = 0;             // pulso musical compartido (music.js)
+    this.musicBpm = 120;
+    this.musicActive = false;
     this.sleepEyes = 0;             // ojos cerrados por el sueño (0..1)
     this.sleepAsked = false;        // se lo pediste: se duerme al terminar de hablar
     this.onSleep = null;            // main.js: avisa a la mascota (no pasea mientras duerme)
@@ -1103,10 +1167,14 @@ export class Avatar {
     this.scene.add(vrm.scene);
     this._measureHead(vrm);
     this._measureLegs(vrm);
-    this._legColliders(vrm);          // faldas y vestidos que no atraviesan las piernas
-    this.parts = addParts(vrm);      // cara por partes (face.js): solo en los modelos de VRoid
+    this._legColliders(vrm);          // faldas, vestidos y manos que no atraviesan el pelo ni las piernas
+    this.parts = addParts(vrm);      // cara por partes (face.js): solo en los modelos de VRoid/ARKit
     this.partW = {};
     this.micro = new Micro();
+    this._syncAccessories();
+    if (this.renderer.compileAsync) {
+      this.renderer.compileAsync(vrm.scene, this.camera, this.scene).catch(() => {});
+    }
 
     // Alturas de la cabeza y la cadera en la pose en T, antes de poner ninguna postura: medidas después, con el
     // modelo anterior recostado o dormido, salían mal (cadera a 0,18 m) y descuadraban todas las animaciones.
@@ -1184,7 +1252,9 @@ export class Avatar {
     const lib = this.lib;
     if (!lib || w < 0.005) return;
     const amp = EMO_AMP[this.emotion] ?? 1.1;
-    let total = 0;
+    let tot = 0;
+    for (const sw of Object.values(this.styleW)) if (sw >= 0.004) tot += sw;
+    if (tot < 0.004) return;
     for (const [style, sw] of Object.entries(this.styleW)) {
       if (sw < 0.004) continue;
       const name = lib.has(kind + '_' + style) ? kind + '_' + style : kind;
@@ -1192,8 +1262,7 @@ export class Avatar {
       const c = lib.clips[name];
       L.t = kind === 'walk' ? (((at % c.cycles) + c.cycles) % c.cycles) * (c.dur / c.cycles) : at;
       L.amp = amp;
-      total += sw;
-      applyLayer(p, lib, L, w * (sw / total), this.hipsY);
+      applyLayer(p, lib, L, w * (sw / tot), this.hipsY);
     }
   }
 
@@ -1263,11 +1332,22 @@ export class Avatar {
     floor.name = 'companion_floor';
     vrm.scene.add(floor);
     colliders.push(floor);
-    const group = { colliders, name: 'companion_legs' };
+    // Esferas suaves en las palmas para que al tocarse el pelo o la falda las manos aparten los mechones.
+    const handCols = [];
+    for (const side of SIDES) {
+      const hd = raw(side + 'Hand');
+      if (!hd) continue;
+      const hc = new VRMSpringBoneCollider(new VRMSpringBoneColliderShapeSphere({ offset: new THREE.Vector3(0, 0.03, 0), radius: 0.055 }));
+      hc.name = 'companion_hand';
+      hd.add(hc);
+      handCols.push(hc);
+    }
+    const upperGroup = { colliders: [floor, ...handCols], name: 'companion_upper' };
+    const group = { colliders: [...colliders, ...handCols], name: 'companion_legs' };
     let n = 0;
     for (const j of sb.joints) {
       if (j.bone.getWorldPosition(new THREE.Vector3()).y > chestY) {
-        j.colliderGroups.push({ colliders: [floor], name: 'companion_floor' });   // lo de arriba (pelo), solo el suelo
+        j.colliderGroups.push(upperGroup);
         continue;
       }
       if (j.colliderGroups.includes(group)) continue;
@@ -1306,24 +1386,27 @@ export class Avatar {
     const plant = ik.plant, walk = ik.walk, lean = ik.lean || 0;
     if (plant < 0.02 && walk < 0.02 && lean < 0.02) { ik.feet = {}; return; }
     const [H, K, A, T, u, v2, n] = ik.v, [q0, q1, q2, q3, q4] = ik.q;
+    const want = _IK_V[0], goal = _IK_V[1], walkGoal = _IK_V[2], target = _IK_V[3], hl = _IK_V[4], lg = _IK_V[5], flat = _IK_V[6], fwd = _IK_V[7];
+    const Rh = _IK_Q[0], parW = _IK_Q[1], tmpQ = _IK_Q[2];
     this.bones.hips.updateWorldMatrix(true, true);
     ik.inv.copy(vrm.scene.matrixWorld).invert();
-    const fwd = new THREE.Vector3(0, 0, this.isV0 ? -1 : 1).applyQuaternion(vrm.scene.getWorldQuaternion(q4));
+    fwd.set(0, 0, this.isV0 ? -1 : 1).applyQuaternion(vrm.scene.getWorldQuaternion(q4));
     const len = ik.len;
     for (const side of SIDES) {
       const up = this.bones[side + 'UpperLeg'], lo = this.bones[side + 'LowerLeg'], ft = this.bones[side + 'Foot'];
       const L = ik.leg[side];
       up.getWorldPosition(H); lo.getWorldPosition(K); ft.getWorldPosition(A);
-      // Dónde quiere la animación el tobillo, en el espacio del modelo.
       const al = T.copy(A).applyMatrix4(ik.inv);
-      const want = new THREE.Vector3(al.x, L.ground + Math.max(0, al.y - L.ground - 0.025 * len), al.z);
+      want.set(al.x, L.ground + Math.max(0, al.y - L.ground - 0.025 * len), al.z);
       let st = ik.feet[side];
-      if (!st || !dt || plant < 0.05) st = ik.feet[side] = { lock: want.clone(), from: null, to: null, u: 1 };
-      const goal = new THREE.Vector3();
-      if (st.u < 1) {                                   // dando un paso
+      if (!st || !dt || plant < 0.05) {
+        if (!st) st = ik.feet[side] = { lock: want.clone(), from: new THREE.Vector3(), to: new THREE.Vector3(), u: 1 };
+        else { st.lock.copy(want); st.u = 1; }
+      }
+      if (st.u < 1) {
         st.u = Math.min(1, st.u + dt / 0.3);
         const e = st.u * st.u * (3 - 2 * st.u);
-        st.to.lerp(want, 0.25);                          // el destino sigue a la animación mientras pisa
+        st.to.lerp(want, 0.25);
         goal.lerpVectors(st.from, st.to, e);
         goal.y += Math.sin(Math.PI * st.u) * 0.045 * len;
         if (st.u >= 1) st.lock.copy(st.to);
@@ -1331,26 +1414,19 @@ export class Avatar {
         const other = ik.feet[side === 'left' ? 'right' : 'left'];
         const dx = want.x - st.lock.x, dz = want.z - st.lock.z;
         if (Math.hypot(dx, dz) > 0.085 * len && !(other && other.u < 1)) {
-          st.from = st.lock.clone(); st.to = want.clone(); st.u = 0;
+          st.from.copy(st.lock); st.to.copy(want); st.u = 0;
         }
         goal.copy(st.lock);
         goal.y = want.y;
       }
-      // Objetivo del tobillo: clavado (de pie) o solo a ras de suelo (andando), según el peso de cada cosa.
-      const walkGoal = new THREE.Vector3(al.x, al.y < L.ground + 0.02 * len ? L.ground : al.y, al.z);
-      const target = al.clone().lerp(walkGoal, walk).lerp(goal, plant);
-      // Recostada (LEAN, 17 nov 2026): la pierna estirada (izquierda) se apoya en el suelo a todo su largo, en la
-      // dirección en que ya apunta; la doblada pisa con el pie donde está, a ras de suelo. Sin esto la estirada
-      // quedaba colgando por debajo del suelo.
+      walkGoal.set(al.x, al.y < L.ground + 0.02 * len ? L.ground : al.y, al.z);
+      target.copy(al).lerp(walkGoal, walk).lerp(goal, plant);
       if (lean > 0.02) {
-        const hl = H.clone().applyMatrix4(ik.inv);
-        const lg = new THREE.Vector3();
+        hl.copy(H).applyMatrix4(ik.inv);
         if (side === ik.leanDown) {
-          // Hacia delante del cuerpo y algo hacia su lado (no hacia donde la dejaba la animación: en algunos modelos
-          // quedaba cruzada bajo la otra pierna). En el espacio del modelo mira a +Z (a -Z los VRM 0.x).
           const h = Math.max(0, hl.y - L.ground), reach = LEAN.legReach * (H.distanceTo(K) + K.distanceTo(A));
           const f = this.isV0 ? -1 : 1;
-          const flat = new THREE.Vector3(LEAN.legSide * f * (side === 'left' ? 1 : -1), 0, f).normalize();
+          flat.set(LEAN.legSide * f * (side === 'left' ? 1 : -1), 0, f).normalize();
           flat.multiplyScalar(Math.sqrt(Math.max(0, reach * reach - h * h)));
           lg.set(hl.x + flat.x, L.ground, hl.z + flat.z);
         } else lg.set(al.x, L.ground + 0.01 * len, al.z);
@@ -1358,73 +1434,75 @@ export class Avatar {
       }
       T.copy(target).applyMatrix4(vrm.scene.matrixWorld);
       if (T.distanceToSquared(A) < 1e-8) continue;
-      // Dos huesos: primero la rodilla (para que cadera-tobillo midan lo que hace falta), luego el muslo apunta.
       const a = H.distanceTo(K), b = K.distanceTo(A);
       const d = clamp(H.distanceTo(T), Math.abs(a - b) + 1e-4, a + b - 1e-4);
       u.subVectors(H, K); v2.subVectors(A, K);
       const cur = u.angleTo(v2), wantK = Math.acos(clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1));
       n.crossVectors(u, v2);
       let ang = wantK - cur;
-      if (n.lengthSq() < 1e-10 * a * b) {               // pierna recta: la rodilla se dobla hacia delante
+      if (n.lengthSq() < 1e-10 * a * b) {
         n.crossVectors(v2, fwd).negate();
         ang = cur - wantK;
       }
       n.normalize();
-      const footW = ft.getWorldQuaternion(q0);           // el pie conserva su giro
-      const footLocal = q4.copy(ft.quaternion);          // (recostada, la pierna tendida: el pie sigue a la pierna)
+      const footW = ft.getWorldQuaternion(q0);
+      const footLocal = q4.copy(ft.quaternion);
       const loW = lo.getWorldQuaternion(q1);
       const upW = up.getWorldQuaternion(q2);
       const Rk = q3.setFromAxisAngle(n, ang);
       loW.premultiply(Rk);
-      A.sub(K).applyQuaternion(Rk).add(K);               // dónde queda el tobillo tras doblar la rodilla
-      const Rh = new THREE.Quaternion().setFromUnitVectors(u.subVectors(A, H).normalize(), v2.subVectors(T, H).normalize());
+      A.sub(K).applyQuaternion(Rk).add(K);
+      Rh.setFromUnitVectors(u.subVectors(A, H).normalize(), v2.subVectors(T, H).normalize());
       upW.premultiply(Rh);
       loW.premultiply(Rh);
-      const parW = up.parent.getWorldQuaternion(new THREE.Quaternion());
+      up.parent.getWorldQuaternion(parW);
       up.quaternion.copy(parW.invert().multiply(upW));
-      lo.quaternion.copy(upW.clone().invert().multiply(loW));
+      lo.quaternion.copy(tmpQ.copy(upW).invert().multiply(loW));
       if (lean > 0.5 && side === ik.leanDown) ft.quaternion.copy(footLocal);
-      else ft.quaternion.copy(loW.clone().invert().multiply(footW));
+      else ft.quaternion.copy(tmpQ.copy(loW).invert().multiply(footW));
       up.updateWorldMatrix(false, true);
     }
   }
 
-  // IK de dos huesos general (brazo o pierna): lleva el extremo de `end` a T (mundo); `pole` (mundo, opcional) dice
-  // hacia dónde se dobla el codo o la rodilla; `w` mezcla con lo que había. No toca el giro local de `end`.
+  // IK de dos huesos general sin asignaciones por fotograma (usa pools _IK_V[8..17], _IK_Q[3..9]).
   _ikChain(up, lo, end, T, pole, w = 1) {
     if (w < 0.01) return;
-    const H = up.getWorldPosition(new THREE.Vector3()), K = lo.getWorldPosition(new THREE.Vector3());
-    const A = end.getWorldPosition(new THREE.Vector3());
-    const q0u = up.quaternion.clone(), q0l = lo.quaternion.clone();
+    const H = up.getWorldPosition(_IK_V[8]), K = lo.getWorldPosition(_IK_V[9]);
+    const A = end.getWorldPosition(_IK_V[10]);
+    const q0u = _IK_Q[3].copy(up.quaternion), q0l = _IK_Q[4].copy(lo.quaternion);
     const a = H.distanceTo(K), b = K.distanceTo(A);
     const d = clamp(H.distanceTo(T), Math.abs(a - b) + 1e-4, a + b - 1e-4);
-    const u = new THREE.Vector3().subVectors(H, K), v = new THREE.Vector3().subVectors(A, K);
+    const u = _IK_V[11].subVectors(H, K), v = _IK_V[12].subVectors(A, K);
     const cur = u.angleTo(v), want = Math.acos(clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1));
-    const n = new THREE.Vector3().crossVectors(u, v);
+    const n = _IK_V[13].crossVectors(u, v);
     if (n.lengthSq() < 1e-12) n.set(1, 0, 0);
     n.normalize();
-    const upW = up.getWorldQuaternion(new THREE.Quaternion()), loW = lo.getWorldQuaternion(new THREE.Quaternion());
-    const Rk = new THREE.Quaternion().setFromAxisAngle(n, want - cur);
+    const upW = up.getWorldQuaternion(_IK_Q[5]), loW = lo.getWorldQuaternion(_IK_Q[6]);
+    const Rk = _IK_Q[7].setFromAxisAngle(n, want - cur);
     loW.premultiply(Rk);
     A.sub(K).applyQuaternion(Rk).add(K);
-    const Rh = new THREE.Quaternion().setFromUnitVectors(A.clone().sub(H).normalize(), T.clone().sub(H).normalize());
+    const Rh = _IK_Q[8].setFromUnitVectors(u.copy(A).sub(H).normalize(), v.copy(T).sub(H).normalize());
     upW.premultiply(Rh); loW.premultiply(Rh);
-    if (pole) {                                                   // gira la cadena sobre el eje H→T hacia el polo
-      const axis = T.clone().sub(H).normalize();
-      const k2 = K.clone().sub(H).applyQuaternion(Rh);
-      const kp = k2.clone().sub(axis.clone().multiplyScalar(k2.dot(axis)));
-      const pp = pole.clone().sub(H); pp.sub(axis.clone().multiplyScalar(pp.dot(axis)));
+    if (pole) {
+      const axis = _IK_V[14].copy(T).sub(H).normalize();
+      const k2 = _IK_V[15].copy(K).sub(H).applyQuaternion(Rh);
+      const kp = _IK_V[16].copy(k2).addScaledVector(axis, -k2.dot(axis));
+      const pp = _IK_V[17].copy(pole).sub(H);
+      pp.addScaledVector(axis, -pp.dot(axis));
       if (kp.lengthSq() > 1e-10 && pp.lengthSq() > 1e-10) {
         let ang = kp.angleTo(pp);
-        if (new THREE.Vector3().crossVectors(kp, pp).dot(axis) < 0) ang = -ang;
-        const Rp = new THREE.Quaternion().setFromAxisAngle(axis, ang);
+        if (u.crossVectors(kp, pp).dot(axis) < 0) ang = -ang;
+        const Rp = _IK_Q[9].setFromAxisAngle(axis, ang);
         upW.premultiply(Rp); loW.premultiply(Rp);
       }
     }
-    const parW = up.parent.getWorldQuaternion(new THREE.Quaternion());
+    const parW = up.parent.getWorldQuaternion(_IK_Q[9]);
     up.quaternion.copy(parW.invert().multiply(upW));
-    lo.quaternion.copy(upW.clone().invert().multiply(loW));
-    if (w < 0.999) { up.quaternion.slerpQuaternions(q0u, up.quaternion.clone(), w); lo.quaternion.slerpQuaternions(q0l, lo.quaternion.clone(), w); }
+    lo.quaternion.copy(Rk.copy(upW).invert().multiply(loW));
+    if (w < 0.999) {
+      up.quaternion.slerpQuaternions(q0u, Rh.copy(up.quaternion), w);
+      lo.quaternion.slerpQuaternions(q0l, Rh.copy(lo.quaternion), w);
+    }
     up.updateWorldMatrix(false, true);
   }
 
@@ -1526,6 +1604,15 @@ export class Avatar {
   unload() {
     this.effects.clear();
     this.effects.detachBlush();
+    this._clearAccessories();
+    if (this.device) {
+      this.device.dispose();
+      this.device = null;
+    }
+    if (this._drinkMug) {
+      this._drinkMug.dispose();
+      this._drinkMug = null;
+    }
     if (this.orb) {
       this.scene.remove(this.orb.group);
       this.orb.dispose();
@@ -1540,6 +1627,107 @@ export class Avatar {
     this.vrm = null;
   }
 
+  setLighting({ keyColor = 0xffffff, keyIntensity = Math.PI * 0.85, ambColor = 0xffffff, ambIntensity = 0.55, rimColor = 0x9ec5ff, rimIntensity = 0.42 } = {}) {
+    if (this.keyLight) { this.keyLight.color.setHex(keyColor); this.keyLight.intensity = keyIntensity; }
+    if (this.ambLight) { this.ambLight.color.setHex(ambColor); this.ambLight.intensity = ambIntensity; }
+    if (this.rimLight) { this.rimLight.color.setHex(rimColor); this.rimLight.intensity = rimIntensity; }
+  }
+
+  _clearAccessories() {
+    for (const obj of this._accObjs) obj.dispose();
+    this._accObjs.length = 0;
+  }
+
+  setAccessories(ids = []) {
+    this._accIds = Array.isArray(ids) ? [...ids] : [];
+    this._syncAccessories();
+  }
+
+  _syncAccessories() {
+    this._clearAccessories();
+    if (!this.vrm || !this._accIds.length) return;
+    const headInfo = this.head;
+    const flip = this.isV0 ? -1 : 1;
+    for (const id of this._accIds) {
+      const acc = createAccessory(id);
+      if (!acc) continue;
+      if (acc.target === 'head' && headInfo && headInfo.node) {
+        const u = headInfo.unit;
+        acc.group.scale.setScalar(u);
+        if (acc.group.userData.anchor === 'eyes') {
+          acc.group.position.copy(headInfo.eyes).addScaledVector(headInfo.forward, 0.14 * u);
+        } else {
+          acc.group.position.copy(headInfo.eyes).add(new THREE.Vector3(0, 0.08 * u, -0.35 * u * flip));
+        }
+        if (this.isV0) acc.group.rotation.y = Math.PI;
+        headInfo.node.add(acc.group);
+        this._accObjs.push(acc);
+      } else if (acc.target === 'rightHand' && this.bones.rightHand) {
+        const s = clamp(this.headY / 1.4, 0.5, 1.8);
+        acc.group.scale.setScalar(s);
+        acc.group.position.set(-0.04 * flip, -0.05, 0.03 * flip);
+        acc.group.rotation.set(0.3, 0, Math.PI / 2);
+        this.bones.rightHand.add(acc.group);
+        this._accObjs.push(acc);
+      } else {
+        acc.dispose();
+      }
+    }
+  }
+
+  _rpsPose(p, t, w, shape) {
+    const pump = t < 1.1;
+    if (pump) {
+      const swing = Math.sin(t * Math.PI * 2 * 2.7);
+      p.arm('right', { u: [-0.45, -0.22, -1.05], l: [0, -1.55 + 0.35 * swing, 0], h: [0, 0, 0.1], hs: 'fist' }, w);
+      p.add('head', [0.06 * Math.abs(swing), -0.05, 0], w);
+      p.lift += 0.012 * Math.abs(swing) * w;
+    } else {
+      const pop = Math.min(1, (t - 1.1) / 0.14);
+      const armPose = shape === 'peace'
+        ? { u: [-0.55, -0.18, -0.85], l: [0, -1.85, 0], h: [0, 0, 0], hs: 'peace' }
+        : shape === 'open'
+          ? { u: [-0.6, -0.22, -0.95], l: [0, -1.45, 0], h: [-0.6, 0, 0.12], hs: 'open' }
+          : { u: [-0.6, -0.25, -1.0], l: [0, -1.5, 0], h: [0, 0, 0.15], hs: 'fist' };
+      p.arm('right', armPose, w * pop);
+      p.add('head', [-0.04, -0.08, -0.06], w * pop);
+      this.faceX = { parts: { eyeJoy: 0.45, mthFun: 0.55, brwJoy: 0.4 }, preset: { happy: 0.45 }, w: w * pop };
+    }
+  }
+
+  async capturePng({ transparent = true, bgTop = '#14141d', bgBottom = '#08080c', glow = '#8b7cf8' } = {}) {
+    const prevPr = this.renderer.getPixelRatio();
+    const cw = this._viewW || this.canvas.clientWidth || 800;
+    const ch = this._viewH || this.canvas.clientHeight || 900;
+    const hiPr = Math.min(2.5, Math.max(prevPr, 2));
+    this.renderer.setPixelRatio(hiPr);
+    this.renderer.setSize(cw, ch, false);
+    this.renderer.render(this.scene, this.camera);
+
+    const out = document.createElement('canvas');
+    out.width = this.canvas.width;
+    out.height = this.canvas.height;
+    const g = out.getContext('2d');
+    if (!transparent) {
+      const grad = g.createLinearGradient(0, 0, 0, out.height);
+      grad.addColorStop(0, bgTop);
+      grad.addColorStop(1, bgBottom);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, out.width, out.height);
+      const rad = g.createRadialGradient(out.width * 0.5, out.height * 0.36, 10, out.width * 0.5, out.height * 0.36, Math.max(out.width, out.height) * 0.55);
+      rad.addColorStop(0, glow + '44');
+      rad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = rad;
+      g.fillRect(0, 0, out.width, out.height);
+    }
+    g.drawImage(this.canvas, 0, 0);
+
+    this.renderer.setPixelRatio(prevPr);
+    this.renderer.setSize(cw, ch, false);
+    this.renderer.render(this.scene, this.camera);
+    return new Promise((resolve) => out.toBlob(resolve, 'image/png'));
+  }
+
   // Modo flotante: el botón izquierdo mueve la ventana (main.js), así que la cámara se gira con el derecho y se
   // desplaza con el central; la rueda cambia el tamaño de la ventana (Ctrl + rueda: zoom, ver zoom()).
   setFloating(on) {
@@ -1552,9 +1740,11 @@ export class Avatar {
     this.frame();
   }
 
-  // Flotando: encuadre de cuerpo entero (sin el degradado de abajo) o de medio cuerpo.
-  setFullBody(on) {
+  // Flotando (o en Cabina de Fotos con force=true): encuadre de cuerpo entero o de medio cuerpo.
+  setFullBody(on, force = false) {
     this.fullBody = !!on;
+    this._forceFullBody = !!force && !!on;
+    if (force) this.userMoved = false;
     if (!this.userMoved) this.frame();
   }
 
@@ -1587,10 +1777,10 @@ export class Avatar {
         gl.deleteSync(this._probeSync);
         this._probeSync = null;
         this.probeHit = this._px[3] > 24;
-      } else if (status === gl.WAIT_FAILED) {
+      } else if (status === gl.WAIT_FAILED || force) {
         gl.deleteSync(this._probeSync);
         this._probeSync = null;
-      } else if (!force) {
+      } else {
         return;                                   // la GPU aún está terminando ese cuadro: no sobrescribimos el PBO
       }
     }
@@ -1600,8 +1790,10 @@ export class Avatar {
     this._probeAt = now;
     this._probeLast = pr ? { x: pr.x, y: pr.y } : null;
     if (!this.probe) { this.probeHit = false; return; }
-    const dpr = this.renderer.getPixelRatio();
-    const x = Math.round(this.probe.x * dpr), y = Math.round(this.canvas.height - this.probe.y * dpr);
+    const cw = this._viewW || this.canvas.clientWidth || 1;
+    const ch = this._viewH || this.canvas.clientHeight || 1;
+    const x = Math.round((this.probe.x / cw) * this.canvas.width);
+    const y = Math.round((1 - this.probe.y / ch) * this.canvas.height);
     if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) { this.probeHit = false; return; }
     if (!force && !this._probeSync && gl.PIXEL_PACK_BUFFER && typeof gl.fenceSync === 'function') {
       if (!this._probePbo) {
@@ -1629,7 +1821,7 @@ export class Avatar {
     const visible = 2 * dist * tan;
     // La esfera va centrada; un personaje con cuerpo, encuadrado de la cintura a la cabeza. Flotando sin el
     // degradado, entero: de los pies a un poco por encima de la cabeza.
-    if (((this.floating && this.fullBody) || this._sheetFull) && !this.orb) {
+    if ((((this.floating || this._forceFullBody) && this.fullBody) || this._sheetFull) && !this.orb) {
       const top = this.headY + 0.2;
       const full = clamp(Math.max(top * 1.08, 0.8 / aspect) / (2 * tan), 1.2, 9);
       this.controls.target.set(0, top / 2, 0);
@@ -2225,13 +2417,19 @@ export class Avatar {
   // Tocar en la ventana normal: la cámara libre usa el arrastre, así que un clic corto pregunta qué hay bajo el
   // punto en el siguiente cuadro (se lee el píxel del dibujo, como al flotar). Promesa con la zona o null.
   pickAt(x, y) {
+    if (this._pick) this._pick.resolve(null);
     return new Promise((resolve) => { this._pick = { x, y, resolve }; });
   }
 
-  setVoice({ vol, low, mid, high, bands, centroid }) {
+  setMusic({ beat = 0, bpm = 120, active = false } = {}) {
+    this.musicBeat = beat;
+    this.musicBpm = bpm || 120;
+    this.musicActive = !!active;
+  }
+
+  setVoice({ vol, low, mid, high, bands, centroid }, dt = 0.016) {
     const open = clamp((vol - 0.012) * 7);
     const total = low + mid + high + 1e-5;
-    // Topes medidos con el modelo de VRoid: sus visemas al 100 % abren la boca de forma exagerada.
     const target = {
       aa: open * clamp(0.35 + 1.5 * mid / total) * 0.6,
       oh: open * clamp(1.3 * low / total) * 0.3,
@@ -2239,21 +2437,19 @@ export class Avatar {
       ih: open * clamp(1.6 * high / total) * 0.12,
       ou: open * clamp(1.0 * low / total) * 0.18,
     };
-    // Qué sonido es (lipsync.js, de wawa-lipsync): la forma de la vocal sale de ahí en un 60 %, y en las consonantes
-    // p/t/k la boca casi se cierra; en s/f/ch se queda con los dientes juntos. Con el reparto por bandas de antes
-    // (el 40 % restante) no da saltos si el detector duda.
+    const safeDt = clamp(dt || 0.016, 0.004, 0.05);
     if (bands && open > 0.02) {
       const lip = this.lip.update(bands, centroid, performance.now());
       const cap = { aa: 0.6, oh: 0.32, ee: 0.3, ih: 0.18, ou: 0.22 };
       for (const k of VISEMES) target[k] = 0.4 * target[k] + 0.6 * open * lip[k] * cap[k] * 1.4;
       if (lip.close) for (const k of VISEMES) target[k] *= 1 - 0.75 * lip.close;
-      this.lipClose = lerp(this.lipClose || 0, lip.close || 0, 0.5);
-    } else this.lipClose = lerp(this.lipClose || 0, 0, 0.3);
+      this.lipClose = lerp(this.lipClose || 0, lip.close || 0, damp(38, safeDt));
+    } else this.lipClose = lerp(this.lipClose || 0, 0, damp(20, safeDt));
     const sum = VISEMES.reduce((s, k) => s + target[k], 0);
     if (sum > 0.7) for (const k of VISEMES) target[k] *= 0.7 / sum;
-    // Abre rápido y cierra casi igual de rápido: entre sílabas la boca tiene que llegar a cerrarse.
-    for (const k of VISEMES) this.mouth[k] = lerp(this.mouth[k], target[k], target[k] > this.mouth[k] ? 0.6 : 0.4);
-    this.voice = lerp(this.voice, open, open > this.voice ? 0.4 : 0.08);
+    const upK = damp(48, safeDt), dnK = damp(28, safeDt);
+    for (const k of VISEMES) this.mouth[k] = lerp(this.mouth[k], target[k], target[k] > this.mouth[k] ? upK : dnK);
+    this.voice = lerp(this.voice, open, damp(open > this.voice ? 30 : 5.5, safeDt));
   }
 
   // ---------------------------------------------------------------- cuadro a cuadro
@@ -2276,21 +2472,30 @@ export class Avatar {
 
   update() {
     const raw = this.clock.getDelta();
+    if (typeof document !== 'undefined' && document.hidden && !this.floating) return;
     this._frameWatch(raw);
     const dt = Math.min(raw, 0.05);
     const t = this.clock.elapsedTime;
+    this._lastDt = dt;
+    this._drinkShow = 0;
     this.controls.update();
     if (this.vrm) {
       this._buildPose(t, dt);
       this._applyPose(dt);
       this._face(t, dt);
       this._gaze(t, dt);
-      this._inertia();
+      this._inertia(t, dt);
       this.vrm.update(dt);
       this.vrm.scene.updateMatrixWorld(false);
       this._placeDevice(t);
+      this._placeDrinkMug();
+      if (this.shadowMesh) {
+        this.shadowMesh.visible = !this.floating;
+        this.shadowMesh.position.x = this.vrm.scene.position.x;
+      }
       this.effects.update(dt, this._headNow());
     } else if (this.orb) {
+      if (this.shadowMesh) this.shadowMesh.visible = false;
       this._updateOrb(t, dt);
     }
     this.renderer.render(this.scene, this.camera);
@@ -2312,9 +2517,37 @@ export class Avatar {
   // pero el personaje no se mueve dentro de su escena, así que sus físicas (los muelles del propio VRM) no lo notaban.
   // Se desplazan las puntas de esos muelles lo contrario a lo que se movió la ventana, en metros a la distancia del
   // personaje: el pelo y la falda se quedan atrás y vuelven, como si el cuerpo se hubiera movido de verdad.
-  _inertia() {
+  _placeDrinkMug() {
+    const w = this._drinkShow || 0;
+    if (w < 0.04 || !this.vrm || !this.bones.rightHand || this._accIds.includes('mug')) {
+      if (this._drinkMug) this._drinkMug.group.visible = false;
+      return;
+    }
+    if (!this._drinkMug) {
+      this._drinkMug = new Device('mug');
+      const flip = this.isV0 ? -1 : 1;
+      this._drinkMug.group.position.set(-0.04 * flip, -0.05, 0.03 * flip);
+      this._drinkMug.group.rotation.set(0.3, 0, Math.PI / 2);
+      this.bones.rightHand.add(this._drinkMug.group);
+    } else if (this._drinkMug.group.parent !== this.bones.rightHand) {
+      this.bones.rightHand.add(this._drinkMug.group);
+    }
+    this._drinkMug.group.scale.setScalar(Math.max(0.01, clamp(this.headY / 1.4, 0.5, 1.8) * w));
+    this._drinkMug.group.visible = true;
+  }
+
+  _inertia(t = 0, dt = 0.016) {
     const sb = this.vrm && this.vrm.springBoneManager;
-    if (!this.floating || !sb || this.posing) { this._win = null; return; }
+    if (!sb || this.posing) { this._win = null; return; }
+    // Brisa sutil orgánica para que el pelo tenga vida incluso en reposo.
+    if (dt > 0) {
+      const bx = 0.00028 * noise(t * 0.42, 61) * (dt * 60);
+      const bz = 0.00018 * noise(t * 0.31, 67) * (dt * 60);
+      for (const j of sb.joints) {
+        if (j._currentTail) { j._currentTail.x += bx; j._currentTail.z += bz; }
+      }
+    }
+    if (!this.floating) { this._win = null; return; }
     const x = window.screenX, y = window.screenY, last = this._win;
     this._win = { x, y };
     if (!last || (x === last.x && y === last.y)) return;
@@ -2360,7 +2593,8 @@ export class Avatar {
     this.gestures = this.gestures.filter((g) => g.t < g.dur);
     this._petTick(t, dt);
     this.orb.update({ t, dt, emotion: this.emotion, emoAge: this.emoAge, state: this.stateW, voice: this.voice,
-      beat: this.beat * this.stateW.speaking, mouth: VISEMES.reduce((s, k) => s + this.mouth[k], 0), gestures: this.gestures,
+      beat: this.beat * this.stateW.speaking, musicBeat: this.musicBeat, visemes: { ...this.mouth, close: this.lipClose || 0 },
+      mouth: VISEMES.reduce((s, k) => s + this.mouth[k], 0), gestures: this.gestures,
       act: { w: this.actW, work: this.workW, walkPhase: this.walkPhase, t: this.act.t } });
     this.effects.update(dt, this.orb.head(this.camera, this._headInfo));
   }
@@ -2498,6 +2732,17 @@ export class Avatar {
     p.gaze[0] += 0.3 * thinking; p.gaze[1] += 0.28 * thinking;
     this.thinkArm = lerp(this.thinkArm, thinking > 0.85 ? 1 : 0, damp(thinking > 0.85 ? 1.6 : 5, dt));
     p.arm('right', ARMS.chin, this.thinkArm * 0.9);
+
+    // Pulso musical compartido (music.js, N-01): acompasa suavemente cabeza y hombros cuando oye música en reposo.
+    if (this.musicBeat > 0.02 && speaking < 0.3 && !this.sleep.mode) {
+      const mb = this.musicBeat * (1 - speaking);
+      const sideSway = Math.sin(t * Math.PI * (this.musicBpm / 60));
+      p.addXYZ('head', 0.055 * mb, 0.025 * sideSway * mb, 0.04 * sideSway * mb);
+      p.addXYZ('neck', 0.02 * mb, 0, 0);
+      p.shoulders(0.022 * mb);
+      p.lift += 0.005 * mb;
+      if (this.musicActive) this._notes(t, 2.4);
+    }
 
     // Hablar: el cuerpo acompaña la voz. `beat` salta con cada énfasis (cuando la voz sube de golpe).
     this.voiceSlow = lerp(this.voiceSlow, this.voice, damp(2.5, dt));
@@ -2760,32 +3005,55 @@ export class Avatar {
         b.next = t + (b.twice ? 0.09 : (2.2 + Math.random() * 4) / rate);
       }
     }
-    // Con los ojos ya cerrados de alegría, el parpadeo no los cierra «de más».
-    blink = Math.max(blink, this.sleepEyes || 0);                // dormida o cabeceando: ojos cerrados
-    em.setValue('blink', blink * (1 - 0.8 * clamp((this.partW && this.partW.eyeJoy) || 0)));
+    // Con los ojos ya entornados por alegría, diversión o tristeza, el parpadeo se descuenta para no deformar la malla.
+    blink = Math.max(blink, this.sleepEyes || 0);
+    const eyeSquint = clamp(
+      ((this.partW && this.partW.eyeJoy) || 0) * 0.85
+      + ((this.partW && this.partW.eyeFun) || 0) * 0.45
+      + ((this.partW && this.partW.eyeSorrow) || 0) * 0.35,
+    );
+    const bVal = blink * (1 - eyeSquint);
+    if (em.getExpression('blinkLeft') && em.getExpression('blinkRight')) {
+      const lag = b.t >= 0 ? Math.max(0, b.t - 0.012) : -1;
+      let blinkR = blink;
+      if (lag >= 0) {
+        const close = 0.065 * b.slow, hold = 0.03 * b.slow, open = 0.13 * b.slow;
+        blinkR = lag < close ? ease(lag / close) : lag < close + hold ? 1 : 1 - ease(clamp((lag - close - hold) / open));
+      }
+      em.setValue('blink', 0);
+      em.setValue('blinkLeft', bVal);
+      em.setValue('blinkRight', Math.max(blinkR, this.sleepEyes || 0) * (1 - eyeSquint));
+    } else {
+      em.setValue('blink', bVal);
+    }
   }
 
   _gaze(t, dt) {
-    // Mira a la cámara, con pequeños desvíos como los de un ojo de verdad (más, si está nerviosa).
+    // Mira a la cámara en el plano derecha/arriba de la propia cámara (escalado por distancia), con sacadas naturales.
     const s = this.saccade;
     const dart = EMOTIONS[this.emotion].dart || 0;
     if (t > s.next) {
-      // Al hablar desvía la mirada más a menudo (como quien piensa lo que dice); al escuchar, casi nada.
       const st = this.stateW;
       const away = Math.random() < (0.25 + 0.5 * dart) * (1 + 0.6 * st.speaking - 0.6 * st.listening);
       s.x = (Math.random() - 0.5) * (away ? 0.5 + 0.4 * dart : 0.08);
       s.y = (Math.random() - 0.5) * (away ? 0.25 : 0.05);
-      if (away && !s.away && Math.random() < 0.45) this._blinkSoon();      // un desvío grande suele llevar parpadeo
+      if (away && !s.away && Math.random() < 0.45) this._blinkSoon();
       s.away = away;
       s.next = t + (away ? 0.5 + Math.random() * 0.7 : 1.2 + Math.random() * 2.5) / (1 + 2 * dart);
     }
-    this._v.copy(this.camera.position);
-    this._v.x += (this.pose.gaze[0] + s.x) * 1.2;
-    this._v.y += (this.pose.gaze[1] + s.y) * 1.2;
-    if (this.followW > 0.05 && this.cursor) {             // el ratón (modo flotante)
+    const camR = (this._gazeR || (this._gazeR = new THREE.Vector3())).setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const camU = (this._gazeU || (this._gazeU = new THREE.Vector3())).setFromMatrixColumn(this.camera.matrixWorld, 1);
+    const headPt = (this._gazeH || (this._gazeH = new THREE.Vector3())).set(0, this.headY, 0);
+    const distScale = clamp(this.camera.position.distanceTo(headPt) * 0.75, 0.35, 3.0);
+    this._v.copy(this.camera.position)
+      .addScaledVector(camR, (this.pose.gaze[0] + s.x) * distScale)
+      .addScaledVector(camU, (this.pose.gaze[1] + s.y) * distScale);
+    if (this.followW > 0.05 && this.cursor) {
       this._v.lerp(this._cursorWorld(this._e6 || (this._e6 = new THREE.Vector3())), this.followW);
+    } else if (!this.floating && this.follow && this.cursor && t - this.cursor.at < 3.5 && Math.abs(this.yaw) < 0.35) {
+      this._v.lerp(this._cursorWorld(this._e6 || (this._e6 = new THREE.Vector3())), 0.35 * (1 - 0.5 * this.stateW.speaking));
     }
-    if (Math.abs(this.yaw) > 0.35 && this.act.name !== 'sit') {   // de lado o de espaldas: mira hacia donde va o trabaja
+    if (Math.abs(this.yaw) > 0.35 && this.act.name !== 'sit') {
       this._v.set(Math.sin(this.yaw) * 2, this.headY - 0.25 + s.y, Math.cos(this.yaw) * 2);
     }
     this.lookTarget.position.lerp(this._v, damp(10, dt));

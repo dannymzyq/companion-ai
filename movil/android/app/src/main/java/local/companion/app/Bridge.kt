@@ -173,7 +173,10 @@ class Bridge(private val act: MainActivity) : WebViewCompat.WebMessageListener {
         "pip.close" -> { act.flotanteArmada = false; true }
         "screen.start" -> pantalla.empezar()
         "screen.stop" -> { pantalla.parar(); true }
-        "audio.mode" -> true
+        "audio.mode" -> {
+            if (a.optBoolean("live", false)) ServicioVoz.iniciar(act) else ServicioVoz.parar(act)
+            true
+        }
         "stream.cancel" -> {
             val id = a.optInt("id")
             sockets.remove(id)?.close()
@@ -235,10 +238,31 @@ class Bridge(private val act: MainActivity) : WebViewCompat.WebMessageListener {
         val bearer = a.optString("bearer")
         if (bearer.isNotEmpty()) b.header("Authorization", "Bearer $bearer")
         else if (a.has("auth") && !a.isNull("auth")) {
-            val key = Secretos.get(act, secreto(a.getString("auth"))) ?: throw BridgeError("Falta la clave")
+            val authName = secreto(a.getString("auth"))
+            val key = Secretos.get(act, authName) ?: throw BridgeError("Falta la clave")
+            val host = Uri.parse(url).host?.lowercase() ?: ""
+            if (!hostPermitido(authName, host)) throw BridgeError("Dominio no autorizado para esa clave")
             b.header("Authorization", "Bearer $key")
         }
         return b.build()
+    }
+
+    private fun hostPermitido(auth: String, host: String): Boolean {
+        if (host.isEmpty()) return false
+        return when (auth) {
+            "groq_key" -> host == "api.groq.com"
+            "live_key" -> host == "generativelanguage.googleapis.com"
+            "cloud_key" -> {
+                if (host in setOf("generativelanguage.googleapis.com", "api.openai.com", "openrouter.ai", "api.groq.com", "api.mistral.ai")) return true
+                val customBase = try {
+                    val f = File(kvDir, "settings.json")
+                    if (f.isFile) JSONObject(f.readText()).optJSONObject("cloud")?.optString("base") else null
+                } catch (_: Exception) { null }
+                val baseHost = customBase?.let { Uri.parse(it).host?.lowercase() } ?: ""
+                baseHost.isNotEmpty() && host == baseHost
+            }
+            else -> false
+        }
     }
 
     private fun kvFile(key: String): File {
@@ -270,6 +294,7 @@ class Bridge(private val act: MainActivity) : WebViewCompat.WebMessageListener {
         sockets.values.forEach { it.close() }; sockets.clear()
         calls.values.forEach { it.cancel() }
         pantalla.parar()
+        ServicioVoz.parar(act)
         scope.cancel()
     }
 }

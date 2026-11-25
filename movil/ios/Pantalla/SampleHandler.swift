@@ -1,14 +1,20 @@
 import CoreImage
+import CryptoKit
+import Foundation
 import Network
 import ReplayKit
+import Security
 
 /// Compartir pantalla (extensión de transmisión de iOS): iOS le pasa lo que se ve en la pantalla del iPhone, en
-/// cualquier app. Una imagen cada ~0,8 s, reducida y en JPEG, va a la app de Companion por una conexión local
-/// (127.0.0.1, ReceptorPantalla.swift), que la pasa a la página como la pantalla compartida de la PC. Nada sale del
-/// teléfono desde aquí. Las extensiones tienen ~50 MB de memoria: nada se guarda, cada imagen se manda y se suelta.
+/// cualquier app. Una imagen cada ~0,8 s, reducida, en JPEG y autenticada con ChaChaPoly-256, va a Companion por
+/// un puerto efímero local (127.0.0.1) leído del App Group Keychain. Nada sale del teléfono desde aquí.
 final class SampleHandler: RPBroadcastSampleHandler {
-    static let puerto: NWEndpoint.Port = 47_621
+    private static let sharedService = "companion.claves"
+    private static let sharedGroup = "group.local.companion.app"
+    private static let ipcSlot = "pantalla_ipc"
+
     private var conexion: NWConnection?
+    private var clave: SymmetricKey?
     private let cola = DispatchQueue(label: "pantalla")
     private let ci = CIContext(options: [.cacheIntermediates: false])
     private var ultima = Date.distantPast
@@ -18,8 +24,33 @@ final class SampleHandler: RPBroadcastSampleHandler {
         conectar()
     }
 
+    private static func leerCredencialIpc() -> (NWEndpoint.Port, SymmetricKey)? {
+        func buscar(conGrupo: Bool) -> String? {
+            var q: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: sharedService,
+                kSecAttrAccount as String: conGrupo ? ipcSlot : "shared_\(ipcSlot)",
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            if conGrupo { q[kSecAttrAccessGroup as String] = sharedGroup }
+            var out: CFTypeRef?
+            guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        guard let raw = buscar(conGrupo: true) ?? buscar(conGrupo: false),
+              let sep = raw.firstIndex(of: ":"),
+              let portNum = UInt16(raw[..<sep]),
+              let port = NWEndpoint.Port(rawValue: portNum),
+              let keyData = Data(base64Encoded: String(raw[raw.index(after: sep)...])),
+              keyData.count == 32 else { return nil }
+        return (port, SymmetricKey(data: keyData))
+    }
+
     private func conectar() {
-        let c = NWConnection(host: "127.0.0.1", port: Self.puerto, using: .tcp)
+        guard let (puerto, sym) = Self.leerCredencialIpc() else { return }
+        clave = sym
+        let c = NWConnection(host: "127.0.0.1", port: puerto, using: .tcp)
         c.stateUpdateHandler = { [weak self] estado in
             guard let self else { return }
             switch estado {
@@ -51,7 +82,6 @@ final class SampleHandler: RPBroadcastSampleHandler {
         ultima = Date()
         if conexion == nil { cola.async { self.conectar() }; return }
         var img = CIImage(cvPixelBuffer: px)
-        // Girada si iOS la entrega de lado (la orientación va como adjunto del cuadro).
         if let o = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber,
            let ori = CGImagePropertyOrientation(rawValue: o.uint32Value) { img = img.oriented(ori) }
         let lado = max(img.extent.width, img.extent.height)
@@ -59,10 +89,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
         img = img.transformed(by: CGAffineTransform(scaleX: escala, y: escala))
         guard let jpeg = ci.jpegRepresentation(of: img, colorSpace: CGColorSpaceCreateDeviceRGB(),
                                                options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.6]),
+              let sym = clave,
+              let box = try? ChaChaPoly.seal(jpeg, using: sym),
               let c = conexion else { return }
-        var largo = UInt32(jpeg.count).bigEndian
+        let cifrado = box.combined
+        var largo = UInt32(cifrado.count).bigEndian
         var paquete = Data(bytes: &largo, count: 4)
-        paquete.append(jpeg)
+        paquete.append(cifrado)
         enviando = true
         c.send(content: paquete, completion: .contentProcessed { [weak self] _ in self?.enviando = false })
     }

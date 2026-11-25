@@ -1,9 +1,12 @@
-// Puente de la ventana de instalación del Mac (instalando.html): solo recibe el progreso y pide reintentar o
-// enseñar el registro.
+// Puente de la ventana de instalación del Mac (instalando.html): recibe el progreso y devuelve función de limpieza.
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('instalar', {
-  on: (fn) => ipcRenderer.on('instalar:evento', (_e, kind, ...args) => fn(String(kind), ...args)),
+  on: (fn) => {
+    const listener = (_e, kind, ...args) => fn(String(kind), ...args);
+    ipcRenderer.on('instalar:evento', listener);
+    return () => ipcRenderer.removeListener('instalar:evento', listener);
+  },
   retry: () => ipcRenderer.send('instalar:reintentar'),
   showLog: () => ipcRenderer.send('instalar:registro'),
 });

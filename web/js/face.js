@@ -127,11 +127,23 @@ function arkitIndex(mesh, name) {
   return -1;
 }
 
+function presetUsesArkit(em, presetName, arkitShape, meshes) {
+  const ex = em.getExpression(presetName);
+  if (!ex || !Array.isArray(ex.binds)) return false;
+  return ex.binds.some((b) => {
+    const prims = b.primitives || [];
+    return prims.some((m) => meshes.includes(m) && arkitIndex(m, arkitShape) === b.index && (b.weight || 0) > 0.25);
+  });
+}
+
 function addArkit(vrm, em, meshes) {
   const has = (n) => meshes.some((m) => arkitIndex(m, n) >= 0);
   if (!ARKIT_NEED.every(has)) return [];
+  const skipFunnel = presetUsesArkit(em, 'oh', 'mouthFunnel', meshes);
+  const skipPucker = presetUsesArkit(em, 'ou', 'mouthPucker', meshes);
   const found = [];
   for (const [key, combo] of Object.entries(ARKIT_PARTS)) {
+    if ((key === 'akFunnel' && skipFunnel) || (key === 'akPucker' && skipPucker)) continue;
     const name = 'p_' + key;
     if (!em.getExpression(name)) {
       const ex = new VRMExpression(name);
@@ -203,7 +215,7 @@ export class Micro {
       let r = Math.random() * total;
       for (const m of pool) {
         r -= speaking > 0.5 ? m.speaking || m.weight : m.weight;
-        if (r <= 0) { this._start(m, t); break; }
+        if (r <= 0) { this._start(m, t, parts); break; }
       }
       this.next = t + (speaking > 0.5 ? rand(1.2, 3.5) : rand(2.5, 7));
     }
@@ -212,13 +224,21 @@ export class Micro {
       const u = (t - c.t0) / c.dur;
       if (u >= 1) { this.cur = null; return out; }
       const env = Math.sin(Math.PI * Math.min(1, u * 1.15)) ** 0.7;          // sube rápido, baja algo más despacio
-      const src = parts.length ? c.m.parts : MICRO_PRESET[c.m.name];
+      const src = parts.length ? (c.parts || c.m.parts) : MICRO_PRESET[c.m.name];
       if (src) for (const [k, v] of Object.entries(src)) out[k] = (out[k] || 0) + v * c.amp * env;
     }
     return out;
   }
 
-  _start(m, t) { this.cur = { m, name: m.name, t0: t, dur: rand(m.dur[0], m.dur[1]), amp: rand(0.7, 1.15) }; }
+  _start(m, t, parts = []) {
+    let customParts = m.parts;
+    if (parts.length && Math.random() < 0.5) {
+      if (m.name === 'colmillo' && parts.includes('mthFangR')) customParts = { mthFangR: 0.6, mthFun: 0.2 };
+      else if (m.name === 'media sonrisa' && parts.includes('akSmirkR')) customParts = { akSmirkR: 0.7 };
+      else if (m.name === 'una ceja' && parts.includes('akBrowL')) customParts = { akBrowL: 0.6 };
+    }
+    this.cur = { m, parts: customParts, name: m.name, t0: t, dur: rand(m.dur[0], m.dur[1]), amp: rand(0.7, 1.15) };
+  }
 }
 
 export const MOUTH_PARTS = PART_KEYS.filter((k) => k.startsWith('mth'));

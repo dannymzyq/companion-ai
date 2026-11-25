@@ -1,12 +1,16 @@
-// Captura del micrófono: baja la frecuencia de muestreo a 16 kHz y entrega tramas de 512 muestras (32 ms)
-// en PCM de 16 bits, que es lo que espera el servidor.
+// Captura del micrófono: filtra paso-bajo (anti-aliasing FIR de 5 tomas) y remuestrea con interpolación
+// lineal fraccionaria a 16 kHz entregando tramas exactas de 512 muestras (32 ms) en PCM de 16 bits.
 class MicCapture extends AudioWorkletProcessor {
   constructor() {
     super();
     this.ratio = sampleRate / 16000;
-    this.acc = 0;
-    this.count = 0;
-    this.pos = 0;
+    this.bypassFilter = Math.abs(this.ratio - 1) < 1e-3;
+    this.x1 = 0;
+    this.x2 = 0;
+    this.x3 = 0;
+    this.x4 = 0;
+    this.prevY = 0;
+    this.phase = 1;
     this.out = new Int16Array(512);
     this.n = 0;
     this.energy = 0;
@@ -14,16 +18,20 @@ class MicCapture extends AudioWorkletProcessor {
 
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
-    if (!ch) return true;
+    if (!ch || !ch.length) return true;
+    const ratio = this.ratio;
     for (let i = 0; i < ch.length; i++) {
-      this.acc += ch[i];
-      this.count++;
-      this.pos += 1;
-      if (this.pos >= this.ratio) {
-        this.pos -= this.ratio;
-        const s = Math.max(-1, Math.min(1, this.acc / this.count));
-        this.acc = 0;
-        this.count = 0;
+      const x = ch[i];
+      let cur = x;
+      if (!this.bypassFilter) {
+        cur = 0.1 * x + 0.225 * this.x1 + 0.35 * this.x2 + 0.225 * this.x3 + 0.1 * this.x4;
+        this.x4 = this.x3;
+        this.x3 = this.x2;
+        this.x2 = this.x1;
+        this.x1 = x;
+      }
+      while (this.phase <= 1) {
+        const s = Math.max(-1, Math.min(1, this.prevY + (cur - this.prevY) * this.phase));
         this.energy += s * s;
         this.out[this.n++] = s < 0 ? s * 0x8000 : s * 0x7fff;
         if (this.n === this.out.length) {
@@ -32,7 +40,10 @@ class MicCapture extends AudioWorkletProcessor {
           this.n = 0;
           this.energy = 0;
         }
+        this.phase += ratio;
       }
+      this.phase -= 1;
+      this.prevY = cur;
     }
     return true;
   }

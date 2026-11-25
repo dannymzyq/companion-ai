@@ -7,13 +7,16 @@ Nada de esto toca lo del usuario: se usa una carpeta de datos temporal, las acci
 cerebro y de la voz apuntan a un puerto cerrado, así que ninguna prueba llega a un modelo.
 Las pruebas completas (servidor de prueba, voz, Electron) siguen en scripts\\pruebas\\prueba_*.py.
 """
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TMP = Path(tempfile.mkdtemp(prefix="companion_pruebas_"))
+atexit.register(shutil.rmtree, TMP, True)
 NOWHERE = "http://127.0.0.1:9"                 # puerto cerrado: si algo intentara salir, falla al momento
 
 # Antes de importar companion.*: companion.config lee el entorno (y .env, que no pisa lo que ya está aquí).

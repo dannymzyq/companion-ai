@@ -86,6 +86,8 @@ VOICE_ENGINES = {
     # 1,2 con algo de margen. El nodo de waifuv3 que se usaba antes ocupaba de 5 a 9 GB porque cargaba Chatterbox.
     "completa": {"name": "Voz completa", "vram_gb": 1.2,
                  "note": "Voces clonadas, la de más calidad. Necesita tarjeta NVIDIA: usa alrededor de 1,1 GB de memoria de vídeo."},
+    "kokoro": {"name": "Voz neuronal ligera (Kokoro)", "vram_gb": 0.0,
+               "note": "Voz neuronal en español (Kokoro-82M) en el procesador: 0 GB de memoria de vídeo y mucho más natural que Piper."},
     "ligera": {"name": "Voz ligera", "vram_gb": 0.0,
                "note": "Voces sintéticas (Piper). Corre en el procesador: no usa memoria de vídeo. Suena más artificial y no es la voz clonada."},
     # Voces neuronales de Edge (tts_cloud): sin clave ni cupo, casi sin procesador; necesita internet.
@@ -211,6 +213,7 @@ def gpu_total_gb() -> float:
 
 
 _others: float | None = None              # lo último medido de los demás programas en la tarjeta (GB)
+_others_at: float = 0.0
 
 
 def _ollama_on_gpu() -> float:
@@ -224,11 +227,7 @@ def _ollama_on_gpu() -> float:
 
 
 def measured_others() -> float | None:
-    """GB que ocupan en la tarjeta los DEMÁS programas (escritorio, navegador, un juego), medidos: lo usado
-    (nvidia-smi) menos lo nuestro (oído en la GPU y modelo local cargado). DESKTOP_GB era una estimación hecha en
-    la PC de 16 GB: en una laptop de 4 GB, con el escritorio en la gráfica integrada, son unos cientos de MB, y con
-    ella la voz completa nunca parecía caber (15 nov 2026). Con la voz completa en marcha no se mide (se queda con
-    más memoria de la que dice VOICE_ENGINES y parecería de otros): vale la última medida. None si no se puede."""
+    """GB que ocupan en la tarjeta los DEMÁS programas (escritorio, navegador, un juego)."""
     global _others
     from . import llm, stt, voz_proc
     running = voz_proc.running()
@@ -371,10 +370,16 @@ def describe(user_name: str) -> str:
 
 # ---------------------------------------------------------------- cerebro
 def cloud() -> dict:
-    c = state.load().get("cloud") or {}
+    s = state.load()
+    c = s.get("cloud") or {}
     preset = c.get("preset") if c.get("preset") in PRESETS else "gemini"
+    key = c.get("key") or (_ENV_KEY if preset == "gemini" else "")
+    if not key and preset == "gemini" and s.get("gemini_live"):
+        lv = s.get("live") or {}
+        if lv.get("provider", "gemini") == "gemini" and lv.get("key"):
+            key = lv["key"]
     return {"preset": preset, "base": (c.get("base") or PRESETS[preset]["base"]).rstrip("/"),
-            "model": c.get("model") or "", "key": c.get("key") or (_ENV_KEY if preset == "gemini" else "")}
+            "model": c.get("model") or "", "key": key}
 
 
 def public_cloud() -> dict:
@@ -486,3 +491,68 @@ def character(persona: dict) -> dict:
     """La ficha del personaje con el nombre de la voz elegida (Mika, Kenji…) y cómo habla de sí."""
     v = voice()
     return {**persona, "name": v["name"], "speaks": v["speaks"]} if v else persona
+
+
+# ---------------------------------------------------------------- saludo matutino y perfiles completos (N-06, N-09)
+def morning_briefing() -> bool:
+    """¿Dar un resumen breve de recordatorios pendientes en el primer saludo del día? (encendido por defecto)"""
+    return state.load().get("morning_briefing") is not False
+
+
+VALID_ACCESSORIES = {"glasses", "headphones", "mug", "sleepcap"}
+
+
+def list_presets() -> list[dict]:
+    raw = state.load().get("char_presets") or []
+    return [p for p in raw if isinstance(p, dict) and p.get("id") and p.get("name")]
+
+
+def save_preset(body: dict) -> dict:
+    import uuid
+    from . import models, personality as pers_mod
+    name = re.sub(r"[\r\n\t<>]+", " ", str(body.get("name") or "")).strip()[:40]
+    if not name:
+        raise ValueError("Escribe un nombre para el perfil del personaje.")
+    cur = list_presets()
+    pid = str(body.get("id") or "")
+    if not re.fullmatch(r"pr_[a-z0-9]{6,16}", pid):
+        pid = "pr_" + uuid.uuid4().hex[:8]
+    acc = [a for a in (body.get("accessories") or []) if a in VALID_ACCESSORIES]
+    v = voice()
+    preset = {
+        "id": pid,
+        "name": name,
+        "model_id": str(body.get("model_id") or models.active_id("Mika")),
+        "voice_id": str(body.get("voice_id") or (v["id"] if v else "mika")),
+        "personality_id": str(body.get("personality_id") or pers_mod.active_id()),
+        "accessories": acc,
+    }
+    cur = [p for p in cur if p["id"] != pid]
+    cur.append(preset)
+    state.save(char_presets=cur[-24:])
+    return preset
+
+
+def delete_preset(pid: str) -> list[dict]:
+    cur = [p for p in list_presets() if p["id"] != pid]
+    state.save(char_presets=cur)
+    return cur
+
+
+def apply_preset(pid: str) -> dict:
+    from . import models, personality as pers_mod
+    preset = next((p for p in list_presets() if p["id"] == pid), None)
+    if not preset:
+        raise ValueError("Ese perfil de personaje no existe.")
+    try:
+        models.select(preset["model_id"])
+    except models.ModelError:
+        pass
+    if any(v["id"] == preset["voice_id"] and v["available"] for v in voices()):
+        state.save(voice=preset["voice_id"])
+    try:
+        pers_mod.select(preset["personality_id"])
+    except ValueError:
+        pass
+    apply()
+    return preset

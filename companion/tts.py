@@ -35,10 +35,13 @@ async def node_available() -> bool:
 
 
 async def available() -> bool:
-    """¿Hay voz con el motor elegido? (ligera: Piper aquí mismo · nube: edge-tts · completa: el servidor de voz)"""
+    """¿Hay voz con el motor elegido? (ligera: Piper · kokoro: Kokoro CPU · nube: edge-tts · completa: F5)"""
     if settings.voice_engine == "nube":
         from . import tts_cloud
         return tts_cloud.installed()
+    if settings.voice_engine == "kokoro":
+        from . import tts_kokoro, tts_light
+        return tts_kokoro.installed() or tts_light.installed()
     if settings.voice_engine == "ligera":
         from . import tts_light
         return tts_light.installed()
@@ -50,6 +53,13 @@ async def stream_speech(text: str, voice: str, speed: float = 1.0, engine: str |
     engine = engine or settings.voice_engine
     if engine == "nube":                  # las voces neuronales leen bien el español y el inglés tal cual
         async for chunk in _with_light_backup(_cloud(text, voice, speed), text, voice, speed, "en la nube"):
+            yield chunk
+        return
+    if engine == "kokoro":
+        from . import tts_kokoro
+        from .pronounce import for_voice
+        async for chunk in _with_light_backup(tts_kokoro.stream_speech(for_voice(text), voice, speed),
+                                              for_voice(text), voice, speed, "Kokoro"):
             yield chunk
         return
     from .pronounce import for_voice

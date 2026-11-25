@@ -439,6 +439,29 @@ siempre que no haya un juego usando la tarjeta.
   micrófono sigue sonando; si no, se reabre solo (tarda unos 5 s tras apagar la cámara).
 - **Micrófono**: silenciar / activar. Puedes interrumpirla hablando encima.
 - **Teclado**: escribirle en vez de hablar. **Cuadrado**: que deje de hablar.
-- **Ajustes** (engranaje, con barra lateral por categorías): cerebro y voz, personaje y personalidad, dispositivos,
-  acciones, escritorio, memoria («Olvidar todo») y el estado de cada pieza.
+- **Ajustes** (engranaje, con barra lateral por categorías y navegación accesible por teclado): cerebro y voz, personaje
+  y personalidad, dispositivos, acciones, escritorio, memoria («Olvidar todo») y el estado de cada pieza.
 - Arrastra para girar la cámara y usa la rueda para acercar o alejar.
+
+## Novedades interactivas: Música, Cabina de Fotos, Enfoque, Juegos y Mochila
+
+- **Motor de voz Kokoro (CPU, sin GPU)**: además de F5-TTS (voz clonada en GPU), Piper (ligera) y la nube, en
+  *Ajustes › Cerebro y voz* puedes descargar y activar **Kokoro-82M**, una voz neural expresiva que corre en el
+  procesador sin ocupar memoria de vídeo.
+- **Escuchar música juntos**: al compartir pantalla con sonido, el detector de ritmo analiza el pulso grave en tu propio
+  equipo (sin subir la canción a ningún servidor) para que el personaje asienta y baile al compás y guarde silencio
+  mientras suena la música salvo que le hables directamente.
+- **Modo Foto / Cabina**: el botón de cámara fotográfica de la barra inferior abre un estudio con encuadres (*retrato*,
+  *plano medio*, *cuerpo entero*), fondos (*transparente*, *estudio oscuro*, *atardecer*, *neón*), poses, emociones y
+  cuenta atrás 3-2-1 para guardar capturas PNG nítidas en alta resolución.
+- **Compañera de Enfoque (Pomodoro)**: en *Ajustes › Personaje* (y en el indicador superior durante la sesión) puedes
+  iniciar bloques de concentración **25/5** o **50/10** minutos con seguimiento de racha diaria; durante el bloque el
+  personaje trabaja en silencio a tu lado y te avisa suavemente al llegar el descanso.
+- **Presets de ambiente, accesorios 3D y mini-juegos**: acopla gafas, auriculares, taza caliente o gorro de dormir en
+  tiempo real, guarda tus combinaciones favoritas en un clic y lanza partidas rápidas de **Piedra, papel o tijera**,
+  **Trivia**, **20 preguntas** o **Veo, veo**.
+- **Diario de recuerdos, Mochila del Compañero, Modo En Casa y MCP**: en *Ajustes › Acciones y memoria* puedes buscar al
+  instante entre tus recuerdos y resúmenes pasados, fijar 📌 los esenciales o editarlos en línea; exportar o importar tu
+  **Mochila** (`.json` sin claves ni secretos) entre PC, Mac, Rust-Live y móvil; abrir el **Modo En Casa** en tu red
+  Wi-Fi local con código de 6 dígitos; o conectar herramientas locales mediante **Model Context Protocol (MCP)** bajo
+  confirmación explícita.

@@ -16,9 +16,9 @@ const SEND_BYTES = 3072;              // ~96 ms a 16 kHz: menos mensajes por el 
 
 // Como LIVE_PROMPT_NOTE de la PC, sin la parte de acciones (en el teléfono no hay acciones).
 export const LIVE_NOTE = '\n\n# Modo en vivo (llamada de voz)\n'
-  + 'Respondes con tu propia voz en español, en frases naturales y breves como en una llamada, y con TU forma de '
-  + 'ser: el tono, el humor, las muletillas y el estilo de tus ejemplos se tienen que notar en cada respuesta. Nada '
-  + 'de tono de asistente neutra.\n'
+  + 'Respondes con tu propia voz en español y con TU forma de ser (tono, humor y estilo propios; nada de asistente neutra).\n'
+  + 'REGLA DE BREVEDAD: por defecto responde en 1 o 2 frases cortas (unos 5 a 10 segundos de voz) y cede la palabra. '
+  + 'No te enrolles ni hagas monólogos salvo que te pidan expresamente una explicación larga.\n'
   + 'Tu cara y tu cuerpo se mueven con la herramienta `expresar`: llámala al EMPEZAR cada respuesta con la emoción '
   + 'que de verdad sientes ante lo que te dicen (y un gesto si viene a cuento), y otra vez si cambias de emoción. '
   + 'No cambia lo que dices ni hay que esperar su respuesta: sigue hablando.\n'
@@ -31,6 +31,18 @@ export const EXPRESS_TOOL = {
   parameters: { type: 'OBJECT', properties: {
     emocion: { type: 'STRING', enum: EMOTIONS }, gesto: { type: 'STRING', enum: ['ninguno', ...GESTURES] } },
   required: ['emocion'] },
+  behavior: 'NON_BLOCKING',
+};
+
+export const REMEMBER_TOOL = {
+  name: 'recordar',
+  description: 'Guarda un dato duradero e importante sobre el usuario (gustos, proyectos, mascotas, cumpleaños, planes) '
+    + 'para recordarlo en futuras conversaciones. Nunca guardes contraseñas, claves ni datos bancarios.',
+  parameters: {
+    type: 'OBJECT',
+    properties: { dato: { type: 'STRING', description: 'Frase breve en tercera persona sobre el usuario.' } },
+    required: ['dato'],
+  },
   behavior: 'NON_BLOCKING',
 };
 
@@ -68,15 +80,16 @@ export function guessEmotion(text) {
 }
 export const cleanSpoken = (t) => String(t || '').replace(/\[[^\]]+\]/g, '').trim();
 
-export function buildSetup({ system, model = DEFAULT_MODEL, voice = 'Aoede', temperature = null }) {
+export function buildSetup({ system, model = DEFAULT_MODEL, voice = 'Aoede', temperature = null, resumeHandle = null }) {
   const gen = { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } };
   if (temperature != null) gen.temperature = Number(temperature);
   return { setup: {
     model: model.startsWith('models/') ? model : `models/${model}`,
     generationConfig: gen,
     systemInstruction: { parts: [{ text: system + LIVE_NOTE }] },
+    sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
     inputAudioTranscription: {}, outputAudioTranscription: {},
-    tools: [{ functionDeclarations: [EXPRESS_TOOL] }],
+    tools: [{ functionDeclarations: [EXPRESS_TOOL, REMEMBER_TOOL] }],
   } };
 }
 
@@ -128,6 +141,9 @@ export class LiveSession {
     this.emotion = 'neutral';
     this.dropAudio = false;      // tras «interrumpir» desde la interfaz, hasta que acabe ese turno
     this.clientPlaying = false;
+    this.resumeHandle = null;
+    this.goAwayPending = false;
+    this.screenMixedAt = 0;
   }
 
   send(obj) { if (!this.closed) this.sendRaw(JSON.stringify(obj)); }
@@ -140,7 +156,7 @@ export class LiveSession {
     // En vivo es la nube: nunca el bloque +18.
     const past = (this.ctx.summaries ? this.ctx.summaries() : []);
     return `${buildSystemPrompt(p, { userName: prof.name, memories: store.memories(), adult: false, about: prof.about, summaries: past, live: true, vision: true })}`
-      + `\n\n${liveRecap(p, prof.name)}\n\n${turnContext(localTime(), mood.describe(p.personality), mood.sinceLastTalk(store.lastTs()))}`;
+      + `\n\n${liveRecap(p, prof.name)}\n\n${turnContext(localTime(), mood.describe(p.personality, undefined, p.speaks), mood.sinceLastTalk(store.lastTs()))}`;
   }
 
   async ensure() {
@@ -153,16 +169,29 @@ export class LiveSession {
 
   async _connect() {
     const transport = this.ctx.socket();
-    let setupDone;
-    this.ready = new Promise((r) => (setupDone = r));
-    const id = await transport.open((text) => this._onServer(text, setupDone), (err) => this._onClosed(err));
-    const sock = { id, transport };
-    const samp = samplingFor(this.ctx.persona());
-    await transport.send(id, JSON.stringify(buildSetup({ system: this.system(), model: this.ctx.model(),
-      voice: this.ctx.voice(), temperature: samp.temperature })));
-    const ok = await Promise.race([this.ready, new Promise((r) => setTimeout(() => r(false), 15000))]);
-    if (!ok) { transport.close(id); throw new Error('Gemini Live no respondió a la configuración'); }
-    if (this.closed) { transport.close(id); throw new Error('cerrada'); }
+    const attempt = async (handle) => {
+      let setupDone;
+      this.ready = new Promise((r) => (setupDone = r));
+      const id = await transport.open((text) => this._onServer(text, setupDone), (err) => this._onClosed(err));
+      const sock = { id, transport };
+      const samp = samplingFor(this.ctx.persona());
+      await transport.send(id, JSON.stringify(buildSetup({
+        system: this.system(), model: this.ctx.model(),
+        voice: this.ctx.voice(), temperature: samp.temperature, resumeHandle: handle,
+      })));
+      const ok = await Promise.race([this.ready, new Promise((r) => setTimeout(() => r(false), 15000))]);
+      if (!ok) { transport.close(id); throw new Error('Gemini Live no respondió a la configuración'); }
+      return sock;
+    };
+    let sock;
+    try {
+      sock = await attempt(this.resumeHandle);
+    } catch (err) {
+      if (!this.resumeHandle) throw err;
+      this.resumeHandle = null;
+      sock = await attempt(null);
+    }
+    if (this.closed) { transport.close(sock.id); throw new Error('cerrada'); }
     this.sock = sock;
     console.info('En vivo conectado');
     return sock;
@@ -196,6 +225,27 @@ export class LiveSession {
       } else if (kind === 'start') {
         this.setState('thinking');
         await this._raw({ clientContent: { turns: [{ role: 'user', parts: [{ text: GREETING }] }], turnComplete: true } });
+      } else if (kind === 'touch' || kind === 'look') {
+        const zone = String(data.zone || data.kind || '').trim();
+        if (!zone || this.turnOpen) return;
+        const note = kind === 'touch'
+          ? `(El usuario te acaba de dar un toque cariñoso en: ${zone}. Reacciona con brevedad.)`
+          : `(El usuario te está mirando de cerca: ${zone}. Reacciona con brevedad.)`;
+        await this._raw({ clientContent: { turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: true } });
+      } else if (kind === 'game') {
+        const mode = String(data.mode || '').trim();
+        if (!mode || mode === 'stop') return;
+        const rps = ['piedra', 'papel', 'tijera'][Math.floor(Math.random() * 3)];
+        const prompts = {
+          rps: `(El usuario inició Piedra, Papel o Tijera contigo. Cuenta «¡Piedra, papel o tijera!» y revela que elegiste «${rps}».)`,
+          trivia: '(El usuario inició una ronda de Trivia contigo. Hazle una pregunta curiosa con 3 opciones breves.)',
+          twenty: '(El usuario inició 20 preguntas contigo. Piensa en algo en secreto y dile que ya puede preguntar sí o no.)',
+          ispy: '(El usuario inició «Veo, veo» contigo. Di «¡Veo, veo!» dando una pista breve.)',
+        };
+        if (!prompts[mode]) return;
+        if (mode === 'rps') this.send({ type: 'rps', choice: rps });
+        this.setState('thinking');
+        await this._raw({ clientContent: { turns: [{ role: 'user', parts: [{ text: prompts[mode] }] }], turnComplete: true } });
       } else if (kind === 'interrupt') {
         if (this.turnOpen) { this.dropAudio = true; this._endTurn(true); }
         this.clientPlaying = false;
@@ -203,6 +253,7 @@ export class LiveSession {
       } else if (kind === 'frame') {
         // Cámara o pantalla compartida: como mucho una imagen por segundo a Gemini, solo con la conversación abierta.
         if (!['camera', 'screen'].includes(data.source) || typeof data.jpeg !== 'string' || !this.sock) return;
+        if (data.source === 'screen') this.screenMixedAt = Date.now();
         if (Date.now() - (this.frameAt || 0) < 1000) return;
         this.frameAt = Date.now();
         this.sock.transport.send(this.sock.id, JSON.stringify({ realtimeInput: { video: { mimeType: 'image/jpeg', data: data.jpeg } } })).catch(() => {});
@@ -262,26 +313,51 @@ export class LiveSession {
     if (!cut && this.audioBytes) console.info(`En vivo: ${(this.audioBytes / 48000).toFixed(1)} s de voz recibida`);
     this.audioBytes = 0;
     if (this.turnOpen) {
+      const mEmo = mood.pub(this.ctx.persona().personality).emotion || 'neutral';
       this.send({ type: 'sentence_end', id: this.sentenceId });
-      this.send({ type: 'reply_end', text: reply });
+      this.send({ type: 'reply_end', text: reply, mood: mEmo });
     }
     this.turnOpen = false;
     this.inBuf = []; this.outBuf = []; this.emo = '';
+    if (this.goAwayPending && this.sock) {
+      this.goAwayPending = false;
+      const old = this.sock;
+      this.sock = null;
+      old.transport.close(old.id);
+    }
   }
 
   _onServer(text, setupDone) {
     let msg;
     try { msg = JSON.parse(text); } catch { return; }
     if (msg.setupComplete) { setupDone(true); return; }
+    if (msg.sessionResumptionUpdate && msg.sessionResumptionUpdate.resumable && msg.sessionResumptionUpdate.newHandle) {
+      this.resumeHandle = String(msg.sessionResumptionUpdate.newHandle);
+    }
+    if (msg.goAway) {
+      if (!this.turnOpen && this.sock) {
+        const old = this.sock;
+        this.sock = null;
+        old.transport.close(old.id);
+      } else {
+        this.goAwayPending = true;
+      }
+    }
     const tc = msg.toolCall;
     if (tc && Array.isArray(tc.functionCalls)) {
       const answers = [];
+      const isMixed = Date.now() - this.screenMixedAt < 15000;
       for (const fc of tc.functionCalls) {
         const args = fc.args && typeof fc.args === 'object' ? fc.args : {};
-        if (fc.name === 'expresar') this._express(String(args.emocion || ''), String(args.gesto || ''), 'tool');
-        // Respuesta SILENT: no frena la voz ni hace que vuelva a hablar. Otra herramienta: no existe aquí.
-        answers.push({ id: String(fc.id || ''), name: fc.name,
-          response: fc.name === 'expresar' ? { ok: true, scheduling: 'SILENT' } : { ok: false, error: 'no disponible en el teléfono' } });
+        if (fc.name === 'expresar') {
+          this._express(String(args.emocion || ''), String(args.gesto || ''), 'tool');
+          answers.push({ id: String(fc.id || ''), name: fc.name, response: { ok: true, scheduling: 'SILENT' } });
+        } else if (fc.name === 'recordar') {
+          if (!isMixed && args.dato) store.addMemory(String(args.dato));
+          answers.push({ id: String(fc.id || ''), name: fc.name, response: { ok: true, scheduling: 'SILENT' } });
+        } else {
+          answers.push({ id: String(fc.id || ''), name: fc.name, response: { ok: false, error: 'no disponible en el teléfono' } });
+        }
       }
       if (this.sock) this.sock.transport.send(this.sock.id, JSON.stringify({ toolResponse: { functionResponses: answers } })).catch(() => {});
     }

@@ -27,12 +27,13 @@ app.setName('Companion');
 // Lo que main.js pone en la línea de órdenes de Chromium solo vale antes de que la app esté lista, y main.js se
 // carga después (tras instalar): se pone aquí. main.js lo repite sin efecto.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');   // la voz suena sin un clic previo
+for (const s of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) {
+  app.commandLine.appendSwitch(s);
+}
 if (TEST) {
   if (process.env.COMPANION_TEST_REAL_MEDIA !== '1') app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('remote-debugging-port', process.env.COMPANION_TEST_PORT || '9334');
   app.setPath('userData', path.join(app.getPath('temp'), 'companion-pc-prueba'));
-  // macOS da por tapada una ventana fuera de la pantalla y Chromium la dejaba en 2 cuadros por segundo.
-  for (const s of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) app.commandLine.appendSwitch(s);
 }
 if (!TEST && !app.requestSingleInstanceLock()) {
   app.quit();                 // ya hay una abierta: no se abre otra escuchando el mismo micrófono
@@ -61,15 +62,21 @@ function readJson(file) {
 }
 
 function sha256(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').toUpperCase();
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256');
+    const s = fs.createReadStream(file);
+    s.on('data', (chunk) => h.update(chunk));
+    s.on('end', () => resolve(h.digest('hex').toUpperCase()));
+    s.on('error', reject);
+  });
 }
 
-// ---------------------------------------------------------------- 1. el programa (solo lo que cambió)
-function copyProgram() {
+// ---------------------------------------------------------------- 1. el programa (solo lo que cambió, asíncrono)
+async function copyProgram() {
   const next = readJson(path.join(BUNDLE, 'manifest.json'));
   if (!next || !Array.isArray(next.files)) throw new Error('La app no trae manifest.json: no sé qué copiar.');
   if (fs.existsSync(path.join(HOME, '.git'))) throw new Error(`${HOME} es una copia de desarrollo (tiene .git): no la toco.`);
-  fs.mkdirSync(HOME, { recursive: true });
+  await fs.promises.mkdir(HOME, { recursive: true });
   const prev = readJson(path.join(HOME, 'manifest.json'));
   const before = new Map((prev && prev.files || []).map((f) => [f.p, f.h]));
   const now = new Set();
@@ -81,25 +88,28 @@ function copyProgram() {
     if (!dst.startsWith(HOME + path.sep)) continue;                          // nunca fuera de la carpeta
     let same = false;
     try {
-      const st = fs.statSync(dst);
-      same = st.size === f.s && (before.get(f.p) === f.h || sha256(dst) === f.h);
+      const st = await fs.promises.stat(dst);
+      same = st.size === f.s && (before.get(f.p) === f.h || (await sha256(dst)) === f.h);
     } catch { /* no existe */ }
     if (!same) {
-      fs.mkdirSync(path.dirname(dst), { recursive: true });
-      fs.copyFileSync(path.join(BUNDLE, f.p), dst);
-      if (f.p.endsWith('.sh')) fs.chmodSync(dst, 0o755);
+      await fs.promises.mkdir(path.dirname(dst), { recursive: true });
+      await fs.promises.copyFile(path.join(BUNDLE, f.p), dst);
+      if (f.p.endsWith('.sh')) await fs.promises.chmod(dst, 0o755);
       copied += 1;
     }
-    if (n % 200 === 0) send('progreso', Math.round((100 * n) / next.files.length), `Copiando el programa: ${n} de ${next.files.length}`);
+    if (n % 80 === 0) {
+      send('progreso', Math.round((100 * n) / next.files.length), `Copiando el programa: ${n} de ${next.files.length}`);
+      await new Promise((r) => setImmediate(r));
+    }
   }
   let removed = 0;
   for (const p of before.keys()) {                   // lo que instaló la versión anterior y esta ya no trae
     if (now.has(p)) continue;
     const dst = path.join(HOME, p);
     if (!dst.startsWith(HOME + path.sep)) continue;
-    try { fs.unlinkSync(dst); removed += 1; } catch { /* ya no estaba */ }
+    try { await fs.promises.unlink(dst); removed += 1; } catch { /* ya no estaba */ }
   }
-  fs.copyFileSync(path.join(BUNDLE, 'manifest.json'), path.join(HOME, 'manifest.json'));
+  await fs.promises.copyFile(path.join(BUNDLE, 'manifest.json'), path.join(HOME, 'manifest.json'));
   log(`Programa ${next.version}: ${copied} archivos copiados, ${removed} retirados.`);
   return next.version;
 }
@@ -192,7 +202,7 @@ async function start() {
       await showUi();
       send('inicio', version, fs.existsSync(path.join(HOME, '.instalado')));
       send('paso', 'programa');
-      copyProgram();
+      await copyProgram();
       await install(version);
     } else if (!TEST) {
       await showUi();

@@ -15,9 +15,10 @@ pub const GESTURES: &[&str] = &[
 ];
 
 pub const LIVE_PROMPT_NOTE: &str = "\n\n# Modo en vivo (llamada de voz)\n\
-Respondes con tu propia voz en español, en frases naturales y breves como en una llamada, y con TU forma de \
-ser: el tono, el humor, las muletillas y el estilo de tus ejemplos se tienen que notar en cada respuesta. Nada \
-de tono de asistente neutra.\n\
+Respondes con tu propia voz en español y con TU forma de ser (tono, humor y estilo propios; nada de asistente neutra).\n\
+REGLA DE BREVEDAD: por defecto responde en 1 o 2 frases cortas (unos 5 a 10 segundos de voz) y cede la palabra. \
+No te enrolles ni hagas monólogos salvo que el usuario te pida expresamente una explicación larga. Cuando ejecutes \
+una acción, confírmalo en media frase cortísima («Ya te lo pongo», «Voy») y termina tu turno.\n\
 Tu cara y tu cuerpo se mueven con la herramienta `expresar`: llámala al EMPEZAR cada respuesta con la emoción \
 que de verdad sientes ante lo que te dicen (y un gesto si viene a cuento), y otra vez si cambias de emoción. \
 No cambia lo que dices ni hay que esperar su respuesta: sigue hablando.\n\
@@ -34,6 +35,25 @@ fn level_words<'a>(x: f64, low: &'a str, mid: &'a str, high: &'a str) -> &'a str
     } else {
         high
     }
+}
+
+pub fn describe_traits_for(p: &Value, speaks: &str) -> String {
+    let t = p.get("traits").and_then(|v| v.as_object());
+    let g = |k: &str, d: f64| t.and_then(|o| o.get(k)).and_then(|v| v.as_f64()).unwrap_or(d);
+    if speaks == "m" {
+        return [
+            level_words(g("warmth", 0.7), "algo distante", "amable", "muy cálido y cercano"),
+            level_words(g("playfulness", 0.5), "serio", "con sentido del humor", "muy juguetón y bromista"),
+            level_words(g("shyness", 0.2), "seguro de sí mismo", "un poco tímido a veces", "tímido, se sonroja fácil"),
+            level_words(g("sarcasm", 0.2), "nada sarcástico", "con un toque de ironía", "sarcástico (pero nunca cruel)"),
+            level_words(g("curiosity", 0.6), "poco preguntón", "curioso", "muy curioso, pregunta por los detalles"),
+            level_words(g("energy", 0.5), "tranquilo y pausado", "con energía normal", "lleno de energía, muy vivo"),
+            level_words(g("expressiveness", 0.6), "contenido con sus emociones", "expresivo", "muy emotivo: se le nota todo lo que siente"),
+            level_words(g("assertiveness", 0.5), "cede pronto, pero dice lo que piensa con suavidad", "da su opinión sin rodeos cuando viene al caso", "con opiniones firmes: discrepa y discute (con cariño)"),
+        ]
+        .join(", ");
+    }
+    describe_traits(p)
 }
 
 pub fn describe_traits(p: &Value) -> String {
@@ -189,7 +209,8 @@ pub fn build_live_system_prompt(
         .get("formality")
         .and_then(|v| v.as_str())
         .unwrap_or("casual");
-    let traits = describe_traits(personality);
+    let speaks = cfg.speaks();
+    let traits = describe_traits_for(personality, &speaks);
 
     let mut sections = vec![
         format!("# Quién eres\nEres {char_name}, {role} de {user_name} en su PC.\n{desc}\nRasgos: {traits}.\nForma de hablar ({formality}): {speech}"),

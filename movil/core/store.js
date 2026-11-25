@@ -1,12 +1,33 @@
 // Port de companion/store.py (mensajes, recuerdos y resúmenes) y de state.py (ajustes), guardados con kv.
 import { kv } from './platform.js';
 
-let db = { next: 1, messages: [], memories: [], summaries: [] };
+let db = { next: 1, nextMem: 1, messages: [], memories: [], summaries: [] };
 let saveTimer = 0;
 const now = () => Date.now() / 1000;
 
+export const PRIVATE_FACT_RE = /\b(contrase[nñ]a|password|passwd|clave\s+secreta|api[\s_-]?key|token|seed\s*phrase|cvv|pin\s+bancario|iban|dni|pasaporte)\b|\b(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{25,}|gsk_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,})\b|\b(?:\d[ -]*?){13,19}\b/i;
+
+export function isPrivateFact(text) {
+  return PRIVATE_FACT_RE.test(String(text || ''));
+}
+
+function normalizeText(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/\p{Mn}/gu, '').normalize('NFC');
+}
+
+function ensureMemoryIds() {
+  let maxId = Number(db.nextMem || 1) - 1;
+  for (const m of db.memories || []) {
+    if (!m.id) { maxId += 1; m.id = maxId; }
+    else if (m.id > maxId) maxId = m.id;
+    if (typeof m.pinned !== 'boolean') m.pinned = false;
+  }
+  db.nextMem = maxId + 1;
+}
+
 export async function load() {
   db = await kv.get('store', db);
+  ensureMemoryIds();
 }
 
 function save() {
@@ -38,14 +59,89 @@ export function anchor(keep) {
 export const since = (firstId) => db.messages.filter((m) => m.id >= firstId).map((m) => [m.id, m.role, m.text]);
 
 export function addMemory(fact) {
-  fact = fact.trim().replace(/\.+$/, '').trim();
+  fact = String(fact || '').trim().replace(/\.+$/, '').trim();
+  if (!fact || isPrivateFact(fact)) return false;
+  ensureMemoryIds();
   const lower = fact.toLowerCase();
-  if (!fact || db.memories.some((m) => m.fact.replace(/\.+$/, '').toLowerCase() === lower)) return;
-  db.memories.push({ fact, ts: now() });
+  if (db.memories.some((m) => m.fact.replace(/\.+$/, '').toLowerCase() === lower)) return false;
+  const id = db.nextMem++;
+  db.memories.push({ id, fact, ts: now(), pinned: false });
+  if (db.memories.length > 200) {
+    const idx = db.memories.findIndex((m) => !m.pinned);
+    if (idx >= 0) db.memories.splice(idx, 1);
+  }
   save();
+  return true;
 }
 
-export const memories = (limit = 40) => db.memories.slice(-limit).map((m) => m.fact);
+export function updateMemory(id, { content, pinned } = {}) {
+  ensureMemoryIds();
+  const item = db.memories.find((m) => m.id === Number(id));
+  if (!item) return false;
+  if (content !== undefined) {
+    const clean = String(content || '').trim().replace(/\.+$/, '').trim();
+    if (!clean || isPrivateFact(clean)) return false;
+    item.fact = clean;
+  }
+  if (typeof pinned === 'boolean') item.pinned = pinned;
+  save();
+  return true;
+}
+
+export const memories = (limit = 40) => {
+  ensureMemoryIds();
+  const pinned = db.memories.filter((m) => m.pinned).map((m) => m.fact);
+  const restCap = Math.max(0, limit - pinned.length);
+  const unpinned = db.memories.filter((m) => !m.pinned).slice(-restCap).map((m) => m.fact);
+  return [...pinned, ...unpinned];
+};
+
+export function diary(query = '') {
+  ensureMemoryIds();
+  const q = normalizeText(query).trim();
+  const fmt = (ts) => {
+    const d = new Date((ts || 0) * 1000);
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  };
+  const items = db.memories
+    .filter((m) => !q || normalizeText(m.fact).includes(q))
+    .map((m) => ({ id: m.id, content: m.fact, pinned: !!m.pinned, ts: m.ts }))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const sums = db.summaries
+    .slice(-50)
+    .filter((s) => !q || normalizeText(s.text).includes(q))
+    .map((s) => ({ text: s.text, date: fmt(s.ts) }));
+  return { items, diary: sums, can_undo: false };
+}
+
+export function exportMemories() {
+  ensureMemoryIds();
+  return {
+    memories: db.memories.filter((m) => !isPrivateFact(m.fact)).map((m) => ({ content: m.fact, pinned: !!m.pinned, ts: m.ts })),
+    summaries: db.summaries.map((s) => ({ text: s.text, ts: s.ts })),
+  };
+}
+
+export function importMemories(list = [], merge = true) {
+  ensureMemoryIds();
+  if (!merge) db.memories = [];
+  let added = 0;
+  for (const raw of Array.isArray(list) ? list : []) {
+    const content = String((raw && (raw.content || raw.fact)) || '').trim().replace(/\.+$/, '').trim();
+    if (!content || isPrivateFact(content)) continue;
+    const pinned = !!(raw && raw.pinned);
+    const lower = content.toLowerCase();
+    const existing = db.memories.find((m) => m.fact.replace(/\.+$/, '').toLowerCase() === lower);
+    if (existing) {
+      if (pinned) existing.pinned = true;
+      continue;
+    }
+    db.memories.push({ id: db.nextMem++, fact: content, ts: Number(raw.ts) || now(), pinned });
+    added += 1;
+  }
+  save();
+  return added;
+}
 
 export function unsummarized(beforeId, limit = 40) {
   const last = db.summaries.reduce((a, s) => Math.max(a, s.last_id), 0);
@@ -94,7 +190,7 @@ export function deleteMemory(fact) {
 }
 
 export function forgetAll() {
-  db = { next: db.next, messages: [], memories: [], summaries: [] };
+  db = { next: db.next, nextMem: 1, messages: [], memories: [], summaries: [] };
   save();
 }
 

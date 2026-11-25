@@ -7,8 +7,10 @@ Los modelos (~380 MB entre los cinco) se descargan a models/piper desde huggingf
 cuando el usuario elige la voz ligera.
 """
 import asyncio
+from collections import OrderedDict
 import json
 import logging
+import threading
 from typing import AsyncIterator
 
 import httpx
@@ -29,7 +31,8 @@ PATHS = {                                 # modelo → carpeta en el repositorio
 }
 SIZE_MB = sum(mb for _, mb in PATHS.values())
 progress: dict = {}                       # {"status", "percent", "error"} mientras se descargan
-_voices: dict = {}                        # modelo → PiperVoice ya cargado
+_voices: OrderedDict = OrderedDict()      # modelo → PiperVoice ya cargado (LRU máx 2 en RAM)
+_synth_lock = threading.Lock()
 _specs: tuple = (0, {})
 
 
@@ -91,20 +94,25 @@ async def install():
 def _synth(text: str, spec: dict, speed: float) -> bytes:
     from piper import PiperVoice, SynthesisConfig
     model = spec["model"]
-    if model not in _voices:
-        _voices[model] = PiperVoice.load(DIR / f"{model}.onnx")
-    pitch = float(spec.get("pitch", 1.0))
-    # Cambio de tono: se sintetiza `pitch` veces más lento y se reproduce `pitch` veces más rápido.
-    cfg = SynthesisConfig(speaker_id=spec.get("speaker"), length_scale=pitch / (float(spec.get("speed", 1.0)) * speed))
-    parts, sr = [], SAMPLE_RATE
-    for chunk in _voices[model].synthesize(text, syn_config=cfg):
-        parts.append(chunk.audio_int16_array.astype(np.float32))
-        sr = chunk.sample_rate
-        parts.append(np.zeros(int(sr * 0.12 * pitch), dtype=np.float32))
+    with _synth_lock:
+        if model in _voices:
+            _voices.move_to_end(model)
+        else:
+            while len(_voices) >= 2:
+                _voices.popitem(last=False)
+            _voices[model] = PiperVoice.load(DIR / f"{model}.onnx")
+        voice_obj = _voices[model]
+        pitch = float(spec.get("pitch", 1.0))
+        cfg = SynthesisConfig(speaker_id=spec.get("speaker"), length_scale=pitch / (float(spec.get("speed", 1.0)) * speed))
+        parts, sr = [], SAMPLE_RATE
+        for chunk in voice_obj.synthesize(text, syn_config=cfg):
+            parts.append(chunk.audio_int16_array.astype(np.float32))
+            sr = chunk.sample_rate
+            parts.append(np.zeros(int(sr * 0.12 * pitch), dtype=np.float32))
     if not parts:
         return b""
     x = np.concatenate(parts[:-1])
-    n = int(len(x) / pitch * SAMPLE_RATE / sr)
+    n = max(1, int(len(x) / pitch * SAMPLE_RATE / sr))
     y = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x)
     return np.clip(y, -32768, 32767).astype(np.int16).tobytes()
 

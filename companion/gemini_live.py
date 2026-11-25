@@ -46,16 +46,20 @@ from .prompt import EMOTIONS, GESTURES  # noqa: E402
 # Live la personalidad y las emociones se ignoran»).
 LIVE_PROMPT_NOTE = (
     "\n\n# Modo en vivo (llamada de voz)\n"
-    "Respondes con tu propia voz en español, en frases naturales y breves como en una llamada, y con TU forma de "
-    "ser: el tono, el humor, las muletillas y el estilo de tus ejemplos se tienen que notar en cada respuesta. Nada "
-    "de tono de asistente neutra.\n"
+    "Respondes con tu propia voz en español, con TU forma de ser (tono, humor y estilo propios; nada de asistente neutra).\n"
+    "REGLA DE BREVEDAD: por defecto responde en 1 o 2 frases cortas (unos 5 a 10 segundos de voz) y cede la palabra. "
+    "No te enrolles, no hagas monólogos ni repitas ideas salvo que el usuario te pida expresamente una explicación larga. "
+    "Cuando ejecutes una acción en su PC, confírmalo en media frase cortísima («Dale, ya te lo pongo», «Voy») y cállate.\n"
     "Tu cara y tu cuerpo se mueven con la herramienta `expresar`: llámala al EMPEZAR cada respuesta con la emoción "
     "que de verdad sientes ante lo que te dicen (y un gesto si viene a cuento), y otra vez si cambias de emoción. "
     "No cambia lo que dices ni hay que esperar su respuesta: sigue hablando.\n"
     "Nunca digas en voz alta etiquetas entre corchetes ([emo:…], [gesto:…], [accion:…]) ni el nombre de una herramienta.\n"
-    "Cuando el usuario te pida abrir una aplicación, poner una canción en Apple Music/Spotify, abrir una web "
-    "o carpeta, buscar un archivo, poner un temporizador o cambiar música/volumen, llama a la herramienta "
-    "`ejecutar_accion` con la acción correspondiente."
+    "Cuando el usuario te pida abrir una aplicación, poner una canción o un álbum en Apple Music/Spotify, abrir una web "
+    "o carpeta, buscar un archivo, poner un temporizador o cambiar música/volumen, llama SIEMPRE a `ejecutar_accion`.\n"
+    "IMPORTANTE: si te pide abrir una aplicación Y ADEMÁS hacer algo dentro de ella (por ejemplo «abre Apple Music y "
+    "reproduce el álbum X», «abre Spotify y pon…» o «abre Word y escribe…»), NO llames solo a `abrir_app`: llama "
+    "directamente a `ejecutar_accion` con `accion='controlar'`, `arg1='Apple Music'` y `arg2='reproducir el álbum X'` "
+    "(el sistema ya abre la aplicación automáticamente si estaba cerrada)."
 )
 
 EXPRESS_TOOL = {
@@ -87,7 +91,7 @@ def live_recap(p: dict, user_name: str) -> str:
         lines.append(f"Tus muletillas (de vez en cuando): {', '.join(s['catchphrases'])}.")
     if q.get("examples"):
         lines.append("Suenas así: " + " · ".join(f"«{x}»" for x in q["examples"][:4]))
-    lines.append(f"Hablas con {user_name}: reacciona a lo que siente y a cómo te habla, como lo harías tú.")
+    lines.append(f"Hablas con {user_name}: reacciona a lo que siente y a cómo te habla, como lo harías tú, en 1 o 2 frases cortas por turno.")
     return "\n".join(lines)
 
 
@@ -128,27 +132,35 @@ ACTION_TOOLS = [{
         "properties": {
             "accion": {
                 "type": "STRING",
+                "enum": [
+                    "abrir_app", "controlar", "abrir_web", "abrir_carpeta", "buscar_archivo",
+                    "temporizador", "recordatorio", "portapapeles", "multimedia", "volumen", "enfoque", "mcp",
+                ],
                 "description": (
-                    "Tipo de acción: 'abrir_app', 'controlar' (para manejar una app como reproducir una canción en "
-                    "Apple Music o Spotify o escribir en Word), 'abrir_web', 'abrir_carpeta', 'buscar_archivo', "
-                    "'temporizador', 'recordatorio' (con fecha/hora persistente), 'portapapeles' (leer lo copiado), "
-                    "'multimedia' o 'volumen'."
+                    "Tipo de acción: 'controlar' (úsala siempre que haya que hacer algo DENTRO de una app, como reproducir "
+                    "una canción o álbum específico en Apple Music o Spotify o escribir en Word, incluso si el usuario dice "
+                    "«abre Apple Music y reproduce…» porque `controlar` la abre sola si está cerrada), 'abrir_app' (solo "
+                    "abrirla sin hacer nada más dentro), 'abrir_web', 'abrir_carpeta', 'buscar_archivo', 'temporizador', "
+                    "'recordatorio' (con fecha/hora persistente, o 'listar'/'borrar'), 'portapapeles' (arg1='leer'), "
+                    "'multimedia', 'volumen', 'enfoque' (Pomodoro) o 'mcp' (herramienta MCP local)."
                 ),
             },
             "arg1": {
                 "type": "STRING",
                 "description": (
-                    "Argumento principal: nombre de la app (ej. 'Apple Music', 'Spotify'), URL o búsqueda, "
-                    "carpeta, nombre de archivo, duración ('10m'), fecha/hora del recordatorio ('mañana a las 9', "
-                    "'hoy a las 18:30', 'en 2 horas'), 'leer' para portapapeles, multimedia ('pausa'|'siguiente'|'anterior') "
-                    "o volumen ('subir'|'bajar'|'silenciar'|'50%')."
+                    "Argumento principal obligatorio: nombre de la app (ej. 'Apple Music', 'Spotify'), URL o búsqueda, "
+                    "carpeta, nombre de archivo, duración ('10m' o '25m' en enfoque), fecha/hora del recordatorio "
+                    "('mañana a las 9', 'hoy a las 18:30', 'en 2 horas', 'listar', 'borrar'), 'leer' para portapapeles, "
+                    "multimedia ('pausa'|'siguiente'|'anterior'), volumen ('subir'|'bajar'|'silenciar'|'50%') o "
+                    "'server_id:tool_name' para 'mcp'."
                 ),
             },
             "arg2": {
                 "type": "STRING",
                 "description": (
-                    "Opcional. Para 'controlar': lo que debe hacer en esa app (ej. 'reproduce La Barca de Luis Miguel'). "
-                    "Para 'temporizador' o 'recordatorio': texto o etiqueta (ej. 'llamar al banco')."
+                    "Para 'controlar' (obligatorio en controlar): qué hacer dentro de esa app (ej. 'reproducir el álbum "
+                    "Random Access Memories'). Para 'temporizador', 'recordatorio' o 'enfoque': texto o etiqueta. "
+                    "Para 'mcp': objeto JSON con los argumentos."
                 ),
             },
         },
@@ -267,18 +279,25 @@ class GeminiLiveClient:
     async def connect(self, timeout: float = 15.0):
         if not self.api_key:
             raise GeminiLiveError("Falta la clave de API de Gemini para usar Gemini Live.")
-        url = f"{WS_ENDPOINT}?key={self.api_key}"
+        headers = {"x-goog-api-key": self.api_key}
         try:
-            self.ws = await asyncio.wait_for(
-                self._ws_connect(url, max_size=None, ping_interval=20, ping_timeout=20),
-                timeout=timeout,
-            )
+            try:
+                self.ws = await asyncio.wait_for(
+                    self._ws_connect(WS_ENDPOINT, additional_headers=headers, max_size=None, ping_interval=20, ping_timeout=20),
+                    timeout=timeout,
+                )
+            except TypeError:
+                self.ws = await asyncio.wait_for(
+                    self._ws_connect(WS_ENDPOINT, extra_headers=headers, max_size=None, ping_interval=20, ping_timeout=20),
+                    timeout=timeout,
+                )
             await self.ws.send(json.dumps(self.build_setup(), ensure_ascii=False))
             raw = await asyncio.wait_for(self.ws.recv(), timeout=timeout)
             msg = json.loads(raw)
         except Exception as e:  # noqa: BLE001
             await self.close()
-            raise GeminiLiveError(f"No se pudo conectar a Gemini Live ({type(e).__name__}: {e})") from e
+            safe_err = str(e).replace(self.api_key, "***") if self.api_key else str(e)
+            raise GeminiLiveError(f"No se pudo conectar a Gemini Live ({type(e).__name__}: {safe_err})") from None
 
         if "setupComplete" not in msg:
             await self.close()

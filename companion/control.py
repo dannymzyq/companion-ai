@@ -43,6 +43,7 @@ SHOT_WIDTH = 1280                          # la captura se reduce a este ancho c
 
 if os.name == "nt":
     user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    kernel32.GetTickCount.restype = wt.DWORD
     try:                                   # coordenadas en píxeles reales también con el escalado de Windows
         user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     except Exception:  # noqa: BLE001
@@ -183,7 +184,8 @@ def find_window(query: str) -> Window:
     if only:
         found = [w for w in found if only.lower() in w.title.lower()]
     alias = {"word": "winword", "excel": "excel", "powerpoint": "powerpnt", "bloc de notas": "notepad", "notas": "notepad",
-             "chrome": "chrome", "edge": "msedge", "paint": "mspaint", "explorador": "explorer", "spotify": "spotify"}
+             "chrome": "chrome", "edge": "msedge", "paint": "mspaint", "explorador": "explorer", "spotify": "spotify",
+             "apple music": "applemusic", "itunes": "applemusic"}
     proc = alias.get(q, q)
     for test in (lambda w: _plain(w.process) == proc, lambda w: _plain(w.title) == q,
                  lambda w: proc in _plain(w.process), lambda w: q in _plain(w.title),
@@ -262,9 +264,14 @@ def _snapshot(auto, hwnd: int) -> tuple[list[Item], list[str]]:
                 if name and len(texts) < MAX_TEXTS and name not in texts:
                     texts.append(name)
                 continue
-            if kind not in KINDS or not c.IsEnabled:
+            mapped = KINDS.get(kind)
+            if mapped is None and kind in ("GroupControl", "CustomControl") and name and c.IsEnabled:
+                # Tarjetas de álbum/canción/navegación en apps WinUI 3 (Apple Music) o Electron (Spotify)
+                if c.GetPattern(auto.PatternId.InvokePattern) or c.GetPattern(auto.PatternId.SelectionItemPattern):
+                    mapped = "elemento"
+            if mapped is None or not c.IsEnabled:
                 continue
-            item = Item(0, KINDS[kind], name, control=c)
+            item = Item(0, mapped, name, control=c)
             if item.kind in INPUTS:
                 if len(inputs) >= MAX_INPUTS:
                     continue
@@ -549,15 +556,15 @@ class _LASTINPUTINFO(ctypes.Structure):
 
 def _mark():
     global _injected_at
-    _injected_at = kernel32.GetTickCount()
+    _injected_at = kernel32.GetTickCount() & 0xFFFFFFFF
 
 
 def user_idle_ms() -> int:
     """Cuánto hace que tocaste el ratón o el teclado (las teclas y clics del propio companion no cuentan)."""
     li = _LASTINPUTINFO(ctypes.sizeof(_LASTINPUTINFO))
     user32.GetLastInputInfo(ctypes.byref(li))
-    now = kernel32.GetTickCount()
-    if _injected_at and li.dwTime <= _injected_at + 500:
+    now = kernel32.GetTickCount() & 0xFFFFFFFF
+    if _injected_at and ((li.dwTime - _injected_at) & 0xFFFFFFFF) <= 500:
         return 10 ** 9                         # lo último fue del companion: tú no has tocado nada desde entonces
     return (now - li.dwTime) & 0xFFFFFFFF
 
@@ -567,7 +574,13 @@ def busy_reason(hwnd: int) -> str:
     fg = user32.GetForegroundWindow()
     if fg != hwnd and fullscreen(fg):
         return "tienes algo a pantalla completa delante (¿un juego?)"
-    if user_idle_ms() < IDLE_MS:
+    own_fg = False
+    try:
+        from . import desktop_scene
+        own_fg = bool(fg and desktop_scene._is_own(fg))
+    except Exception:  # noqa: BLE001
+        pass
+    if user_idle_ms() < (1200 if own_fg else IDLE_MS):
         return "estás usando el teclado o el ratón"
     return ""
 
@@ -726,6 +739,10 @@ def _type(auto, item: Item, text: str, hwnd: int, attempt: int) -> str:
     c = item.control
     vp = c.GetPattern(auto.PatternId.ValuePattern)
     if (attempt == 0 and not FORCE() and vp and not vp.IsReadOnly and item.kind != "documento" and "\n" not in text):
+        try:
+            c.SetFocus()
+        except Exception:  # noqa: BLE001
+            pass
         vp.SetValue(text)
         return "por accesibilidad"
     readable = bool(c.GetPattern(auto.PatternId.TextPattern) or vp)
@@ -858,11 +875,12 @@ def name_at(shot: Shot, x: int, y: int) -> str:
 
 # ---------------------------------------------------------------- parar con Esc
 class EscWatch:
-    """Mientras dura una tarea, pulsar Esc (de verdad, no el que manda el propio companion) la para."""
-    def __init__(self):
+    """Mientras dura una tarea, pulsar Esc (de verdad, y con nuestra ventana o la controlada al frente) la para."""
+    def __init__(self, target_hwnd: int = 0):
         self.stop = threading.Event()
         self.pressed = False
         self.sending = False                  # el companion está mandando teclas: su propio Esc no cuenta
+        self.target_hwnd = int(target_hwnd or 0)
 
     def __enter__(self):
         user32.GetAsyncKeyState(0x1B)         # descarta una pulsación vieja
@@ -872,9 +890,21 @@ class EscWatch:
     def __exit__(self, *_):
         self.stop.set()
 
+    def _relevant_focus(self) -> bool:
+        if not self.target_hwnd:
+            return True
+        fg = user32.GetForegroundWindow()
+        if not fg or fg == self.target_hwnd or self.target_hwnd in _fronted:
+            return True
+        try:
+            from . import desktop_scene
+            return desktop_scene._is_own(fg)
+        except Exception:  # noqa: BLE001
+            return True
+
     def _loop(self):
         while not self.stop.is_set():
-            if not self.sending and user32.GetAsyncKeyState(0x1B) & 0x8000:
+            if not self.sending and (user32.GetAsyncKeyState(0x1B) & 0x8000) and self._relevant_focus():
                 self.pressed = True
             time.sleep(0.05)
 

@@ -36,10 +36,40 @@ def _load() -> tuple[list[tuple[re.Pattern, str]], bool]:
 
 _QU = re.compile(r"qu(?=[eéiíEÉIÍ])")
 _QU_UP = re.compile(r"Qu(?=[eéiíEÉIÍ])|QU(?=[EÉIÍ])")
+_TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
+_PCT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
+_UNITS = [
+    (re.compile(r"(?<=\d)\s*GB\b"), " gigas"),
+    (re.compile(r"(?<=\d)\s*MB\b"), " megas"),
+    (re.compile(r"(?<=\d)\s*kHz\b", re.I), " kilohercios"),
+    (re.compile(r"(?<=\d)\s*fps\b", re.I), " fotogramas por segundo"),
+]
+_ACRONYMS = [
+    (re.compile(r"\bPC\b"), "pecé"),
+    (re.compile(r"\bPDF\b"), "pe de efe"),
+    (re.compile(r"\bUSB\b"), "u ese be"),
+    (re.compile(r"\bGPU\b"), "ge pe u"),
+    (re.compile(r"\bCPU\b"), "ce pe u"),
+]
+
+
+def _say_hour(m: re.Match) -> str:
+    hh, mm = int(m.group(1)), int(m.group(2))
+    if mm == 0:
+        return f"{hh} en punto"
+    if mm == 30:
+        return f"{hh} y media"
+    return f"{hh} {mm:02d}" if mm >= 10 else f"{hh} cero {mm}"
 
 
 def for_voice(text: str) -> str:
     """El texto tal como debe sonar."""
+    text = _TIME_RE.sub(_say_hour, text)
+    text = _PCT_RE.sub(r"\1 por ciento", text)
+    for rx, rep in _UNITS:
+        text = rx.sub(rep, text)
+    for rx, rep in _ACRONYMS:
+        text = rx.sub(rep, text)
     rules, qu = _load()
     for rx, said in rules:
         text = rx.sub(said, text)

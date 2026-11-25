@@ -25,6 +25,7 @@ const ORIGIN = new URL(URL_BASE).origin;
 // Icono de las ventanas y de la barra de tareas (scripts/instalacion/crear_icono.py). En Windows, el mismo AppUserModelID que
 // lleva el acceso directo (instalar.ps1): así la ventana se agrupa con él y anclarla ancla el companion, no Electron.
 const ICON = path.join(__dirname, process.platform === 'win32' ? 'icono.ico' : 'icono.png');
+const ICON_PNG = path.join(__dirname, 'icono.png');
 const APP_ID = 'Companion.Desktop';
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 const TEST = process.env.COMPANION_TEST === '1';
@@ -63,44 +64,106 @@ let audioNext = 0;           // la próxima petición de pantalla es solo para e
 let retryVideoNext = 0;      // si video+loopback falla (p. ej. Discord capturando), reintento solo vídeo sin reabrir el selector
 let lastShare = null;         // {id, kind: 'screen' | 'window', name, audio} de lo último que se compartió
 let tray = null;
+let rebuildTrayMenu = null;
 let quitting = false;
 const desktopPrefsFile = () => path.join(app.getPath('userData'), 'escritorio.json');
+const DEFAULT_SHORTCUTS = {
+  mute: 'CommandOrControl+Shift+M',
+  float: 'CommandOrControl+Shift+F',
+  stop: 'CommandOrControl+Shift+S',
+};
+function loginItemOpts(openAtLogin) {
+  const opts = {};
+  if (openAtLogin !== undefined) opts.openAtLogin = !!openAtLogin;
+  if (process.platform === 'win32' && !app.isPackaged) {
+    opts.path = 'powershell.exe';
+    opts.args = ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', path.resolve(__dirname, '..', 'iniciar.ps1')];
+  }
+  return opts;
+}
+function sanitizeShortcut(val, fallback) {
+  const s = typeof val === 'string' ? val.trim().slice(0, 48) : '';
+  return /^[A-Za-z0-9+]+$/.test(s) ? s : fallback;
+}
 function loadDesktopPrefs() {
-  const def = { shortcuts: true, trayOnClose: false, openAtLogin: false };
+  const def = { shortcuts: true, trayOnClose: false, openAtLogin: false, customShortcuts: { ...DEFAULT_SHORTCUTS } };
   try {
     const raw = JSON.parse(fs.readFileSync(desktopPrefsFile(), 'utf8'));
+    const cs = raw.customShortcuts && typeof raw.customShortcuts === 'object' ? raw.customShortcuts : {};
     return {
       shortcuts: raw.shortcuts !== false,
       trayOnClose: raw.trayOnClose === true,
-      openAtLogin: app.getLoginItemSettings ? app.getLoginItemSettings().openAtLogin : !!raw.openAtLogin,
+      openAtLogin: app.getLoginItemSettings ? app.getLoginItemSettings(loginItemOpts()).openAtLogin : !!raw.openAtLogin,
+      customShortcuts: {
+        mute: sanitizeShortcut(cs.mute, DEFAULT_SHORTCUTS.mute),
+        float: sanitizeShortcut(cs.float, DEFAULT_SHORTCUTS.float),
+        stop: sanitizeShortcut(cs.stop, DEFAULT_SHORTCUTS.stop),
+      },
     };
   } catch {
-    try { def.openAtLogin = app.getLoginItemSettings ? app.getLoginItemSettings().openAtLogin : false; } catch { /* noop */ }
+    try { def.openAtLogin = app.getLoginItemSettings ? app.getLoginItemSettings(loginItemOpts()).openAtLogin : false; } catch { /* noop */ }
     return def;
   }
 }
 function saveDesktopPrefs(patch) {
-  const cur = { ...loadDesktopPrefs(), ...(patch || {}) };
+  const cur = loadDesktopPrefs();
+  if (patch && typeof patch === 'object') {
+    if ('shortcuts' in patch) cur.shortcuts = !!patch.shortcuts;
+    if ('trayOnClose' in patch) cur.trayOnClose = !!patch.trayOnClose;
+    if ('openAtLogin' in patch) cur.openAtLogin = !!patch.openAtLogin;
+    if (patch.customShortcuts && typeof patch.customShortcuts === 'object') {
+      cur.customShortcuts = {
+        mute: sanitizeShortcut(patch.customShortcuts.mute, cur.customShortcuts.mute),
+        float: sanitizeShortcut(patch.customShortcuts.float, cur.customShortcuts.float),
+        stop: sanitizeShortcut(patch.customShortcuts.stop, cur.customShortcuts.stop),
+      };
+    }
+  }
   try { fs.writeFileSync(desktopPrefsFile(), JSON.stringify(cur)); } catch { /* noop */ }
   if (patch && 'openAtLogin' in patch && app.setLoginItemSettings && !TEST) {
-    try { app.setLoginItemSettings({ openAtLogin: !!cur.openAtLogin }); } catch { /* noop */ }
+    try { app.setLoginItemSettings(loginItemOpts(cur.openAtLogin)); } catch { /* noop */ }
   }
-  if (patch && 'shortcuts' in patch) applyGlobalShortcuts(cur.shortcuts);
-  return cur;
+  let failedShortcuts = [];
+  if (patch && ('shortcuts' in patch || 'customShortcuts' in patch)) {
+    const res = applyGlobalShortcuts(cur.shortcuts, cur.customShortcuts);
+    if (res && Array.isArray(res.failed)) failedShortcuts = res.failed;
+  }
+  return { ...cur, failedShortcuts };
 }
 function sendShortcut(action) {
   if (view && !view.webContents.isDestroyed()) {
     view.webContents.send('companion:shortcut', action);
   }
 }
-function applyGlobalShortcuts(on) {
-  if (TEST) return;
+function applyGlobalShortcuts(on, custom = null) {
+  if (TEST) return { failed: [] };
   try { globalShortcut.unregisterAll(); } catch { /* noop */ }
-  if (!on) return;
-  const reg = (accel, fn) => { try { globalShortcut.register(accel, fn); } catch { /* ocupado por otra app */ } };
-  reg('CommandOrControl+Shift+M', () => sendShortcut('mute'));
-  reg('CommandOrControl+Shift+F', () => { if (win && !win.isDestroyed()) open(mode === 'float' ? 'window' : 'float'); });
-  reg('CommandOrControl+Shift+S', () => sendShortcut('stop'));
+  if (!on) return { failed: [] };
+  const sc = custom || loadDesktopPrefs().customShortcuts || DEFAULT_SHORTCUTS;
+  const failed = [];
+  const reg = (accel, fn) => {
+    if (!accel) return;
+    try {
+      if (!globalShortcut.register(accel, fn)) failed.push(accel);
+    } catch {
+      failed.push(accel);
+    }
+  };
+  reg(sc.mute || DEFAULT_SHORTCUTS.mute, () => sendShortcut('mute'));
+  reg(sc.float || DEFAULT_SHORTCUTS.float, () => { if (win && !win.isDestroyed()) open(mode === 'float' ? 'window' : 'float'); });
+  reg(sc.stop || DEFAULT_SHORTCUTS.stop, () => sendShortcut('stop'));
+  if (failed.length) winLog('AVISO', 'Atajos globales no registrados:', failed.join(', '));
+  return { failed };
+}
+function bringToCurrentDisplay() {
+  if (!win || win.isDestroyed()) { open('window'); return; }
+  const cur = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const b = win.getBounds();
+  const x = Math.round(cur.x + (cur.width - b.width) / 2);
+  const y = mode === 'float' ? cur.y + cur.height - b.height - 12 : Math.round(cur.y + (cur.height - b.height) / 2);
+  win.setBounds({ x, y, width: b.width, height: b.height });
+  win.show();
+  win.focus();
 }
 function createTray() {
   if (TEST || tray) return;
@@ -110,20 +173,21 @@ function createTray() {
     tray.setToolTip('Companion');
     const toggleShow = () => {
       if (!win || win.isDestroyed()) { open('window'); return; }
-      if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
+      if (win.isVisible()) win.hide(); else { ensureVisibleBounds(win); win.show(); win.focus(); }
     };
     tray.on('click', toggleShow);
-    const rebuildMenu = () => Menu.buildFromTemplate([
+    rebuildTrayMenu = () => Menu.buildFromTemplate([
       { label: 'Mostrar / ocultar', click: toggleShow },
-      { label: mode === 'float' ? 'Volver a ventana normal' : 'Modo flotante (Ctrl+Shift+F)', click: () => open(mode === 'float' ? 'window' : 'float') },
+      { label: 'Traer a esta pantalla', click: bringToCurrentDisplay },
+      { label: mode === 'float' ? 'Volver a ventana normal' : 'Modo flotante', click: () => open(mode === 'float' ? 'window' : 'float') },
       { type: 'separator' },
-      { label: 'Silenciar / activar micrófono (Ctrl+Shift+M)', click: () => sendShortcut('mute') },
-      { label: 'Callar / interrumpir (Ctrl+Shift+S)', click: () => sendShortcut('stop') },
+      { label: 'Silenciar / activar micrófono', click: () => sendShortcut('mute') },
+      { label: 'Callar / interrumpir', click: () => sendShortcut('stop') },
       { type: 'separator' },
       { label: 'Salir de Companion', click: () => { quitting = true; app.quit(); } },
     ]);
-    tray.setContextMenu(rebuildMenu());
-    tray.on('right-click', () => { if (tray) tray.setContextMenu(rebuildMenu()); });
+    tray.setContextMenu(rebuildTrayMenu());
+    tray.on('right-click', () => { if (tray && rebuildTrayMenu) tray.setContextMenu(rebuildTrayMenu()); });
   } catch (err) {
     console.warn('No pude crear el icono en la bandeja:', err.message);
   }
@@ -213,14 +277,16 @@ async function boot(w, target) {              // w: el webContents de la página
   const say = (title, text, failure = '') => {
     if (!w.isDestroyed()) w.executeJavaScript(`setEstado(${JSON.stringify(title)}, ${JSON.stringify(text)}, ${JSON.stringify(failure)})`).catch(() => {});
   };
-  w.on('page-title-updated', (e, title) => {
+  const onBootTitle = (_e, title) => {
     if (title === 'companion:registro') shell.openPath(path.join(ROOT_DIR, 'data', 'companion.log'));
     if (title === 'companion:cerrar') app.quit();
-  });
+  };
+  w.on('page-title-updated', onBootTitle);
   while (!w.isDestroyed()) {
     if (await serverUp()) {
       serverReady = true;
       registerOwner();
+      w.removeListener('page-title-updated', onBootTitle);
       if (!w.isDestroyed()) w.loadURL(target);
       return;
     }
@@ -242,10 +308,15 @@ function makeView() {
   if (TEST) wc.setAudioMuted(true);
   // Enlaces externos: en el navegador del sistema, nunca dentro de la ventana del companion.
   wc.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url) && new URL(url).origin !== ORIGIN) shell.openExternal(url);
+    try {
+      if (/^https?:/.test(url) && new URL(url).origin !== ORIGIN) shell.openExternal(url);
+    } catch { /* URL inválida */ }
     return { action: 'deny' };
   });
-  wc.on('will-navigate', (e, url) => { if (new URL(url).origin !== ORIGIN) e.preventDefault(); });
+  wc.on('will-navigate', (e, url) => {
+    try { if (new URL(url).origin !== ORIGIN) e.preventDefault(); }
+    catch { e.preventDefault(); }
+  });
   wc.on('console-message', (e, lvl, msg, line, src) => {
     const level = e.level ?? (['debug', 'info', 'warning', 'error'][lvl] || lvl);
     if (level !== 'error' && level !== 'warning') return;
@@ -259,6 +330,25 @@ function makeView() {
     if (win && !win.isDestroyed()) win.setTitle(title);
   });
   return v;
+}
+
+function ensureVisibleBounds(w) {
+  if (TEST || !w || w.isDestroyed()) return;
+  const b = w.getBounds();
+  const displays = screen.getAllDisplays();
+  const visible = displays.some((d) => {
+    const r = d.workArea;
+    return b.x + b.width > r.x + 40 && b.x < r.x + r.width - 40 && b.y + b.height > r.y + 40 && b.y < r.y + r.height - 40;
+  });
+  if (!visible) {
+    const area = screen.getPrimaryDisplay().workArea;
+    w.setBounds({
+      x: Math.round(area.x + (area.width - b.width) / 2),
+      y: Math.round(area.y + (area.height - b.height) / 2),
+      width: b.width,
+      height: b.height,
+    });
+  }
 }
 
 function fit(w) {
@@ -290,6 +380,7 @@ function createFloat() {
   });
   w.setAlwaysOnTop(true, 'screen-saver');           // por encima también de las ventanas a pantalla completa sin borde
   w.setVisibleOnAllWorkspaces(true);
+  ensureVisibleBounds(w);
   w.on('moved', () => { if (!TEST) floatBounds = w.getBounds(); });
   w.on('resize', () => fit(w));
   return w;
@@ -336,6 +427,7 @@ function open(next) {
   if (!TEST) wc.focus();
   if (!pet) pet = petModule.create({ screen, getWin: () => win, getView: () => view, getMode: () => mode, urlBase: URL_BASE, test: TEST });
   if (mode === 'float') pet.start(); else pet.stop();
+  if (tray && rebuildTrayMenu) tray.setContextMenu(rebuildTrayMenu());
 }
 
 const fromOurPage = (e) => {
@@ -402,15 +494,15 @@ ipcMain.on('companion:resize', (e, step) => {
 // Lista pantallas y ventanas (sin las del propio companion) y deja elegir una en una ventana aparte, que
 // sirve igual en modo normal y en modo flotante. Devuelve {id, name, kind, audio} o null si se cancela.
 // `audio`: ofrecer el interruptor «Escuchar también el sonido».
-async function pickSource(audio) {
-  if (picker && !picker.isDestroyed()) picker.destroy();        // una petición anterior sin responder
+async function listCaptureSources() {
   const found = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 400, height: 250 } });
   const mine = win && !win.isDestroyed() ? win.getMediaSourceId() : '';
+  const picId = picker && !picker.isDestroyed() ? picker.getMediaSourceId() : '';
   const displays = screen.getAllDisplays();
   const cursor = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const list = [];
   for (const s of found) {
-    if (s.id === mine) continue;
+    if (s.id === mine || (picId && s.id === picId)) continue;
     if (s.id.startsWith('screen:')) {
       const n = displays.findIndex((d) => String(d.id) === s.display_id);
       const d = displays[n];
@@ -419,9 +511,15 @@ async function pickSource(audio) {
       if (displays.length > 1 && d && d.id === cursor.id) name += ' · aquí está el cursor';
       list.push({ id: s.id, kind: 'screen', name, thumbnail: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL() });
     } else if (s.name.trim()) {
-      list.push({ id: s.id, kind: 'window', name: s.name.trim().slice(0, 120), thumbnail: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL() });
+      list.push({ id: s.id, kind: s.id.startsWith('window:') ? 'window' : 'screen', name: s.name.trim().slice(0, 120), thumbnail: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL() });
     }
   }
+  return { list, cursor };
+}
+
+async function pickSource(audio) {
+  if (picker && !picker.isDestroyed()) picker.destroy();        // una petición anterior sin responder
+  const { list, cursor } = await listCaptureSources();
 
   const area = cursor.workArea;
   const width = Math.min(820, area.width - 40), height = Math.min(640, area.height - 40);
@@ -442,18 +540,12 @@ async function pickSource(audio) {
   return new Promise((resolve) => {
     pickerDone = (id, withAudio) => {
       pickerDone = null;
-      const s = list.find((x) => x.id === id);
+      const s = pickerSources.find((x) => x.id === id);
       if (s && pickerOptions.audio) saveShareAudioPref(withAudio);
       resolve(s ? { ...s, audio: !!(withAudio && pickerOptions.audio) } : null);
       if (!w.isDestroyed()) w.destroy();
     };
-    w.on('close', (e) => {
-    if (!TEST && !quitting && win === w && tray && loadDesktopPrefs().trayOnClose) {
-      e.preventDefault();
-      w.hide();
-    }
-  });
-  w.on('closed', () => {
+    w.on('closed', () => {
       if (picker === w) { picker = null; pickerSources = []; }
       if (pickerDone) { pickerDone = null; resolve(null); }
     });
@@ -462,6 +554,12 @@ async function pickSource(audio) {
 
 const fromPicker = (e) => picker && !picker.isDestroyed() && e.sender === picker.webContents;
 ipcMain.handle('picker:sources', (e) => (fromPicker(e) ? pickerSources : []));
+ipcMain.handle('picker:refresh', async (e) => {
+  if (!fromPicker(e)) return [];
+  const { list } = await listCaptureSources();
+  pickerSources = list;
+  return pickerSources;
+});
 ipcMain.handle('picker:options', (e) => (fromPicker(e) ? pickerOptions : null));
 ipcMain.on('picker:choose', (e, id, withAudio) => { if (fromPicker(e) && pickerDone) pickerDone(String(id || ''), withAudio === true); });
 
@@ -559,7 +657,11 @@ app.whenReady().then(async () => {
 
   open('window');
   createTray();
-  applyGlobalShortcuts(loadDesktopPrefs().shortcuts);
+  const dp = loadDesktopPrefs();
+  applyGlobalShortcuts(dp.shortcuts, dp.customShortcuts);
+  const recoverBounds = () => { if (win && !win.isDestroyed()) ensureVisibleBounds(win); };
+  screen.on('display-removed', recoverBounds);
+  screen.on('display-metrics-changed', recoverBounds);
 });
 
 app.on('before-quit', () => { quitting = true; });

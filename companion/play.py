@@ -52,6 +52,12 @@ _MOVES = {
                r"\blevantar el pulgar\b"),
     "paz": (r"\bhaz(me)? (el signo de |la senal de )?(la )?(paz|uve|v)\b",
             r"\b(hacer(me)?|hagas) (el signo de |la senal de )?(la )?(paz|uve|v)\b"),
+    "llamar": (r"\b(llamame con la mano|hazme senas|dime que venga)\b",
+               r"\b(llamarme con la mano|hacerme senas)\b"),
+    "concentrarse": (r"\b(concentrate|carga energia|acumula poder)\b",
+                     r"\b(concentrarte|te concentres)\b"),
+    "celebrar": (r"\b(celebra(lo)?|festeja(lo)?)\b",
+                 r"\b(celebrar(lo)?|festejar(lo)?|celebres)\b"),
     "beber": (r"\b(bebe|bebete|tomate) (algo|agua|un te|un cafe)\b",
               r"\b(beber|tomar(te)?|bebas) (algo|agua|un te|un cafe)\b"),
     # «A dormir» solo como orden suelta (al principio o tras un signo): «me voy a dormir» habla de quien escribe.
@@ -82,3 +88,24 @@ def guess(text: str | None) -> str | None:
         if m and (best is None or m.start() < best[0]):
             best = (m.start(), name)
     return best[1] if best else None
+
+
+_GAMES = [
+    ("rps", re.compile(r"\b(jug(?:uemos|ar)\s+(?:a\s+)?piedra[ ,]+papel\s+(?:o|y)\s+tijeras?|piedra[ ,]+papel\s+(?:o|y)\s+tijeras?)\b")),
+    ("trivia", re.compile(r"\b(jug(?:uemos|ar)\s+(?:a\s+)?(?:una\s+)?trivia|hazme\s+una\s+(?:pregunta\s+de\s+)?trivia)\b")),
+    ("twenty", re.compile(r"\b(jug(?:uemos|ar)\s+(?:a\s+)?(?:las\s+)?(?:20|veinte)\s+preguntas)\b")),
+    ("ispy", re.compile(r"\b(jug(?:uemos|ar)\s+(?:al\s+)?veo[ -]?veo)\b")),
+]
+
+
+def guess_game(text: str | None) -> str | None:
+    """¿El usuario pide claramente empezar uno de los minijuegos integrados?"""
+    if not text:
+        return None
+    t = _plain(text).strip()
+    if re.search(r"\b(no|nunca)\s+jug", t):
+        return None
+    for game, rx in _GAMES:
+        if rx.search(t):
+            return game
+    return None

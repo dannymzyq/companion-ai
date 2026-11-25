@@ -157,10 +157,6 @@ class Api(unittest.TestCase):
         self.assertEqual(r["active"], personality.DEFAULT)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Reajuste(unittest.TestCase):
     """Al cambiar de personalidad, con el cerebro local, el modelo lee ya el prompt nuevo (17 nov 2026). Nunca debe
     colgar el cambio: si la sesión está ocupada no se hace, y el servidor deja de esperar a los 20 s."""
@@ -203,3 +199,7 @@ class Reajuste(unittest.TestCase):
                 mock.patch.object(server.asyncio, "wait_for", lambda aw, t: real(aw, 0.05)):
             r = TestClient(server.app, base_url="http://127.0.0.1:8299").post("/api/personality/select", json={"id": personality.DEFAULT}, headers=ORIGIN)
         self.assertEqual(r.status_code, 200, r.text)
+
+
+if __name__ == "__main__":
+    unittest.main()

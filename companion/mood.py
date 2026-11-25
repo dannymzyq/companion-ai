@@ -74,10 +74,11 @@ def feel(emotion: str | None, personality: dict, now: float | None = None):
         _save()
 
 
-def describe(personality: dict, now: float | None = None) -> str:
+def describe(personality: dict, now: float | None = None, *, speaks: str = "f") -> str:
     """El ánimo de ahora en palabras, para el contexto del turno ('' si está en su ánimo de siempre)."""
     now = time.time() if now is None else now
     base = personality.get("base_mood", "neutral")
+    m = speaks == "m"
     with _lock:
         if "v" not in _state:
             return ""
@@ -86,20 +87,32 @@ def describe(personality: dict, now: float | None = None) -> str:
     bv, ba = VA.get(base, (0.0, 0.0))
     parts = []
     if math.hypot(v - bv, a - ba) >= 0.12:
-        mood = ("de muy buen humor" if v > 0.5 else "de buen humor" if v > 0.2 else
-                "algo decaída" if v < -0.4 and a < 0 else "molesta o tensa" if v < -0.3 else
-                "un poco baja de ánimo" if v < -0.15 else "tranquila")
+        mood_str = (
+            "de muy buen humor" if v > 0.5 else
+            "de buen humor" if v > 0.2 else
+            ("algo decaído" if m else "algo decaída") if v < -0.4 and a < 0 else
+            ("molesto o tenso" if m else "molesta o tensa") if v < -0.3 else
+            ("un poco bajo de ánimo" if m else "un poco baja de ánimo") if v < -0.15 else
+            ("tranquilo" if m else "tranquila")
+        )
         energy = " y con mucha energía" if a > 0.5 else " y con energía" if a > 0.25 else " y sin mucha energía" if a < -0.25 else ""
-        parts.append(f"Ahora mismo estás {mood}{energy}")
+        parts.append(f"Ahora mismo estás {mood_str}{energy}")
     if last and now - last_t < REMEMBER:
         mins = max(1, round((now - last_t) / 60))
-        parts.append(f"hace {mins} min te sentiste {_WORD.get(last, last)}")
+        words_map = _WORD_M if m else _WORD
+        parts.append(f"hace {mins} min te sentiste {words_map.get(last, last)}")
     if not parts:
         return ""
     return "(Tu ánimo: " + "; ".join(parts) + ". Que se note un poco en cómo respondes, sin decirlo salvo que venga al caso.)"
 
 
 _WORD = {"timida": "tímida", "carinosa": "cariñosa"}
+_WORD_M = {
+    "feliz": "feliz", "emocionada": "emocionado", "timida": "tímido", "sonrojada": "sonrojado",
+    "triste": "triste", "molesta": "molesto", "sorprendida": "sorprendido", "pensativa": "pensativo",
+    "carinosa": "cariñoso", "enamorada": "enamorado", "nerviosa": "nervioso", "asustada": "asustado",
+    "confundida": "confundido",
+}
 
 
 def public(personality: dict, now: float | None = None) -> dict:

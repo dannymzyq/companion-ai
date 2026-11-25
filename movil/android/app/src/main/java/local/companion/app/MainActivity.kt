@@ -185,12 +185,16 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Auriculares que se conectan o se quitan: la página reabre el micrófono predeterminado (como en iOS). */
+    private var audioCallback: AudioDeviceCallback? = null
+
     private fun vigilarAudio() {
         val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        am.registerAudioDeviceCallback(object : AudioDeviceCallback() {
+        val cb = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) = bridge.emitir("audioRoute", "true")
             override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = bridge.emitir("audioRoute", "true")
-        }, null)
+        }
+        audioCallback = cb
+        am.registerAudioDeviceCallback(cb, null)
     }
 
     // ---------------------------------------------------------------- ventana flotante (picture in picture)
@@ -230,6 +234,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         android.util.Log.i(Bridge.TAG, "MainActivity cerrada")
+        audioCallback?.let {
+            (getSystemService(AUDIO_SERVICE) as? AudioManager)?.unregisterAudioDeviceCallback(it)
+            audioCallback = null
+        }
         bridge.cerrarTodo()
         // Sin esto, la página vieja seguiría corriendo (otra conversación, otro micrófono) hasta que la limpie el GC.
         (web.parent as? android.view.ViewGroup)?.removeView(web)

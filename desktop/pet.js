@@ -102,9 +102,13 @@ function create({ screen, getWin, getView, getMode, urlBase, test }) {
   // Siempre con el tamaño fijo: una ventana transparente sin marco, con el escalado de Windows al 150 %, crece unos
   // píxeles cada vez que se mueve con setPosition o con el tamaño que devuelve getBounds (medido, 16 nov 2026).
   let size = null;
-  function moveTo(b) {
+  let lastMoveAt = 0;
+  function moveTo(b, force = false) {
     const w = win();
     if (!w) return;
+    const t = performance.now();
+    if (!force && t - lastMoveAt < 7.5) return;     // tope ~120 Hz para no saturar DWM en monitores de 240 Hz
+    lastMoveAt = t;
     if (!size) { const c = w.getBounds(); size = { width: c.width, height: c.height }; }
     w.setBounds({ x: Math.round(b.x), y: Math.round(b.y), width: size.width, height: size.height });
   }
@@ -266,11 +270,24 @@ function create({ screen, getWin, getView, getMode, urlBase, test }) {
     nextWalk = r ? now() + rand(r[0], r[1]) : Infinity;
   }
   function paused() { return !!(scene.fg && scene.fg.fullscreen && !scene.fg.own); }
+  // Rango horizontal continuo entre monitores adyacentes a similar altura de suelo (±40 px DIP).
+  function walkSpan(feetX, feetY) {
+    const cur = displayAt(feetX, feetY).workArea;
+    const floor = cur.y + cur.height;
+    let lo = cur.x, hi = cur.x + cur.width;
+    const all = displays().map((d) => d.workArea).sort((a, b) => a.x - b.x);
+    for (const r of all) {
+      if (Math.abs((r.y + r.height) - floor) > 40) continue;
+      if (Math.abs(r.x + r.width - lo) <= 8) lo = Math.min(lo, r.x);
+      if (Math.abs(r.x - hi) <= 8) hi = Math.max(hi, r.x + r.width);
+    }
+    return { lo, hi };
+  }
   function maybeWalk() {
     if (mode !== 'stand' || anim || pageState !== 'idle' || paused() || work || now() < nextWalk) return;
     const w = win(), b = w.getBounds(), feet = point('feet', b);
-    const wa = displayAt(feet.x, feet.y).workArea, margin = A().w * 0.3;
-    const lo = wa.x + margin, hi = wa.x + wa.width - margin;
+    const span = walkSpan(feet.x, feet.y), margin = A().w * 0.3;
+    const lo = span.lo + margin, hi = span.hi - margin;
     let dx = rand(120, 420) * (Math.random() < 0.5 ? -1 : 1);
     if (feet.x + dx < lo || feet.x + dx > hi) dx = -dx;
     const goal = clamp(feet.x + dx, lo, hi);
@@ -492,7 +509,7 @@ function create({ screen, getWin, getView, getMode, urlBase, test }) {
   function tick() {
     const w = win();
     if (!w || getMode() !== 'float') return;
-    if (prefs.follow) {
+    if (prefs.follow && !paused() && pageState !== 'sleep') {
       const c = screen.getCursorScreenPoint(), b = w.getBounds();
       if (!lastCursor || c.x !== lastCursor.x || c.y !== lastCursor.y) {
         lastCursor = c;
@@ -549,6 +566,13 @@ function create({ screen, getWin, getView, getMode, urlBase, test }) {
         const b = w.getBounds();
         if (!carried && dragStart && Math.hypot(b.x - dragStart.x, b.y - dragStart.y) > 6) { carried = true; setActivity('carried'); syncMoving(); }
       } else {
+        // Si se soltó en otro monitor con distinto DPI, refresca el tamaño DIP real una sola vez.
+        if (w && dragStart) {
+          const d0 = displayAt(dragStart.x + dragStart.width / 2, dragStart.y + dragStart.height / 2);
+          const bNow = w.getBounds();
+          const d1 = displayAt(bNow.x + bNow.width / 2, bNow.y + bNow.height / 2);
+          if (d0 && d1 && d0.id !== d1.id) size = { width: dragStart.width, height: dragStart.height };
+        }
         mode = 'stand';
         syncMoving();
         if (!carried) return setActivity(work && !work.ended ? 'work' : 'none', work && !work.ended ? { side: work.side } : {});

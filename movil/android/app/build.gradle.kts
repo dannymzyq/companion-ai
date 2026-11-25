@@ -10,8 +10,8 @@ android {
         applicationId = "local.companion.app"
         minSdk = 29            // Android 10: MediaProjection con servicio y WebView moderno
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.9.2"
+        versionCode = 5
+        versionName = "0.11.0"
     }
 
     buildTypes {
@@ -27,7 +27,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { buildConfig = true }
-    androidResources { noCompress += listOf("vrm", "glb", "wav") }
+    androidResources { noCompress += listOf("vrm", "glb", "wav", "bin") }
 }
 
 dependencies {
@@ -38,10 +38,48 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 }
 
-// La interfaz (web/) y el núcleo (movil/core) se copian a assets/www antes de compilar, con el mismo guion que iOS.
-val copiarWeb by tasks.registering(Exec::class) {
+// Copia multiplataforma (Windows, macOS, Linux sin depender de bash/rsync) de web/ y movil/core a assets/www.
+val copiarWeb by tasks.registering {
     val repo = rootProject.projectDir.resolve("../..").canonicalFile
-    commandLine("bash", repo.resolve("movil/scripts/bundle_web.sh").path)
-    environment("DEST", projectDir.resolve("src/main/assets/www").path)
+    val dest = projectDir.resolve("src/main/assets/www")
+    inputs.dir(repo.resolve("web"))
+    inputs.dir(repo.resolve("movil/core"))
+    outputs.dir(dest)
+    doLast {
+        dest.deleteRecursively()
+        File(dest, "models").mkdirs()
+        File(dest, "data").mkdirs()
+        File(dest, "voices/previews").mkdirs()
+        project.copy {
+            from(repo.resolve("web")) { exclude("vendor/**") }
+            into(dest)
+        }
+        val movilVendor = repo.resolve("movil/vendor")
+        val vendorSrc = if (File(movilVendor, "three-vrm/three-vrm.module.min.js").isFile) movilVendor else repo.resolve("web/vendor")
+        project.copy {
+            from(vendorSrc)
+            into(File(dest, "vendor"))
+        }
+        project.copy {
+            from(repo.resolve("movil/core")) {
+                exclude("**/*.test.js", "pruebas.mjs")
+            }
+            into(File(dest, "core"))
+        }
+        for (vrmName in listOf("avatar1.vrm", "avatar2.vrm")) {
+            val f = repo.resolve("models/$vrmName")
+            if (f.isFile) f.copyTo(File(dest, "models/$vrmName"), overwrite = true)
+        }
+        val previews = repo.resolve("voices/previews")
+        if (previews.isDirectory) {
+            project.copy {
+                from(previews)
+                into(File(dest, "voices/previews"))
+            }
+        }
+        repo.resolve("personas/mika.json").copyTo(File(dest, "data/persona.json"), overwrite = true)
+        repo.resolve("personas/personalidades.json").copyTo(File(dest, "data/personalidades.json"), overwrite = true)
+        repo.resolve("voices.json").copyTo(File(dest, "data/voices.json"), overwrite = true)
+    }
 }
 tasks.named("preBuild") { dependsOn(copiarWeb) }

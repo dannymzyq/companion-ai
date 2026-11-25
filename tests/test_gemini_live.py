@@ -81,7 +81,8 @@ class GeminiLiveClientTests(unittest.IsolatedAsyncioTestCase):
         ])
 
         async def connect(url, **kw):
-            self.assertIn("key=clave-demo", url)
+            self.assertNotIn("clave-demo", url)
+            self.assertEqual((kw.get("additional_headers") or kw.get("extra_headers"))["x-goog-api-key"], "clave-demo")
             return remote
 
         client = gemini_live.GeminiLiveClient(

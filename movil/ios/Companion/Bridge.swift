@@ -324,9 +324,42 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate {
             req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         } else if let auth = a["auth"] as? String {
             guard Keychain.allowed.contains(auth), let key = Keychain.get(auth) else { throw BridgeError("Falta la clave") }
+            guard let host = url.host?.lowercased(), hostPermitido(auth: auth, host: host) else {
+                throw BridgeError("Dominio no autorizado para esa clave")
+            }
             req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
         return req
+    }
+
+    private static let cloudHosts: Set<String> = [
+        "generativelanguage.googleapis.com",
+        "api.openai.com",
+        "openrouter.ai",
+        "api.groq.com",
+        "api.mistral.ai",
+    ]
+
+    private func hostPermitido(auth: String, host: String) -> Bool {
+        switch auth {
+        case "groq_key":
+            return host == "api.groq.com"
+        case "live_key":
+            return host == "generativelanguage.googleapis.com"
+        case "cloud_key":
+            if Self.cloudHosts.contains(host) { return true }
+            if let raw = try? String(contentsOf: Self.kvDir.appendingPathComponent("settings.json"), encoding: .utf8),
+               let data = raw.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let cloud = obj["cloud"] as? [String: Any],
+               let base = cloud["base"] as? String,
+               let baseHost = URL(string: base)?.host?.lowercased(), !baseHost.isEmpty {
+                return host == baseHost
+            }
+            return false
+        default:
+            return false
+        }
     }
 
     private func kvURL(_ key: Any?) throws -> URL {

@@ -32,7 +32,19 @@ static class Lanzador
                 if (s == null) throw new InvalidOperationException("el instalador está incompleto (falta el paquete)");
                 using (ZipArchive zip = new ZipArchive(s, ZipArchiveMode.Read))
                 {
-                    zip.ExtractToDirectory(tmp);
+                    string rootFull = Path.GetFullPath(tmp);
+                    if (!rootFull.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                        rootFull += Path.DirectorySeparatorChar;
+                    foreach (ZipArchiveEntry entry in zip.Entries)
+                    {
+                        if (string.IsNullOrEmpty(entry.Name)) continue;
+                        string dest = Path.GetFullPath(Path.Combine(rootFull, entry.FullName));
+                        if (!dest.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException("ruta fuera del paquete en " + entry.FullName);
+                        string dir = Path.GetDirectoryName(dest);
+                        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                        entry.ExtractToFile(dest, true);
+                    }
                 }
             }
             string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),

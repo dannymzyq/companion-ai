@@ -125,8 +125,15 @@ jobs:
           path: dist/Companion-*-mac.dmg
           retention-days: 14
 
-      - name: Adjuntar al Release
+      - name: Adjuntar al Release (con suma SHA-256)
         if: inputs.publicar
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" "dist/Companion-$VERSION-mac.dmg" --clobber
+        run: |
+          dmg="dist/Companion-$VERSION-mac.dmg"
+          sum="$(shasum -a 256 "$dmg" | cut -d' ' -f1)  Companion-$VERSION-mac.dmg"
+          gh release download "${{ github.ref_name }}" -p "SHA256SUMS.txt" -D dist --clobber 2>/dev/null || true
+          grep -v "Companion-$VERSION-mac.dmg" dist/SHA256SUMS.txt > dist/SHA256SUMS.tmp 2>/dev/null || true
+          printf '%s\n' "$sum" >> dist/SHA256SUMS.tmp
+          mv dist/SHA256SUMS.tmp dist/SHA256SUMS.txt
+          gh release upload "${{ github.ref_name }}" "$dmg" "dist/SHA256SUMS.txt" --clobber

@@ -5,30 +5,46 @@ import Foundation
 /// núcleo en JS (movil/core/live.js); aquí solo hay transporte. La clave la pone el nativo en la dirección y nunca
 /// vuelve al JS, y solo se manda al servidor de la Live API de Google (si no, una dirección inventada se la llevaría).
 @MainActor
-final class LiveSocket {
+final class LiveSocket: NSObject, URLSessionWebSocketDelegate {
     static let hosts: Set<String> = ["generativelanguage.googleapis.com"]
 
+    private var session: URLSession?
     private var task: URLSessionWebSocketTask?
     private let id: Int
     private weak var bridge: Bridge?
 
-    init(id: Int, bridge: Bridge) { self.id = id; self.bridge = bridge }
+    init(id: Int, bridge: Bridge) {
+        self.id = id
+        self.bridge = bridge
+        super.init()
+    }
 
     func open(url: URL, keyName: String?) throws {
         guard url.scheme == "wss", let host = url.host, Self.hosts.contains(host) else {
             throw BridgeError("En vivo solo se conecta a la Live API de Google")
         }
         var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        comps.queryItems = (comps.queryItems ?? []).filter { $0.name != "key" }
+        if comps.queryItems?.isEmpty == true { comps.queryItems = nil }
+        var req = URLRequest(url: comps.url!, timeoutInterval: 15)
         if let keyName {
             guard Keychain.allowed.contains(keyName), let key = Keychain.get(keyName) else { throw BridgeError("Falta la clave") }
-            comps.queryItems = (comps.queryItems ?? []).filter { $0.name != "key" } + [URLQueryItem(name: "key", value: key)]
+            req.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         }
-        let t = URLSession.shared.webSocketTask(with: URLRequest(url: comps.url!, timeoutInterval: 15))
+        let ses = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        let t = ses.webSocketTask(with: req)
         t.maximumMessageSize = 16 * 1024 * 1024
+        session = ses
         task = t
         t.resume()
-        bridge?.emit(id, "open", NSNull())
         receive()
+    }
+
+    nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        Task { @MainActor [weak self] in
+            guard let self, self.task === webSocketTask else { return }
+            self.bridge?.emit(self.id, "open", NSNull())
+        }
     }
 
     func send(_ text: String) async throws {
@@ -39,6 +55,8 @@ final class LiveSocket {
     func close() {
         task?.cancel(with: .normalClosure, reason: nil)
         task = nil
+        session?.invalidateAndCancel()
+        session = nil
     }
 
     private func receive() {

@@ -53,6 +53,11 @@ class Servidor:
     def __enter__(self):
         modelos = TEST_DIR / "models"
         modelos.mkdir(parents=True, exist_ok=True)
+        # Una prueba que importó companion.actions (que importa store) tiene abierta la base de prueba: se cierra
+        # antes de borrarla (si no, en Windows «está siendo utilizado por otro proceso»).
+        abierta = sys.modules.get("companion.store")
+        if abierta is not None and str(getattr(abierta.settings, "data_dir", "")) == str(TEST_DIR):
+            abierta._db.close()
         for sobrante in (TEST_DIR / "companion.db", TEST_DIR / "settings.json"):
             sobrante.unlink(missing_ok=True)
         if not self.nuevo:

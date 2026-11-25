@@ -83,6 +83,8 @@ export class Orb {
     this._q = new THREE.Quaternion();
     this._e = new THREE.Euler();
     this._v = new THREE.Vector3();
+    this._fwd = new THREE.Vector3();
+    this._camDir = new THREE.Vector3();
   }
 
   // c: { t, dt, emotion, emoAge, state: {idle, listening, thinking, speaking}, voice, beat, gestures: [{name, t, dur}] }
@@ -144,6 +146,17 @@ export class Orb {
         case '_cosquillas': hop += 0.02 * Math.abs(Math.sin(g.t * 14)) * w; shakeHead += 0.15 * Math.sin(g.t * 14) * w; break;
         case '_saltito': hop += 0.07 * Math.max(0, Math.sin(Math.min(1, g.t / 0.5) * Math.PI)) * w; break;
         case '_mirar_mano': shakeHead += 0.35 * g.side * w; break;
+        // Piedra, papel o tijera (N-08)
+        case '_rps_piedra': case '_rps_papel': case '_rps_tijera': {
+          const swing = g.t < 1.2 ? Math.abs(Math.sin(g.t * Math.PI * 2.5)) * 0.18 : 0;
+          const show = g.t >= 1.2 ? 1 : 0;
+          hand[1].y += (0.14 + swing + 0.14 * show) * w;
+          hand[1].z += (0.12 + 0.14 * show) * w;
+          if (show && g.name === '_rps_papel') hand[1].x += 0.06 * w;
+          if (show && g.name === '_rps_tijera') this.v.tilt += 0.05 * w;
+          hop += 0.02 * swing * w;
+          break;
+        }
       }
     }
     // Mascota de escritorio (modo flotante): andar, en brazos, cayendo, sentada, trabajando (avatar.js ACTIVITIES).
@@ -159,14 +172,15 @@ export class Orb {
       bow += 0.12 * k;
     }
 
-    // Cuerpo: flota, respira, salta con la emoción y con la voz.
+    // Cuerpo: flota, respira, salta con la emoción, con la voz y con el pulso musical (music.js).
     const voice = c.voice * st.speaking;
-    const bounce = Math.abs(Math.sin(t * 5.2)) * 0.03 * v.bounce;
+    const mBeat = (c.musicBeat || 0) * (1 - st.speaking);
+    const bounce = Math.abs(Math.sin(t * 5.2)) * 0.03 * v.bounce + 0.022 * mBeat;
     const jolt = Math.max(0, 1 - c.emoAge * 2.5) * (c.emotion === 'sorprendida' || c.emotion === 'asustada' ? 0.06 : 0);
     const shake = v.shake * 0.006;
     this.group.position.set(shake * Math.sin(t * 47), ORB_Y + 0.018 * Math.sin(t * 1.3) + bounce + hop + jolt - 0.05 * v.droop + 0.012 * c.beat, shake * Math.sin(t * 41));
     const breath = 1 + 0.012 * Math.sin(t * 1.5);
-    const squash = 1 + 0.05 * voice * Math.sin(t * 9) + 0.035 * c.beat - 0.04 * v.droop;
+    const squash = 1 + 0.05 * voice * Math.sin(t * 9) + 0.035 * c.beat + 0.02 * mBeat - 0.04 * v.droop;
     this.body.scale.set(breath / Math.sqrt(squash), breath * squash, breath / Math.sqrt(squash));
     this._e.set(
       v.lean + bow + nod + 0.05 * st.listening - 0.1 * st.thinking - 0.05 * voice + 0.03 * Math.sin(t * 0.9),
@@ -203,12 +217,16 @@ export class Orb {
       this.brows[i].rotation.z = -s * v.brow * 0.75;
     });
 
-    // Boca: el arco se curva hacia arriba (sonrisa) o hacia abajo; al hablar o sorprenderse se abre el óvalo.
-    const open = clamp(Math.max(v.open, c.mouth * 1.9 * st.speaking));
+    // Boca: el arco se curva hacia arriba o abajo; al hablar se modula el ancho/alto según las vocales (a/e/i/o/u).
+    const vis = c.visemes || {};
+    const closeK = st.speaking > 0.2 ? 1 - 0.85 * (vis.close || 0) : 1;
+    const open = clamp(Math.max(v.open, c.mouth * 1.9 * st.speaking * closeK));
     this.mouthOpen = lerp(this.mouthOpen, open, damp(open > this.mouthOpen ? 28 : 14, dt));
     const o = this.mouthOpen;
+    const wide = (vis.ee || 0) * 0.35 + (vis.ih || 0) * 0.28 - (vis.ou || 0) * 0.38 - (vis.oh || 0) * 0.22;
+    const tall = (vis.aa || 0) * 0.25 + (vis.oh || 0) * 0.22 + (vis.ou || 0) * 0.15 - (vis.ee || 0) * 0.18;
     this.open.visible = o > 0.04;
-    this.open.scale.set(0.9 + 0.5 * o, 0.25 + 1.25 * o, 0.3);
+    this.open.scale.set(Math.max(0.45, 0.9 + 0.5 * o + wide * st.speaking), Math.max(0.18, 0.25 + 1.25 * o + tall * o), 0.3);
     this.arc.visible = o < 0.35;
     const curve = v.smile;                                                  // torus: media circunferencia hacia arriba; se gira para sonreír
     this.arc.rotation.z = curve >= 0 ? Math.PI : 0;
@@ -242,8 +260,8 @@ export class Orb {
     out.eyes.set(0, 0.03, R * 0.9).applyQuaternion(q).add(pos);
     out.cheeks[0].set(0.125, -0.02, R * 0.9).applyQuaternion(q).add(pos);
     out.cheeks[1].set(-0.125, -0.02, R * 0.9).applyQuaternion(q).add(pos);
-    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
-    out.facing = clamp(fwd.dot(new THREE.Vector3().copy(camera.position).sub(out.eyes).normalize()) * 2.2 - 0.5);
+    const fwd = this._fwd.set(0, 0, 1).applyQuaternion(q);
+    out.facing = clamp(fwd.dot(this._camDir.copy(camera.position).sub(out.eyes).normalize()) * 2.2 - 0.5);
     return out;
   }
 

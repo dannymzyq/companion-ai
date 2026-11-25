@@ -10,6 +10,7 @@ use wry::WebViewBuilder;
 #[derive(Debug)]
 enum UserEvent {
     Ipc(String),
+    CursorTick,
     Shutdown,
 }
 
@@ -30,6 +31,12 @@ const DESKTOP_INIT_SCRIPT: &str = r#"
     }
   };
 
+  window.__rustDesktopMouse = function(x, y) {
+    try {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true }));
+    } catch {}
+  };
+
   function post(cmd, payload) {
     try { window.ipc.postMessage(JSON.stringify({ cmd, payload })); } catch {}
   }
@@ -40,7 +47,14 @@ const DESKTOP_INIT_SCRIPT: &str = r#"
       post('float', { on: !!on });
       return Promise.resolve(next);
     },
-    onMode: (fn) => { if (typeof fn === 'function') modeListeners.push(fn); },
+    onMode: (fn) => {
+      if (typeof fn !== 'function') return () => {};
+      modeListeners.push(fn);
+      return () => {
+        const i = modeListeners.indexOf(fn);
+        if (i >= 0) modeListeners.splice(i, 1);
+      };
+    },
     quit: () => post('quit', {}),
     ignoreMouse: (ignore) => post('ignore-mouse', { ignore: !!ignore }),
     drag: (phase) => post('drag', { phase: String(phase) }),
@@ -55,7 +69,14 @@ const DESKTOP_INIT_SCRIPT: &str = r#"
       work: (m) => post('pet:work', m),
       frame: () => {},
       rest: (on) => post('pet:rest', { on: !!on }),
-      on: (fn) => { if (typeof fn === 'function') petListeners.push(fn); },
+      on: (fn) => {
+        if (typeof fn !== 'function') return () => {};
+        petListeners.push(fn);
+        return () => {
+          const i = petListeners.indexOf(fn);
+          if (i >= 0) petListeners.splice(i, 1);
+        };
+      },
       info: () => Promise.resolve({ mode: 'stand', engine: 'rust' }),
       testScene: () => {},
       test: () => {},
@@ -121,7 +142,18 @@ pub fn run_window(
         .build(&window)
         .map_err(|e| format!("No se pudo iniciar WebView: {e}"))?;
 
+    // Poll cursor while click-through is enabled so hovering the VRM restores click interactivity
+    let proxy_cursor = proxy.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if proxy_cursor.send_event(UserEvent::CursorTick).is_err() {
+            break;
+        }
+    });
+
     let mut is_float = start_float;
+    let mut ignoring_cursor = false;
+    let mut last_cursor: (i32, i32) = (-1, -1);
     let mut drag_offset: Option<(i32, i32)> = None;
     let mut saved_normal_size = LogicalSize::new(520.0, 880.0);
     let mut float_width: f64 = 340.0;
@@ -138,6 +170,26 @@ pub fn run_window(
             }
             Event::UserEvent(UserEvent::Shutdown) => {
                 *control_flow = ControlFlow::Exit;
+            }
+            Event::UserEvent(UserEvent::CursorTick) => {
+                if is_float && ignoring_cursor && drag_offset.is_none() {
+                    if let (Some((cx, cy)), Ok(pos)) = (cursor_pos(), window.inner_position()) {
+                        if (cx, cy) != last_cursor {
+                            last_cursor = (cx, cy);
+                            let scale = window.scale_factor();
+                            let sz = window.inner_size().to_logical::<f64>(scale);
+                            let lx = (cx - pos.x) as f64 / scale;
+                            let ly = (cy - pos.y) as f64 / scale;
+                            if lx >= 0.0 && lx <= sz.width && ly >= 0.0 && ly <= sz.height {
+                                let js = format!(
+                                    "window.__rustDesktopMouse && window.__rustDesktopMouse({:.1}, {:.1})",
+                                    lx, ly
+                                );
+                                let _ = webview.evaluate_script(&js);
+                            }
+                        }
+                    }
+                }
             }
             Event::UserEvent(UserEvent::Ipc(raw)) => {
                 let Ok(msg) = serde_json::from_str::<Value>(&raw) else {
@@ -163,6 +215,7 @@ pub fn run_window(
                                 let h = (float_width * 1.55).round();
                                 window.set_inner_size(LogicalSize::new(float_width, h));
                             } else {
+                                ignoring_cursor = false;
                                 let _ = window.set_ignore_cursor_events(false);
                                 window.set_inner_size(saved_normal_size);
                             }
@@ -177,6 +230,7 @@ pub fn run_window(
                     "ignore-mouse" => {
                         if is_float {
                             let ign = payload.get("ignore").and_then(|v| v.as_bool()).unwrap_or(false);
+                            ignoring_cursor = ign;
                             let _ = window.set_ignore_cursor_events(ign);
                         }
                     }

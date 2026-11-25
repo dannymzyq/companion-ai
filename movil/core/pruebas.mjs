@@ -279,5 +279,92 @@ await prueba('cámara en vivo: como mucho una imagen por segundo a Gemini', asyn
   s.close();
 });
 
+// ---------------------------------------------------------------- mejoras 0.10.0: privacidad en recuerdos, concordancia, Live recordar/resumption y Mochila
+await prueba('memoria móvil: filtra claves/contraseñas y permite fijar, editar y buscar en el diario', () => {
+  store.forgetAll();
+  assert.equal(store.addMemory('Mi contraseña del correo es SuperSecreta99'), false);
+  assert.equal(store.addMemory('Clave API sk-1234567890abcdefghijklmnop'), false);
+  assert.equal(store.addMemory('Tiene una perrita llamada Kira'), true);
+  assert.equal(store.addMemory('Estudia arquitectura en Lima'), true);
+  const d1 = store.diary('');
+  assert.equal(d1.items.length, 2);
+  const kira = d1.items.find((x) => /Kira/.test(x.content));
+  assert.equal(store.updateMemory(kira.id, { pinned: true }), true);
+  assert.equal(store.updateMemory(kira.id, { content: 'Clave sk-1234567890abcdefghijklmnop' }), false);
+  const d2 = store.diary('kira');
+  assert.equal(d2.items.length, 1);
+  assert.equal(d2.items[0].pinned, true);
+});
+
+await prueba('ánimo y rasgos: concordancia en masculino cuando speaks === "m"', () => {
+  moodMod.reset();
+  const q = pers.active(), t0 = 2_000_000;
+  moodMod.feel('triste', q, t0);
+  const descM = moodMod.describe(q, t0 + 60, 'm');
+  assert.match(descM, /decaído|bajo de ánimo|molesto|tranquilo/);
+  assert.doesNotMatch(descM, /decaída|baja de ánimo|molesta|tranquila/);
+  const sysM = buildSystemPrompt({ ...persona, speaks: 'm', name: 'Kenji' }, { userName: 'Prueba', memories: [], adult: false });
+  assert.match(sysM, /personaje masculino/);
+  assert.doesNotMatch(sysM, /muy cálida y cercana/);
+});
+
+await prueba('en vivo: herramienta recordar (bloqueada con pantalla activa), sessionResumption y mini-juego RPS', async () => {
+  store.forgetAll();
+  const { s, out, sentToGemini, server } = liveSession();
+  await s.ensure();
+  const decls = sentToGemini[0].setup.tools[0].functionDeclarations.map((d) => d.name);
+  assert.deepEqual(decls, ['expresar', 'recordar']);
+  server({ sessionResumptionUpdate: { resumable: true, newHandle: 'resume_tok_42' } });
+  assert.equal(s.resumeHandle, 'resume_tok_42');
+  server({ toolCall: { functionCalls: [{ id: 'r1', name: 'recordar', args: { dato: 'Toca la guitarra acústica' } }] } });
+  assert.ok(store.memories().includes('Toca la guitarra acústica'));
+  // Con pantalla compartida reciente no se inyectan recuerdos de terceros
+  await s.onMessage({ type: 'frame', source: 'screen', jpeg: 'U0NS' });
+  server({ toolCall: { functionCalls: [{ id: 'r2', name: 'recordar', args: { dato: 'Dato inyectado desde pantalla' } }] } });
+  assert.ok(!store.memories().includes('Dato inyectado desde pantalla'));
+  await s.onMessage({ type: 'game', mode: 'rps' });
+  assert.ok(out.some((m) => m.type === 'rps' && ['piedra', 'papel', 'tijera'].includes(m.choice)));
+  s.close();
+});
+
+const { createApi } = await import('./api.js');
+await prueba('api móvil: Mochila del Compañero (sin secretos), Pomodoro y Presets', async () => {
+  store.forgetAll();
+  store.addMemory('Prefiere el té verde sin azúcar');
+  const handle = createApi({
+    persona,
+    voices: [{ id: 'mika', name: 'Mika', speaks: 'f', tts_voice: 'es-MX-DaliaNeural', default: true }],
+    keys: { groq: true, live: true },
+    can: { LIGHT_VOICE: false, LOCAL_BRAIN: false },
+    listos: { oido: false, cerebro: false, voz: false, silero: false },
+    started: Date.now() / 1000,
+    ttsAvailable: () => true,
+    liveKey: () => 'live_key',
+    revisar: async () => ({}),
+  });
+  const callApi = async (method, path, body = null) => {
+    const r = await handle(method, new URL(`https://app.local${path}`), body, async () => new Response('{}'));
+    return { status: r.status, data: await r.json() };
+  };
+  const exp = await callApi('GET', '/api/backpack');
+  assert.equal(exp.status, 200);
+  assert.equal(exp.data.schema, 'companion-backpack-v1');
+  assert.ok(!JSON.stringify(exp.data).includes('live_key'));
+  assert.equal(exp.data.memories.length, 1);
+
+  store.forgetAll();
+  const imp = await callApi('POST', '/api/backpack', { ...exp.data, merge: true });
+  assert.equal(imp.status, 200);
+  assert.equal(imp.data.imported_memories, 1);
+
+  const foc = await callApi('POST', '/api/focus', { action: 'start', work_min: 25 });
+  assert.equal(foc.data.phase, 'work');
+  assert.ok(foc.data.remaining_sec > 1400);
+
+  const pre = await callApi('POST', '/api/presets', { name: 'Noche chill', accessories: ['glasses'] });
+  assert.equal(pre.status, 200);
+  assert.equal(pre.data.presets.length, 1);
+});
+
 console.log(fallos ? `\n${fallos} pruebas fallaron` : '\nTodas bien');
 process.exit(fallos ? 1 : 0);

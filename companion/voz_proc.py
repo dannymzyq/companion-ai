@@ -2,10 +2,12 @@
 companion: se levanta al usar la voz completa y se apaga al pasar a la ligera o al cerrar, para devolver su
 memoria de vídeo. Si ya hay uno respondiendo en TTS_URL (otro companion, o lanzado a mano), se usa ese."""
 import asyncio
+import ctypes
 import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -18,6 +20,60 @@ DIR = ROOT / "voz"
 LOAD_WAIT = 60.0                          # lo que se espera a que cargue (F5-TTS tarda ~10-20 s en esta PC)
 _proc: subprocess.Popen | None = None
 _log = None
+_job_handle = None
+_fast: bool | None = None                 # la voz completa va en modo rápido (tarjeta lenta, voz/servidor.py)
+_fast_asked = 0.0
+_fast_busy = False
+
+
+def _assign_job_object(proc: subprocess.Popen):
+    """En Windows asocia el subproceso a un Job Object con KILL_ON_JOB_CLOSE para no dejar F5-TTS huérfano en VRAM."""
+    global _job_handle
+    if sys.platform != "win32":
+        return
+    try:
+        k32 = ctypes.windll.kernel32
+        if _job_handle is None:
+            job = k32.CreateJobObjectW(None, None)
+            if not job:
+                return
+
+            class BASIC_LIMIT(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", ctypes.c_uint32),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", ctypes.c_uint32),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", ctypes.c_uint32),
+                    ("SchedulingClass", ctypes.c_uint32),
+                ]
+
+            class IO_COUNTERS(ctypes.Structure):
+                _fields_ = [(n, ctypes.c_uint64) for n in ("r_op", "w_op", "o_op", "r_tr", "w_tr", "o_tr")]
+
+            class EXTENDED_LIMIT(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", BASIC_LIMIT),
+                    ("IoInfo", IO_COUNTERS),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
+
+            info = EXTENDED_LIMIT()
+            info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+                _job_handle = job
+            else:
+                k32.CloseHandle(job)
+                return
+        k32.AssignProcessToJobObject(_job_handle, int(proc._handle))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _python():
@@ -29,10 +85,7 @@ def installed() -> bool:
 
 
 def _answers() -> bool:
-    try:
-        return httpx.get(f"{settings.tts_url}/health", timeout=1.5).status_code == 200
-    except httpx.HTTPError:
-        return False
+    return bool(_health())
 
 
 def start():
@@ -40,44 +93,44 @@ def start():
     url = urlparse(settings.tts_url)
     if not installed() or url.hostname not in ("127.0.0.1", "localhost") or (_proc and _proc.poll() is None) or _answers():
         return
-    # El oído añade al PATH las librerías de NVIDIA del companion (cuDNN para CTranslate2). El servidor de voz
-    # trae las suyas con PyTorch, de otra versión: si hereda ese PATH las mezcla y falla al cargar
-    # (CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH, 12 nov 2026).
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep)
                                   if "site-packages" not in p.lower() or "nvidia" not in p.lower())
-    env["VOICES_CUSTOM_DIR"] = str(settings.data_dir / "voces")     # las voces propias del usuario
+    env["VOICES_CUSTOM_DIR"] = str(settings.data_dir / "voces")
+    env["COMPANION_PARENT_PID"] = str(os.getpid())
     if sys.platform == "darwin":
-        env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"     # lo que la GPU de Apple aún no sabe hacer va al procesador
-        # En la GPU del Mac F5 con 32 pasos tarda 15–25 s por frase; con 16, la mitad (M5 Pro, 16 nov 2026)
+        env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
         env.setdefault("VOZ_NFE", "16")
-        env.setdefault("VOZ_REF_CORTA", "1")         # muestra de 4–5 s: cada frase tarda la mitad (voz/servidor.py)
-        env.setdefault("VOZ_LARGA", "90")            # las frases de más de 90 letras se parten en las comas
+        env.setdefault("VOZ_REF_CORTA", "1")
+        env.setdefault("VOZ_LARGA", "90")
     if _log:
         _log.close()
+        _log = None
     path = settings.data_dir / "voz.log"
-    try:                                  # el registro de la vez anterior se guarda (si se cayó, ahí está el porqué)
+    try:
         if path.is_file() and path.stat().st_size:
             path.replace(path.with_name("voz.1.log"))
     except OSError:
         pass
     _log = open(path, "w", encoding="utf-8")
-    _proc = subprocess.Popen([str(_python()), "-m", "uvicorn", "servidor:app", "--app-dir", str(DIR), "--host", "127.0.0.1",
-                              "--port", str(url.port or 8210)], cwd=ROOT, env=env, stdout=_log, stderr=subprocess.STDOUT,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    _proc = subprocess.Popen(
+        [str(_python()), "-m", "uvicorn", "servidor:app", "--app-dir", str(DIR), "--host", "127.0.0.1",
+         "--port", str(url.port or 8210)],
+        cwd=ROOT, env=env, stdout=_log, stderr=subprocess.STDOUT,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    _assign_job_object(_proc)
     log.info("Servidor de voz arrancado (pid %s); tarda unos segundos en cargar", _proc.pid)
 
 
 def running() -> bool:
-    """¿Está en marcha el servidor de voz que arrancamos nosotros?"""
     return _proc is not None and _proc.poll() is None
 
 
 def stop():
-    global _proc
+    global _proc, _log, _fast
     if _proc and _proc.poll() is None:
         if os.name == "nt":
-            # Con su árbol: python.exe del entorno es un lanzador que arranca otro proceso de Python debajo.
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(_proc.pid)], capture_output=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         else:
@@ -88,18 +141,20 @@ def stop():
             _proc.kill()
         log.info("Servidor de voz detenido")
     _proc = None
+    _fast = None
     if _log:
-        _log.close()
+        try:
+            _log.close()
+        except OSError:
+            pass
+        _log = None
 
 
 def sync():
-    """Deja el servidor de voz como pide el motor elegido."""
     start() if settings.voice_engine == "completa" else stop()
 
 
 def ensure() -> bool:
-    """Con la voz completa elegida, si el servidor de voz se cayó (o nunca arrancó) se vuelve a levantar.
-    Devuelve True si lo arrancó ahora."""
     if settings.voice_engine != "completa" or not installed():
         return False
     if _proc is not None and _proc.poll() is None:
@@ -123,23 +178,30 @@ def _health() -> dict:
     return h
 
 
-_fast: bool | None = None                 # la voz completa va en modo rápido (tarjeta lenta, voz/servidor.py)
-_fast_asked = 0.0
+def _probe_fast_bg():
+    global _fast_busy
+    try:
+        _health()
+    finally:
+        _fast_busy = False
 
 
 def fast() -> bool:
-    """¿La voz completa está en modo rápido? Lo dice su /health cuando ya midió la tarjeta; hasta entonces se
-    pregunta como mucho cada 20 s (es una llamada corta, pero bloquea)."""
-    global _fast_asked
-    if _fast is None and time.monotonic() - _fast_asked > 20:
+    """¿La voz completa está en modo rápido? Nunca bloquea el event loop: si aún no se sabe, lanza la consulta en un
+    hilo de fondo salvo que no haya event loop activo (pruebas unitarias síncronas)."""
+    global _fast_asked, _fast_busy
+    if _fast is None and not _fast_busy and time.monotonic() - _fast_asked > 20:
         _fast_asked = time.monotonic()
-        _health()
+        try:
+            asyncio.get_running_loop()
+            _fast_busy = True
+            threading.Thread(target=_probe_fast_bg, daemon=True).start()
+        except RuntimeError:
+            _health()
     return bool(_fast)
 
 
 async def recover(timeout: float = LOAD_WAIT) -> bool:
-    """La voz no respondió (cargando, o el proceso se cayó): se relanza si hace falta y se espera a que esté lista.
-    True si al final hay voz."""
     await asyncio.to_thread(ensure)
     limit = time.monotonic() + timeout
     while time.monotonic() < limit:
@@ -150,6 +212,6 @@ async def recover(timeout: float = LOAD_WAIT) -> bool:
             log.warning("El servidor de voz no pudo cargar: %s", str(h["error"])[:200])
             return False
         if not h and (_proc is None or _proc.poll() is not None):
-            return False                  # no hay uno nuestro arrancando (o se volvió a cerrar): mejor seguir en texto
+            return False
         await asyncio.sleep(0.5)
     return False

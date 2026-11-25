@@ -3,20 +3,20 @@
 Arranque:  .venv\\Scripts\\python.exe -m companion      (o iniciar.ps1)
 """
 import asyncio
+import io
 import json
 import logging
 import time
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import actions, config, llm, models, mood, personality, profile, state, store, tts, voice_import, voz_proc
+from . import actions, config, focus, llm, mcp_client, models, mood, pairing, personality, profile, state, store, tts, voice_import, voz_proc
 from .config import settings
 from .prompt import adult_active, load_persona
 from .session import Session
@@ -92,6 +92,7 @@ async def lifespan(_: FastAPI):
     loop = asyncio.get_running_loop()
     loop.set_exception_handler(_quiet_resets)
     loop.run_in_executor(None, _load_ear)          # el modelo carga sin frenar el arranque
+    loop.run_in_executor(None, actions.warm_apps)  # precalienta Get-StartApps en segundo plano
     log.info("Companion en http://%s:%s · cerebro: %s", settings.host, settings.port, llm.status())
     # Local: se carga ya. Nube: se saca de la tarjeta el modelo local que hubiera dejado una sesión anterior
     # cerrada de golpe (con 6 GB no deja sitio a la voz completa).
@@ -102,34 +103,61 @@ async def lifespan(_: FastAPI):
     await llm.unload_local()             # al cerrar con normalidad se libera la memoria de vídeo del modelo local
 
 
-app = FastAPI(title="Companion", version="0.1.0", lifespan=lifespan)
-# Solo se atiende a quien llama al servidor por su nombre de esta PC. Sin esto, una página web con un truco de DNS
-# («DNS rebinding»: su dominio pasa a apuntar a 127.0.0.1) podría leer /api/memory como si fuera la interfaz.
-LOCAL_HOSTS = ["127.0.0.1", "localhost", *([settings.host] if settings.host not in ("127.0.0.1", "localhost", "0.0.0.0") else [])]
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
+app = FastAPI(title="Companion", version="0.10.0", lifespan=lifespan)
+# Solo se atiende a quien llama al servidor por su nombre de esta PC (contra DNS rebinding), salvo que el usuario haya
+# encendido explícitamente «Modo En Casa» (companion/pairing.py) Y la petición llegue de red privada con token válido.
+LOCAL_HOSTS = {"127.0.0.1", "localhost", *({settings.host} if settings.host not in ("127.0.0.1", "localhost", "0.0.0.0") else set())}
+
+
+def _host_is_local(host_header: str | None) -> bool:
+    raw = (host_header or "").strip().lower()
+    if not raw:
+        return False
+    host_only = raw.split(":")[0]
+    return host_only in LOCAL_HOSTS
+
+
+def _paired_request_ok(host_header: str | None, client_ip: str | None, headers, query_params=None, cookies=None) -> bool:
+    if _host_is_local(host_header):
+        return True
+    if not pairing.enabled() or not pairing.is_private_client(client_ip):
+        return False
+    tok = pairing.extract_token(headers, query_params, cookies)
+    return pairing.valid_token(tok)
 
 
 @app.middleware("http")
-async def no_stale_interface(request: Request, call_next):
-    """La interfaz se revalida en cada carga. Sin esto, la ventana puede seguir usando durante horas el
-    JavaScript de una versión anterior (el navegador lo guarda en caché) mezclado con el servidor nuevo."""
+async def security_and_cache_middleware(request: Request, call_next):
+    host_hdr = request.headers.get("host")
+    client_ip = request.client.host if request.client else None
+    if not _paired_request_ok(host_hdr, client_ip, request.headers, request.query_params, request.cookies):
+        return PlainTextResponse("Invalid host header", status_code=400)
     response = await call_next(request)
     if not request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-cache"
+    pair_q = request.query_params.get("pair")
+    if pair_q and pairing.valid_token(pair_q):
+        response.set_cookie(pairing.COOKIE_NAME, pair_q, httponly=True, samesite="lax")
     return response
 
 
 # ---------------------------------------------------------------- seguridad local
-def _origin_ok(origin: str | None) -> bool:
+def _origin_ok(origin: str | None, *, paired: bool = False) -> bool:
     """Solo la propia interfaz puede hablar con el servidor; otras páginas web abiertas en el navegador, no."""
     if not origin:
         return True                       # clientes que no son navegador (scripts de prueba)
     allowed = {f"http://{h}:{settings.port}" for h in ("127.0.0.1", "localhost")}
+    if paired:
+        allowed |= {f"http://{ip}:{settings.port}" for ip in pairing.local_ips()}
     return origin in allowed
 
 
-def same_origin(origin: str | None = Header(default=None)):
-    if not _origin_ok(origin):
+def same_origin(request: Request, origin: str | None = Header(default=None)):
+    sfs = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if sfs and sfs not in ("same-origin", "none"):
+        raise HTTPException(403, "Origen no permitido")
+    is_paired = pairing.valid_token(pairing.extract_token(request.headers, request.query_params, request.cookies))
+    if not _origin_ok(origin, paired=is_paired):
         raise HTTPException(403, "Origen no permitido")
 
 
@@ -161,6 +189,8 @@ def public_config() -> dict:
         "barge_in": settings.barge_in, "actions": _actions_state(),
         "personality": {"id": personality.active_id(), "name": personality.active()["name"],
                         "temper": personality.temper(personality.active())},
+        "morning_briefing": profile.morning_briefing(),
+        "focus": focus.status(),
         "started": STARTED,               # iniciar.ps1 lo compara con la fecha del código para saber si reiniciar
     }
 
@@ -206,8 +236,13 @@ async def set_config(body: ConfigIn):
         changed = body.provider != settings.llm_provider
         settings.llm_provider = body.provider
         if body.provider == "local" and profile.gemini_live():
-            state.save(provider=body.provider, gemini_live=False)
+            restored = _gemini_live_changes(False, {})
+            restored["provider"] = "local"
+            state.save(**restored)
             profile.apply()
+            if transcriber.set_engine(profile.ear_engine()):
+                asyncio.get_running_loop().run_in_executor(None, transcriber.load)
+            await asyncio.to_thread(voz_proc.sync)
             from .session import _open
             for s in list(_open):
                 if hasattr(s, "reset_live"):
@@ -230,7 +265,7 @@ def _actions_state() -> dict:
 @app.get("/api/actions")
 async def get_actions():
     """Ajustes › Acciones: si están encendidas, cuáles se permiten siempre y el registro de lo que se hizo."""
-    return {**_actions_state(), "history": actions.history(30)}
+    return {**_actions_state(), "history": await asyncio.to_thread(actions.history, 30)}
 
 
 class ActionsIn(BaseModel):
@@ -242,22 +277,70 @@ class ActionsIn(BaseModel):
 
 @app.post("/api/actions", dependencies=[Depends(same_origin)])
 async def set_actions(body: ActionsIn):
-    actions.save(enabled=body.enabled, forget_always=body.forget_always, ask=body.ask, full=body.full)
-    return {**_actions_state(), "history": actions.history(30)}
+    await asyncio.to_thread(actions.save, enabled=body.enabled, forget_always=body.forget_always, ask=body.ask, full=body.full)
+    from .session import _open
+    for s in list(_open):
+        if hasattr(s, "reset_live"):
+            await s.reset_live()
+    return {**_actions_state(), "history": await asyncio.to_thread(actions.history, 30)}
 
 
 @app.delete("/api/memory", dependencies=[Depends(same_origin)])
 async def forget():
-    store.forget_all()
+    await asyncio.to_thread(store.forget_all)
     mood.reset()                          # su ánimo también sale de lo que hablaron
     return {"ok": True}
 
 
 @app.get("/api/memory")
 async def memory():
-    """Lo que recuerda a largo plazo: datos sobre el usuario y resúmenes de conversaciones pasadas."""
-    return {"facts": store.memories(200),
-            "summaries": [{"text": t, "date": time.strftime("%d/%m/%Y", time.localtime(ts))} for t, ts in store.summaries(50)]}
+    """Lo que recuerda a largo plazo: datos sobre el usuario, resúmenes y recordatorios pendientes."""
+    return {
+        "facts": store.memories(200),
+        "items": store.memory_items(200),
+        "can_undo": store.can_undo_tidy(),
+        "summaries": [{"text": t, "date": time.strftime("%d/%m/%Y", time.localtime(ts))} for t, ts in store.summaries(50)],
+        "reminders": store.pending_reminder_items(40),
+    }
+
+
+@app.get("/api/memory/diary")
+async def memory_diary(q: str = ""):
+    return await asyncio.to_thread(store.diary_search, q, 100)
+
+
+class MemoryItemPatch(BaseModel):
+    fact: str | None = None
+    pinned: bool | None = None
+
+
+@app.patch("/api/memory/item/{mid}", dependencies=[Depends(same_origin)])
+async def patch_memory_item(mid: int, body: MemoryItemPatch):
+    try:
+        updated = await asyncio.to_thread(store.update_memory, mid, fact=body.fact, pinned=body.pinned)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    if updated is None:
+        raise HTTPException(404, "Recuerdo no encontrado")
+    return {"ok": True, "item": updated, **await memory()}
+
+
+@app.get("/api/reminders")
+async def get_reminders():
+    return {"reminders": store.pending_reminder_items(50)}
+
+
+@app.delete("/api/reminders/{rid}", dependencies=[Depends(same_origin)])
+async def remove_reminder(rid: int):
+    store.delete_reminder(rid)
+    return {"ok": True, "reminders": store.pending_reminder_items(50)}
+
+
+@app.post("/api/memory/undo", dependencies=[Depends(same_origin)])
+async def undo_tidy():
+    """Deshace el último orden automático de los recuerdos."""
+    store.undo_tidy()
+    return await memory()
 
 
 class FactIn(BaseModel):
@@ -329,7 +412,7 @@ async def delete_personality(pid: str):
 # ---------------------------------------------------------------- bienvenida y ajustes guardados
 @app.get("/api/setup")
 async def get_setup():
-    from . import tts_light
+    from . import tts_kokoro, tts_light
     gpu = await asyncio.to_thread(llm.gpu_memory)
     installed = await llm.installed_local()
     node_ok = voz_proc.installed() or await tts.node_available()
@@ -359,7 +442,10 @@ async def get_setup():
                          "auto": profile.voice_auto(), "recommended": recommended, "node": node_ok,
                          "fits_now": res["recommended_engine"] == "completa",
                          "light_installed": tts_light.installed(), "light_size_mb": tts_light.SIZE_MB,
-                         "light_progress": tts_light.progress or None},
+                         "light_progress": tts_light.progress or None,
+                         "kokoro_installed": tts_kokoro.installed(), "kokoro_runtime": tts_kokoro.runtime_supported(),
+                         "kokoro_files": tts_kokoro.files_present(), "kokoro_size_mb": tts_kokoro.SIZE_MB,
+                         "kokoro_progress": tts_kokoro.progress or None},
         "ear": {"engine": profile.ear_engine(), **_ear_public()}, "cloud_only": profile.cloud_only(),
         "gemini_live": profile.gemini_live(), "gemini_live_model": profile.live()["model"], "live": profile.public_live(),
         "onboarded": bool(state.load().get("onboarded")), "character": character_name(), "year": time.localtime().tm_year,
@@ -384,6 +470,7 @@ class SetupIn(BaseModel):
     gemini_live: bool | None = None       # modo en vivo: el proveedor oye, piensa, ve y habla (WebSocket directo)
     live: dict | None = None              # {provider, key, remove_key, model, voice, url}; sin key se conserva
     voice_auto: bool | None = None        # pasar sola a la ligera cuando la completa no cabe en la tarjeta
+    morning_briefing: bool | None = None  # saludo matutino con resumen de recordatorios de hoy
     onboarded: bool | None = None
 
 
@@ -403,7 +490,10 @@ async def set_setup(body: SetupIn):
             if not base.startswith(("https://", "http://127.0.0.1", "http://localhost")):
                 raise ValueError("La dirección de la API tiene que empezar por https://")
             old = profile.cloud()
-            key = str(body.cloud.get("key") or "").strip() or (old["key"] if old["preset"] == preset else "")
+            provided_key = str(body.cloud.get("key") or "").strip()
+            if preset == "custom" and not provided_key and base != old["base"]:
+                raise ValueError("Al cambiar la dirección del servidor compatible hay que escribir su clave de API.")
+            key = provided_key or (old["key"] if old["preset"] == preset else "")
             if not key:
                 raise ValueError("Falta la clave de API.")
             model = str(body.cloud.get("model") or "").strip()[:120]
@@ -422,11 +512,13 @@ async def set_setup(body: SetupIn):
                 raise ValueError("Esa voz todavía no está disponible.")
             changes["voice"] = body.voice
         if body.voice_engine is not None:
-            from . import tts_light
+            from . import tts_kokoro, tts_light
             if body.voice_engine not in profile.VOICE_ENGINES:
                 raise ValueError("Motor de voz no reconocido.")
             if body.voice_engine == "ligera" and not tts_light.installed():
                 raise ValueError("La voz ligera todavía no está descargada.")
+            if body.voice_engine == "kokoro" and not (tts_kokoro.installed() or tts_light.installed()):
+                raise ValueError("La voz Kokoro todavía no está descargada.")
             if body.voice_engine == "nube":
                 from . import tts_cloud
                 if not tts_cloud.installed():
@@ -457,6 +549,10 @@ async def set_setup(body: SetupIn):
             changes["live"] = _live_settings(body.live)
         if body.voice_auto is not None:
             changes["voice_auto"] = bool(body.voice_auto)
+        if body.morning_briefing is not None:
+            changes["morning_briefing"] = bool(body.morning_briefing)
+        if body.gemini_live is False:
+            changes.update(_gemini_live_changes(False, changes))
         if body.provider is not None:
             if body.provider not in ("gemini", "local"):
                 raise ValueError("provider debe ser gemini o local")
@@ -465,15 +561,15 @@ async def set_setup(body: SetupIn):
             changes["onboarded"] = bool(body.onboarded)
         if body.cloud_only is not None:
             changes.update(_cloud_only_changes(bool(body.cloud_only), changes))
-        if body.gemini_live is not None:
-            changes.update(_gemini_live_changes(bool(body.gemini_live), changes))
+        if body.gemini_live is True:
+            changes.update(_gemini_live_changes(True, changes))
     except ValueError as e:
         raise HTTPException(422, str(e))
-    state.save(**changes)
+    await asyncio.to_thread(state.save, **changes)
     engine = settings.voice_engine
     if body.provider is not None or "local_model" in changes or "voice_engine" in changes:
         profile.squeeze(False)            # se vuelve a decidir si cabe la voz completa
-    profile.apply()
+    await asyncio.to_thread(profile.apply)
     transcriber.hint = _hint()
     if transcriber.set_engine(profile.ear_engine()):      # se volvió al oído local: Whisper se carga de nuevo
         asyncio.get_running_loop().run_in_executor(None, transcriber.load)
@@ -595,8 +691,7 @@ async def desktop_scene(sit: int = 0):
     """Para la mascota de escritorio (modo flotante): dónde está la ventana activa y, con `sit`, la ventana sobre la
     que está sentada. Solo posición y estado, nunca el título ni el contenido (companion/desktop_scene.py)."""
     from . import desktop_scene as ds
-    fg = await asyncio.to_thread(ds.foreground)
-    return {"fg": fg, "sit": await asyncio.to_thread(ds.window, sit) if sit else None}
+    return await asyncio.to_thread(ds.scene, sit)
 
 
 @app.get("/api/update")
@@ -604,6 +699,21 @@ async def get_update():
     """¿Hay una versión nueva publicada? (companion/update.py; como mucho una consulta a GitHub cada 12 horas)"""
     from . import update
     return await update.check()
+
+
+class UpdateApplyIn(BaseModel):
+    launch: bool = True
+
+
+@app.post("/api/update/apply", dependencies=[Depends(same_origin)])
+async def apply_update(body: UpdateApplyIn):
+    from . import update
+    try:
+        return await update.download_and_verify(launch=body.launch)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"No se pudo descargar la actualización ({type(e).__name__})") from e
 
 
 # ---------------------------------------------------------------- carga y cierre (lifecycle.py)
@@ -642,12 +752,16 @@ async def reset_setup(body: ResetIn):
     recién instalado (los VRM propios que se subieron siguen en su carpeta)."""
     before = settings.llm_provider
     if body.data:
-        state.clear()
-        store.forget_all()
+        await asyncio.to_thread(state.clear)
+        await asyncio.to_thread(store.forget_all)
         mood.reset()
-        profile.apply()
+        await asyncio.to_thread(profile.apply)
         transcriber.hint = _hint()
         llm.reset_cloud()
+        from .session import _open
+        for s in list(_open):
+            if hasattr(s, "reset_live"):
+                await s.reset_live()
         if settings.llm_provider != before:
             _background(llm.warm_local() if not settings.is_cloud else llm.unload_local())
     else:
@@ -668,7 +782,10 @@ async def cloud_check(body: CloudCheckIn):
         raise HTTPException(422, "Proveedor no reconocido.")
     base = (body.base or profile.PRESETS[body.preset]["base"]).strip().rstrip("/")
     old = profile.cloud()
-    key = body.key.strip() or (old["key"] if old["preset"] == body.preset else "")
+    provided_key = body.key.strip()
+    if body.preset == "custom" and not provided_key and base != old["base"]:
+        raise HTTPException(400, "Al cambiar la dirección del servidor hay que escribir su clave de API.")
+    key = provided_key or (old["key"] if old["preset"] == body.preset else "")
     if not key or not base.startswith(("https://", "http://127.0.0.1", "http://localhost")):
         raise HTTPException(422, "Falta la clave o la dirección de la API.")
     try:
@@ -701,6 +818,15 @@ async def install_light_voice():
     return {"ok": True}
 
 
+@app.post("/api/voice-engine/install-kokoro", dependencies=[Depends(same_origin)])
+async def install_kokoro_voice():
+    """Descarga los pesos Apache-2.0 de Kokoro-82M (~345 MB) cuando el usuario lo pide."""
+    from . import tts_kokoro
+    if not tts_kokoro.files_present():
+        _background(tts_kokoro.install())
+    return {"ok": True}
+
+
 class VoiceIn(BaseModel):
     id: str
     engine: str | None = None             # con qué voz oír la muestra (por defecto, la que está en uso)
@@ -723,17 +849,20 @@ async def voice_preview(body: VoiceIn):
         pcm = b"".join([c async for c in tts.stream_speech(profile.PREVIEW_TEXT.format(name=v["name"]), v["tts_voice"], engine=engine)])
     except tts.TTSError as e:
         raise HTTPException(503, str(e))
-    n = len(pcm)
-    header = (b"RIFF" + (36 + n).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little") + (1).to_bytes(2, "little")
-              + (1).to_bytes(2, "little") + tts.SAMPLE_RATE.to_bytes(4, "little") + (tts.SAMPLE_RATE * 2).to_bytes(4, "little")
-              + (2).to_bytes(2, "little") + (16).to_bytes(2, "little") + b"data" + n.to_bytes(4, "little"))
-    if engine == "completa" and v["custom"] and n:      # la muestra ▶ de una voz propia se graba la primera vez
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_f:
+        wav_f.setnchannels(1)
+        wav_f.setsampwidth(2)
+        wav_f.setframerate(tts.SAMPLE_RATE)
+        wav_f.writeframes(pcm)
+    wav_bytes = buf.getvalue()
+    if engine == "completa" and v["custom"] and pcm:      # la muestra ▶ de una voz propia se graba la primera vez
         try:
             recorded.parent.mkdir(parents=True, exist_ok=True)
-            recorded.write_bytes(header + pcm)
+            recorded.write_bytes(wav_bytes)
         except OSError:
             pass
-    return Response(header + pcm, media_type="audio/wav")
+    return Response(wav_bytes, media_type="audio/wav")
 
 
 @app.post("/api/voices/custom", dependencies=[Depends(same_origin)])
@@ -799,7 +928,7 @@ async def upload_model(request: Request, filename: str = "modelo.vrm"):
         if len(data) > limit:
             raise HTTPException(413, f"El VRM supera {models.MAX_MB} MB")
     try:
-        saved = models.add(filename, bytes(data))
+        saved = await asyncio.to_thread(models.add, filename, bytes(data))
     except models.ModelError as e:
         raise HTTPException(400, str(e))
     log.info("Modelo propio guardado: %s (%s, VRM %s)", saved["id"], saved["meta"].get("name"), saved["meta"]["spec"])
@@ -828,10 +957,121 @@ async def delete_model(model_id: str):
     return models.listing(persona["name"])
 
 
+# ---------------------------------------------------------------- Pomodoro, Mochila, En Casa, Presets y MCP (N-02..N-10)
+@app.get("/api/focus")
+async def get_focus():
+    return focus.status()
+
+
+class FocusIn(BaseModel):
+    action: str = "start"      # start | stop | skip
+    work_min: int = 25
+    break_min: int = 5
+    task: str = ""
+
+
+@app.post("/api/focus", dependencies=[Depends(same_origin)])
+async def set_focus(body: FocusIn):
+    return await focus.control(body.action, work_min=body.work_min, break_min=body.break_min, task=body.task)
+
+
+@app.get("/api/backpack")
+async def get_backpack():
+    return await asyncio.to_thread(pairing.export_backpack)
+
+
+@app.post("/api/backpack", dependencies=[Depends(same_origin)])
+async def post_backpack(body: dict):
+    try:
+        res = await asyncio.to_thread(pairing.import_backpack, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    transcriber.hint = _hint()
+    return {**res, "config": await full_config()}
+
+
+@app.get("/api/pairing")
+async def get_pairing(request: Request):
+    local_req = _host_is_local(request.headers.get("host"))
+    return pairing.status(settings.port, include_secret=local_req)
+
+
+class PairingIn(BaseModel):
+    enabled: bool
+    rotate: bool = False
+
+
+@app.post("/api/pairing", dependencies=[Depends(same_origin)])
+async def set_pairing(request: Request, body: PairingIn):
+    if not _host_is_local(request.headers.get("host")):
+        raise HTTPException(403, "El emparejamiento solo se puede cambiar desde esta misma PC.")
+    return await asyncio.to_thread(pairing.configure, on=body.enabled, rotate=body.rotate, port=settings.port)
+
+
+@app.get("/api/presets")
+async def get_presets():
+    return {"presets": profile.list_presets()}
+
+
+@app.post("/api/presets", dependencies=[Depends(same_origin)])
+async def create_preset(body: dict):
+    try:
+        p = await asyncio.to_thread(profile.save_preset, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    return {"ok": True, "preset": p, "presets": profile.list_presets()}
+
+
+@app.post("/api/presets/{pid}/apply", dependencies=[Depends(same_origin)])
+async def apply_char_preset(pid: str):
+    try:
+        p = await asyncio.to_thread(profile.apply_preset, pid)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from None
+    transcriber.hint = _hint()
+    await asyncio.to_thread(voz_proc.sync)
+    await _personality_ready()
+    return {"ok": True, "preset": p, "config": await full_config(), "models": models.listing(persona["name"])}
+
+
+@app.delete("/api/presets/{pid}", dependencies=[Depends(same_origin)])
+async def remove_preset(pid: str):
+    return {"ok": True, "presets": await asyncio.to_thread(profile.delete_preset, pid)}
+
+
+@app.get("/api/mcp")
+async def get_mcp():
+    cfg = mcp_client.config()
+    tools = await mcp_client.list_tools() if cfg["enabled"] else []
+    return {**cfg, "tools": tools}
+
+
+class McpIn(BaseModel):
+    enabled: bool | None = None
+    add: dict | None = None
+    remove_id: str | None = None
+
+
+@app.post("/api/mcp", dependencies=[Depends(same_origin)])
+async def set_mcp(body: McpIn):
+    try:
+        cfg = await asyncio.to_thread(mcp_client.save, enabled=body.enabled, add=body.add, remove_id=body.remove_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    tools = await mcp_client.list_tools() if cfg["enabled"] else []
+    return {**cfg, "tools": tools}
+
+
 # ---------------------------------------------------------------- conversación en vivo
 @app.websocket("/ws")
 async def live(ws: WebSocket):
-    if not _origin_ok(ws.headers.get("origin")):
+    host_hdr = ws.headers.get("host")
+    client_ip = ws.client.host if ws.client else None
+    is_paired = pairing.valid_token(pairing.extract_token(ws.headers, ws.query_params, ws.cookies))
+    if not _paired_request_ok(host_hdr, client_ip, ws.headers, ws.query_params, ws.cookies):
+        await ws.close(code=1008)
+        return
+    if not _origin_ok(ws.headers.get("origin"), paired=is_paired):
         await ws.close(code=1008)
         return
     await ws.accept()

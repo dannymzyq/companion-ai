@@ -44,5 +44,10 @@
             android:name=".ServicioPantalla"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|microphone" />
+
+        <service
+            android:name=".ServicioVoz"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 </manifest>

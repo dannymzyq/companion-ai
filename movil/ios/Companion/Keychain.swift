@@ -5,6 +5,7 @@ import Security
 /// dice si existen, y las peticiones HTTP las ponen en la cabecera aquí, en el lado nativo.
 enum Keychain {
     private static let service = "companion.claves"
+    static let sharedGroup = "group.local.companion.app"
     static let allowed: Set<String> = ["cloud_key", "groq_key", "live_key"]
 
     static func get(_ name: String) -> String? {
@@ -29,6 +30,37 @@ enum Keychain {
 
     static func remove(_ name: String) {
         SecItemDelete(base(name) as CFDictionary)
+    }
+
+    /// Canal efímero compartido únicamente entre Companion y su extensión ReplayKit (App Group Keychain).
+    @discardableResult
+    static func sharedSet(_ name: String, _ value: String) -> Bool {
+        sharedRemove(name)
+        var q = base(name)
+        q[kSecAttrAccessGroup as String] = sharedGroup
+        q[kSecValueData as String] = Data(value.utf8)
+        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        if SecItemAdd(q as CFDictionary, nil) == errSecSuccess { return true }
+        return set("shared_\(name)", value)
+    }
+
+    static func sharedGet(_ name: String) -> String? {
+        var q = base(name)
+        q[kSecAttrAccessGroup as String] = sharedGroup
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        if SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data {
+            return String(data: data, encoding: .utf8)
+        }
+        return get("shared_\(name)")
+    }
+
+    static func sharedRemove(_ name: String) {
+        var q = base(name)
+        q[kSecAttrAccessGroup as String] = sharedGroup
+        SecItemDelete(q as CFDictionary)
+        remove("shared_\(name)")
     }
 
     private static func base(_ name: String) -> [String: Any] {

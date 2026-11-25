@@ -169,11 +169,13 @@ final class VentanaFlotante: NSObject, AVPictureInPictureControllerDelegate, AVP
     /// página no hay animación ni conversación. `_setThrottleStateForTesting:` (método interno de WKWebView; 2 =
     /// primer plano) le pide que la mantenga despierta. Si una versión de iOS lo quita, se queda el bucle nativo.
     private func mantenerPagina() {
+        #if !APPSTORE
         let sel = NSSelectorFromString("_setThrottleStateForTesting:")
         guard let web = padre as? NSObject, web.responds(to: sel) else { return }
         typealias Fn = @convention(c) (AnyObject, Selector, Int32) -> Void
         let f = unsafeBitCast(web.method(for: sel), to: Fn.self)
         f(web, sel, 2)
+        #endif
     }
 
     func cerrar() {

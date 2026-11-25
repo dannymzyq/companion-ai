@@ -4,6 +4,7 @@ librería edge-tts. No pide clave ni tiene cupo diario conocido, no usa memoria 
 suena con la voz ligera (tts.stream_speech). No clona: cada voz del catálogo tiene aquí una voz neuronal parecida
 (`cloud` en voices.json; las propias del usuario, según cómo hablan). Necesita internet y el texto de cada frase
 sale de la PC."""
+import asyncio
 import logging
 from typing import AsyncIterator
 
@@ -74,14 +75,23 @@ async def stream_speech(text: str, voice: str, speed: float = 1.0) -> AsyncItera
                     out += f.to_ndarray().tobytes()
         return bytes(out)
     sent = False
+    buf = bytearray()
     try:
         async for chunk in comm.stream():
             if chunk.get("type") == "audio" and chunk.get("data"):
-                pcm = decode(chunk["data"])
-                if pcm:
-                    sent = True
-                    yield pcm
-        tail = decode(None) + b"".join(f.to_ndarray().tobytes() for f in resampler.resample(None))
+                buf.extend(chunk["data"])
+                if len(buf) >= 16384:
+                    raw = bytes(buf)
+                    buf.clear()
+                    pcm = await asyncio.to_thread(decode, raw)
+                    if pcm:
+                        sent = True
+                        yield pcm
+        def finish_tail(rem: bytes) -> bytes:
+            head = decode(rem) if rem else b""
+            return head + decode(None) + b"".join(f.to_ndarray().tobytes() for f in resampler.resample(None))
+
+        tail = await asyncio.to_thread(finish_tail, bytes(buf))
         if tail:
             sent = True
             yield tail

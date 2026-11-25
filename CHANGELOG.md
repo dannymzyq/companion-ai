@@ -4,6 +4,36 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.11.0 — 2026-11-24
+
+- **La cara sigue su ánimo**: al terminar de hablar ya no vuelve a una cara neutra, sino a la de su estado de ánimo.
+- **Reacciones pequeñas**: cuando cambia de emoción, a veces reacciona con un gesto (una risita, asentir,
+  encogerse…). Elige uno al azar, nunca repite el anterior y no sobreactúa.
+- **Recuerdos ordenados**: cuando se acumulan muchos datos, en un rato de calma junta los repetidos y deja el más
+  reciente si dos se contradicen. Se puede deshacer en *Ajustes → Acciones y memoria*.
+- **Motor de voz intermedio Kokoro-82M (`kokoro-onnx`)**: nuevo motor neural local en CPU/ONNX entre Piper y F5-TTS,
+  con voces expresivas en español (`ef_dora`, `em_alex`, `em_santa`), 0 GB de VRAM y descarga opcional bajo demanda.
+- **Modo Escuchar Música Juntos, Modo Foto / Cabina y Compañera de Enfoque (Pomodoro)**: detector de tempo musical en
+  tiempo real sobre el audio compartido para que el personaje marque el ritmo y baile sin pisar la canción; cabina de
+  fotos 2K PNG con encuadres, fondos, poses y cuenta atrás 3-2-1; y bloques Pomodoro 25/5 y 50/10 con racha diaria.
+- **Presets de ambiente, accesorios 3D y mini-juegos**: guarda combinaciones de avatar, voz, personalidad y accesorios
+  acoplables (gafas, auriculares, taza humeante, gorro de dormir) en un clic; incluye Piedra-papel-tijera 1-2-3, Trivia,
+  20 preguntas y Veo-veo (con visión si la cámara o pantalla están activas).
+- **Diario de recuerdos con búsqueda instantánea, Mochila del Compañero, Modo En Casa y puente MCP**: motor SQLite FTS5
+  con fijado 📌 y edición en línea; exportación/importación portátil (`companion-backpack-v1`) sin claves ni secretos;
+  emparejamiento opcional en red local Wi-Fi con código de 6 dígitos; integración opt-in de servidores MCP locales con
+  confirmación obligatoria; y actualización verificada con `SHA256SUMS.txt` en un clic.
+- **Más fluidez 3D, mejor sincronía labial y refuerzo integral de seguridad**: empaquetado binario `web/anim/clips.bin`
+  con desenrollado de gimbal lock Euler, filtro FIR antialiasing en micrófono, `lipsync.js` recalibrado a 24 kHz con
+  fricativas activas, luz de contorno + sombra de contacto + micro-brisa en pelo, protección `TrustedHostMiddleware`
+  contra DNS rebinding, cabeceras `x-goog-api-key` (nunca claves en URLs), DPAPI y canal ReplayKit cifrado con
+  ChaChaPoly-256 en iOS, `ServicioVoz` de micrófono en segundo plano en Android, y paridad completa en `rust-live`.
+- **Vuelve a hacer lo que le pides dentro de una aplicación**: «pon La Barca en Apple Music» o «en el Word escribe…»
+  ya no se quedaban en nada. Y tras «abre Apple Music», un «pon…» o «busca…» va a esa aplicación.
+- **MCP siempre con tarjeta**: un servidor nuevo pide confirmación para cada herramienta, el formulario guarda bien la
+  dirección local y lo que devuelve una herramienta no se escribe en el registro.
+- **Kokoro instalado con el companion**: viene en las versiones fijas y sus archivos se comprueban con SHA-256 al bajarlos.
+
 ## 0.10.0 — 2026-11-22
 
 - **Nueva interfaz estilo Apple**: rediseño visual completo con materiales translúcidos tipo macOS / visionOS, tipografía

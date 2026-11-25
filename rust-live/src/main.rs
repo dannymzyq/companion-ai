@@ -91,14 +91,7 @@ fn pick_free_port(preferred: u16) -> u16 {
 }
 
 fn open_in_browser(url: &str) {
-    #[cfg(windows)]
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn();
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(url).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    let _ = actions::open_url_safe(url);
 }
 
 fn main() {

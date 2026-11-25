@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
+from zoneinfo import ZoneInfo
 
 from . import state, store
 from .config import settings
@@ -41,13 +42,15 @@ CATALOG = {
     "abrir_carpeta": {"title": "Abrir una carpeta", "report": False},
     "buscar_archivo": {"title": "Buscar archivos por nombre", "report": True},
     "temporizador": {"title": "Poner un temporizador", "report": False},
-    "recordatorio": {"title": "Guardar un recordatorio", "report": False},
+    "recordatorio": {"title": "Guardar o consultar recordatorios", "report": False},
+    "enfoque": {"title": "Modo enfoque (Pomodoro)", "report": False},
     "portapapeles": {"title": "Leer el portapapeles", "report": True},
     "multimedia": {"title": "Controlar la música o el vídeo", "report": False},
     "volumen": {"title": "Cambiar el volumen", "report": False},
     # Ratón y teclado sobre una ventana (companion/control.py). Desde el 16 nov 2026 también admite «permitir
     # siempre» (petición del usuario); los pasos delicados que la orden no pedía se siguen confirmando.
     "controlar": {"title": "Usar una aplicación por ti", "report": True},
+    "mcp": {"title": "Usar herramienta MCP", "report": True, "no_always": True},
 }
 
 
@@ -118,19 +121,29 @@ def record(req: Request, decision: str, result: str):
 
 
 def log_entry(action: str, detail: str, decision: str, result: str):
+    # Con portapapeles nunca se escribe el texto copiado en acciones.jsonl ni en companion.log (privacidad local).
+    # Tampoco lo que devuelve una herramienta MCP (puede traer datos tuyos).
+    safe_result = f"<{len(result)} caracteres>" if action in ("portapapeles", "mcp") and result else result
     entry = {"when": time.strftime("%Y-%m-%d %H:%M:%S"), "action": action, "detail": detail[:300],
-             "decision": decision, "result": result[:300]}
+             "decision": decision, "result": safe_result[:300]}
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         pass
-    log.info("Acción %s (%s): %s → %s", action, decision, detail, result[:120])
+    log.info("Acción %s (%s): %s → %s", action, decision, detail, safe_result[:120])
 
 
 def history(n: int = 30) -> list[dict]:
     try:
-        lines = LOG_FILE.read_text(encoding="utf-8").splitlines()[-n:]
+        size = LOG_FILE.stat().st_size
+        with open(LOG_FILE, "rb") as f:
+            if size > 32768:
+                f.seek(size - 32768)
+                raw = f.read().decode("utf-8", "ignore")
+                lines = raw.splitlines()[1:][-n:]
+            else:
+                lines = f.read().decode("utf-8", "ignore").splitlines()[-n:]
     except OSError:
         return []
     out = []
@@ -195,13 +208,10 @@ _ALIASES = {"descarga": "descargas", "downloads": "descargas", "documento": "doc
 
 # ---------------------------------------------------------------- aplicaciones (menú Inicio)
 _apps: tuple[float, list[dict]] = (0.0, [])
+_apps_refreshing = False
 
 
-def _start_apps() -> list[dict]:
-    """Las aplicaciones del menú Inicio (Get-StartApps: también las de la Microsoft Store). Se guardan 10 min."""
-    global _apps
-    if time.monotonic() - _apps[0] < 600 and _apps[1]:
-        return _apps[1]
+def _fetch_apps() -> list[dict]:
     if os.getenv("COMPANION_ACTIONS_APPS"):                  # pruebas: lista fija
         apps = json.loads(os.environ["COMPANION_ACTIONS_APPS"])
     elif sys.platform == "darwin":                           # las apps de /Applications (y las del sistema)
@@ -217,8 +227,35 @@ def _start_apps() -> list[dict]:
         apps = [data] if isinstance(data, dict) else data
     else:
         apps = []
-    apps = [{"name": str(a.get("Name") or a.get("name")), "id": str(a.get("AppID") or a.get("id"))}
+    return [{"name": str(a.get("Name") or a.get("name")), "id": str(a.get("AppID") or a.get("id"))}
             for a in apps if (a.get("Name") or a.get("name")) and (a.get("AppID") or a.get("id"))]
+
+
+def warm_apps():
+    """Precalienta la lista del menú Inicio en segundo plano para no bloquear el primer «abre…»."""
+    global _apps, _apps_refreshing
+    if _apps_refreshing or os.getenv("COMPANION_ACTIONS_DRY") == "1":
+        return
+    _apps_refreshing = True
+    try:
+        _apps = (time.monotonic(), _fetch_apps())
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        _apps_refreshing = False
+
+
+def _start_apps() -> list[dict]:
+    """Las aplicaciones del menú Inicio (Get-StartApps: también las de la Microsoft Store). Se guardan 10 min."""
+    global _apps
+    age = time.monotonic() - _apps[0]
+    if age < 600 and _apps[1] and not os.getenv("COMPANION_ACTIONS_APPS"):
+        return _apps[1]
+    if _apps[1] and not os.getenv("COMPANION_ACTIONS_APPS"):
+        import threading
+        threading.Thread(target=warm_apps, daemon=True).start()
+        return _apps[1]
+    apps = _fetch_apps()
     _apps = (time.monotonic(), apps)
     return apps
 
@@ -268,10 +305,19 @@ def _say_duration(s: int) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _now_local() -> datetime:
+    if settings.timezone:
+        try:
+            return datetime.now(ZoneInfo(settings.timezone))
+        except Exception:  # noqa: BLE001
+            pass
+    return datetime.now()
+
+
 def _parse_when(text: str, now: datetime | None = None) -> float:
     """Interpreta una fecha/hora en español para un recordatorio («en 2 horas», «hoy a las 18:30»,
     «mañana a las 9», «25/11 a las 10:00», «a las 20:00») y devuelve el timestamp Unix."""
-    cur = now or datetime.now()
+    cur = now or _now_local()
     t = _plain(text)
     if not t:
         raise ActionError("Necesito saber cuándo avisarte.")
@@ -316,8 +362,15 @@ def _parse_when(text: str, now: datetime | None = None) -> float:
         if not (0 <= hh <= 23 and 0 <= mm <= 59):
             raise ActionError("Esa hora no es válida.")
         target = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
-        if not explicit_day and target <= cur:
-            target += timedelta(days=1)
+        if explicit_day and not ampm and target <= cur and 1 <= hh <= 11:
+            candidate = base.replace(hour=hh + 12, minute=mm, second=0, microsecond=0)
+            if candidate > cur:
+                target = candidate
+        elif not explicit_day and target <= cur:
+            if not ampm and 1 <= hh <= 11 and base.replace(hour=hh + 12, minute=mm, second=0, microsecond=0) > cur:
+                target = base.replace(hour=hh + 12, minute=mm, second=0, microsecond=0)
+            else:
+                target += timedelta(days=1)
     elif explicit_day:
         target = base.replace(hour=9, minute=0, second=0, microsecond=0)
     else:
@@ -412,8 +465,8 @@ def prepare(name: str, args: list[str]) -> Request:
                        {"seconds": seconds, "label": label})
 
     if name == "multimedia":
-        if sys.platform != "win32":
-            raise ActionError("Controlar la música solo funciona en Windows, de momento.")
+        if sys.platform not in ("win32", "darwin"):
+            raise ActionError("Controlar la música solo funciona en Windows y macOS.")
         k = _plain(first)
         op = ("pausa" if re.search(r"paus|para|deten|stop|reanud|segu|play|reproduc|continu", k) else
               "siguiente" if re.search(r"sig|next|adelant|salt", k) else
@@ -438,13 +491,32 @@ def prepare(name: str, args: list[str]) -> Request:
 
     if name == "recordatorio":
         when_str = args[0] if args else ""
+        cmd = _plain(when_str)
+        if cmd in ("listar", "ver", "pendientes", "consultar"):
+            return Request(name, ["listar"], "Consultar recordatorios", "Ver tus recordatorios pendientes",
+                           {"mode": "list", "report": True})
+        if cmd in ("borrar", "cancelar", "eliminar", "quitar"):
+            who = " ".join(args[1:]).strip()
+            if not who:
+                raise ActionError("Dime qué recordatorio quieres cancelar.")
+            return Request(name, args, "Cancelar un recordatorio", f"Cancelar recordatorio: {who}",
+                           {"mode": "delete", "query": who, "report": True})
         what = " ".join(args[1:]).strip() if len(args) > 1 else ""
         if not when_str or not what:
             raise ActionError("Necesito saber cuándo y qué recordar (ej. «mañana a las 9 | llamar al médico»).")
         due_ts = _parse_when(when_str)
         when_fmt = time.strftime("%d/%m a las %H:%M", time.localtime(due_ts))
         return Request(name, args, title, f"Recordatorio ({when_fmt}): {what}",
-                       {"due_ts": due_ts, "text": what, "when": when_fmt})
+                       {"mode": "add", "due_ts": due_ts, "text": what, "when": when_fmt})
+
+    if name == "enfoque":
+        k = _plain(first or "25m")
+        if k in ("parar", "detener", "stop", "cancelar", "fin"):
+            return Request(name, ["parar"], title, "Detener el bloque de enfoque", {"op": "stop"})
+        mins = 25 if not first else max(1, min(180, _duration(first) // 60 or 25))
+        task = " ".join(args[1:]).strip()[:80] if len(args) > 1 else ""
+        detail = f"Modo enfoque de {mins} min" + (f" ({task})" if task else "")
+        return Request(name, args or [f"{mins}m"], title, detail, {"op": "start", "work_min": mins, "task": task})
 
     if name == "portapapeles":
         return Request(name, args or ["leer"], title, "Leer el texto del portapapeles", {})
@@ -454,13 +526,44 @@ def prepare(name: str, args: list[str]) -> Request:
         op = ("silenciar" if re.search(r"silen|mute|quit", k) else
               "subir" if re.search(r"sub|mas|aument|alto", k) else
               "bajar" if re.search(r"baj|menos|reduc|bajo", k) else None)
-        if not op:
-            raise ActionError("Solo puedo subir, bajar o silenciar el volumen.")
         m = re.search(r"\d+", k)
+        if op is None and m and ("%" in " ".join(args) or re.search(r"\b(al?|en)\s+\d+\b", k) or re.fullmatch(r"\d+\s*%?", k)):
+            pct = max(0, min(100, int(m.group())))
+            return Request(name, args, title, f"Poner el volumen al {pct} %", {"op": "fijar", "pct": pct})
+        if not op:
+            raise ActionError("Solo puedo subir, bajar, silenciar o fijar un porcentaje de volumen (ej. 50%).")
         steps = max(1, min(25, int(m.group()) // 2)) if m and op != "silenciar" else 5
         text = {"silenciar": "Silenciar o quitar el silencio", "subir": f"Subir el volumen (~{steps * 2} %)",
                 "bajar": f"Bajar el volumen (~{steps * 2} %)"}[op]
         return Request(name, args, title, text, {"op": op, "steps": steps})
+
+    if name == "mcp":
+        from . import mcp_client
+        cfg = mcp_client.config()
+        if not cfg["enabled"] or not cfg["servers"]:
+            raise ActionError("El conector MCP está desactivado o sin servidores en Ajustes.")
+        if not first:
+            raise ActionError("Falta indicar la herramienta MCP (servidor:herramienta).")
+        if ":" in first:
+            srv_ref, tool_name = [p.strip() for p in first.split(":", 1)]
+            srv = next((s for s in cfg["servers"] if s["id"] == srv_ref or _plain(s["name"]) == _plain(srv_ref)), None)
+        else:
+            tool_name = first.strip()
+            srv = cfg["servers"][0] if len(cfg["servers"]) == 1 else None
+        if not srv or not tool_name:
+            raise ActionError(f"No encontré el servidor o herramienta MCP «{first}».")
+        raw_args = args[1].strip() if len(args) > 1 and args[1].strip() else "{}"
+        try:
+            parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else {}
+            if not isinstance(parsed_args, dict):
+                parsed_args = {}
+        except ValueError:
+            parsed_args = {}
+        return Request(
+            name, args, title, f"Herramienta MCP {srv['name']}: {tool_name}",
+            {"server_id": srv["id"], "server_name": srv["name"], "tool": tool_name,
+             "arguments": parsed_args, "read_only": bool(srv.get("read_only", False))},
+        )
 
     raise ActionError("Acción no reconocida.")
 
@@ -471,15 +574,24 @@ def prepare(name: str, args: list[str]) -> Request:
 # igual. Sale de las palabras del propio usuario (nunca de una imagen o un resultado) y sigue necesitando su
 # permiso en la tarjeta.
 _POLITE = re.compile(r"\b(por favor|porfa|porfis|ahora|ya|rapido|enseguida)\b")
-_DO = (r"(?:pon|ponme|busca|buscame|reproduce|escribe|pulsa|haz|activa|desactiva|cambia|cierra|selecciona|marca|elige|"
-       r"dale|sube|baja|pasa|crea|anade|agrega|quita|elimina|borra|envia|manda|guarda|abre)")
+_DO = (r"(?:pon|ponme|busca|buscame|reproduce|reproducir|escucha|escuchar|toca|escribe|escribir|pulsa|haz|activa|"
+       r"desactiva|cambia|cierra|selecciona|marca|elige|dale|sube|baja|pasa|crea|anade|agrega|quita|elimina|borra|"
+       r"envia|manda|guarda|abre)")
 _GUESS = [
+    # «abre Apple Music y reproduce el álbum X» / «abre Spotify y pon lofi» / «abre Word para escribir…»
+    ("controlar", re.compile(
+        r"^(?:abre(?:me)?|abrir|inicia|lanza|arranca)\s+(?:la\s+app\s+|la\s+aplicacion\s+|el\s+programa\s+)?(?:el\s+|la\s+)?"
+        r"(?P<a>[\w .+-]{2,30}?)\s+(?:y\s+(?:luego\s+|despues\s+)?|e\s+|para\s+)(?P<b>" + _DO + r"\b.+)$"
+    )),
     ("controlar", re.compile(r"^(?:en|usa|usando|con)\s+(?:la app\s+|el programa\s+|la ventana de\s+)?(?P<a>[\w .-]{2,30}?)\s+(?:para\s+)?(?P<b>" + _DO + r"\b.+)$")),
     # «reproduce La Barca de Luis Miguel en Apple Music»: la tarea primero y la aplicación al final
     ("controlar", re.compile(r"^(?P<b>" + _DO + r"\b.+?)\s+en\s+(?:la app\s+|el programa\s+|la ventana de\s+)?(?P<a>[\w .-]{2,30})$")),
+    ("enfoque", re.compile(r"^(?:para|deten|detener|cancela|cancelar|termina|apaga|quita)\s+(?:el\s+)?(?:pomodoro|bloque\s+de\s+enfoque|modo\s+enfoque)\b")),
+    ("enfoque", re.compile(r"^(?:pon(?:me)?|inicia|empieza|activa)\s+(?:un\s+)?(?:pomodoro|bloque\s+de\s+enfoque|modo\s+enfoque)(?:\s+de\s+(?P<a>[\w ,.]+?))?(?:\s+para\s+(?P<b>.+))?$")),
+    ("recordatorio", re.compile(r"^(?:que\s+recordatorios\s+tengo|lista(?:me)?\s+(?:mis\s+|los\s+)?recordatorios|ver\s+recordatorios)$")),
     ("recordatorio", re.compile(r"^(?:recuerdame|pon(?:me)?\s+un\s+recordatorio\s+(?:para\s+)?|avisame)\s+(?P<a>(?:en\s+[\w ,.]+?|pasado\s+manana(?:\s+a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?)?|manana(?:\s+a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?)?|hoy\s+a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?|\d{1,2}[/\-]\d{1,2}(?:[/\-]\d{2,4})?(?:\s+a\s+las?\s+[\d:.]+)?|a\s+las?\s+[\d:.]+(?:\s*(?:am|pm|de la \w+))?))\s+(?:que\s+|de\s+|para\s+)?(?P<b>.+)$")),
     ("portapapeles", re.compile(r"^(?:lee(?:me)?|traduce(?:me)?|resume(?:me)?|revisa(?:me)?|explica(?:me)?|corrige(?:me)?|que\s+hay\s+en|mira)\s+(?:el\s+|mi\s+)?(?P<a>portapapeles|lo que (?:acabo de copiar|copie|tengo copiado))\b")),
-    ("temporizador", re.compile(r"\b(?:pon|ponme|programa|activa|crea)\s+(?:un|otro)?\s*(?:temporizador|cronometro|alarma)\s+(?:de\s+)?(?P<a>[\w ,.]+?)(?:\s+para\s+(?P<b>.+))?$")),
+    ("temporizador", re.compile(r"\b(?:poner(?:me)?|pon|ponme|programa(?:r)?|activa(?:r)?|crea(?:r)?)\s+(?:un|otro)?\s*(?:temporizador|cronometro|alarma)\s+(?:de\s+)?(?P<a>[\w ,.]+?)(?:\s+para\s+(?P<b>.+))?$")),
     ("buscar_archivo", re.compile(r"^(?:busca(?:me)?|encuentra(?:me)?|localiza)\s+(?:mi|mis|el|la|los|las|un|una)?\s*(?:archivo|archivos|documento|documentos|fichero|ficheros|foto|fotos|pdf)\s+(?:de\s+(?:la|el|los|las)?\s*|del\s+|que se llama\s+|llamado\s+)?(?P<a>.+)$")),
     ("volumen", re.compile(r"^(?P<a>sube|subeme|baja|bajame|silencia|quita|pon)\s+(?:el\s+)?(?:volumen|sonido|audio)(?P<b>.*)$")),
     ("multimedia", re.compile(r"^(?P<a>pausa|pon pausa|para la (?:musica|cancion)|reanuda|siguiente cancion|pasa (?:la|de) cancion|cancion anterior|la anterior)\b")),
@@ -488,28 +600,70 @@ _GUESS = [
     ("abrir_app", re.compile(r"^(?:abre(?:me)?|abrir|inicia|lanza|arranca)\s+(?:la\s+app\s+|la\s+aplicacion\s+|el\s+programa\s+)?(?:el\s+|la\s+)?(?P<a>[\w .+-]{2,40})$")),
 ]
 
+_CONTROL_STOPWORDS = {
+    "python", "internet", "espanol", "ingles", "casa", "linea", "general",
+    "serio", "broma", "texto", "codigo", "silencio", "voz alta", "pantalla",
+}
+_CONTROL_ALIASES = {
+    "word", "excel", "powerpoint", "bloc de notas", "chrome", "edge",
+    "paint", "explorador", "spotify", "apple music", "itunes", "notepad",
+}
+_TIMER_NEG = re.compile(r"\b(?:no\s+(?:pongas|pon|programes|actives|crees)|sin\s+(?:un\s+)?(?:temporizador|cronometro|alarma))\b")
+
 
 def guess(text: str) -> tuple[str, list[str]] | None:
     t = _plain(text)
     t = _POLITE.sub(" ", re.sub(r"[¡!¿?,;:]+|\.(?!\w)", " ", t))       # el punto de «youtube.com» se queda
-    t = re.sub(r"^(oye|mika|hey|eh|bueno|vale|venga|puedes|podrias|me puedes|quiero que)\s+", "", re.sub(r"\s+", " ", t).strip())
+    t = re.sub(
+        r"^(?:(?:oye|mika|kenji|natsumi|ayaka|chiaki|akira|goro|ryo|satoshi|hey|eh|bueno|vale|venga|puedes|podrias|me puedes|quiero que)\s+)+",
+        "",
+        re.sub(r"\s+", " ", t).strip(),
+    )
     t = re.sub(r"^(?:me\s+)?(\w+?)(?:me|lo|la)?$", r"\1", t) if " " not in t else t
     for name, rx in _GUESS:
         m = rx.search(t)
         if m:
             args = [g.strip() for g in (m.groupdict().get("a"), m.groupdict().get("b")) if g and g.strip()]
+            if name == "temporizador" and _TIMER_NEG.search(t):
+                continue
             if name == "controlar" and m.group("b").startswith(("abre", "abreme")) and "carpeta" in m.group("b"):
                 continue                                # «abre la carpeta… en el explorador»: es abrir_carpeta
             if name == "portapapeles":
                 args = ["leer"]
+            if name == "recordatorio" and not args:
+                args = ["listar"]
+            if name == "enfoque" and not args:
+                args = ["parar"] if re.match(r"^(?:para|deten|cancela|termina|apaga|quita)\b", t) else ["25m"]
             if name == "volumen":
                 args = [" ".join(args)]
-            if name == "controlar":                     # solo si hay una ventana abierta con ese nombre
+            if name == "controlar":                     # ventana abierta O aplicación instalada (se abre antes de controlar)
+                if sys.platform != "win32":
+                    return None
+                # «en el reproductor…», «en mi Word»: el artículo no es parte del nombre
+                args[0] = re.sub(r"^(?:el|la|los|las|mi|mis|tu)\s+", "", args[0]).strip() or args[0]
+                q_app = _plain(args[0])
+                if q_app in _CONTROL_STOPWORDS:
+                    continue
                 try:
                     from . import control
-                    control.find_window(args[0])
+                    win = control.find_window(args[0])
+                    if q_app not in _CONTROL_ALIASES:
+                        # Evitar falsos positivos por subcadena accidental en el título de un archivo
+                        w_proc = _plain(win.process)
+                        w_title = _plain(win.title)
+                        # Basta una palabra con contenido del nombre pedido («reproductor» de «reproductor de
+                        # prueba»); pedir el nombre entero hacía fallar órdenes normales (24 nov 2026).
+                        words = [w for w in q_app.split() if len(w) >= 4] or [q_app]
+                        where = f"{w_proc} {w_title}"
+                        if not (w_proc == q_app or any(re.search(rf"\b{re.escape(w)}\b", where) for w in words)):
+                            continue
                 except Exception:  # noqa: BLE001
-                    return None
+                    try:
+                        if len(args[0].split()) > 4:
+                            return None
+                        find_app(args[0])
+                    except (ActionError, OSError, ValueError, subprocess.SubprocessError):
+                        return None
             if name == "abrir_app":                     # «abre tu corazón…» no es una app: solo si existe
                 if len(args[0].split()) > 4:
                     return None
@@ -519,6 +673,16 @@ def guess(text: str) -> tuple[str, list[str]] | None:
                     return None
             return name, args
     return None
+
+
+# «pon La Barca», «reproduce lofi»: sin decir dónde. Justo después de abrir una aplicación, es para ella.
+_FOLLOW = re.compile(r"^(?:pon(?:me)?|reproduce|toca|busca(?:me)?|dale a|pasa a|escribe|escribeme)\s+\S")
+
+
+def follow_up(text: str) -> bool:
+    t = re.sub(r"\s+", " ", re.sub(r"[¡!¿?,;:.]+", " ", _plain(text))).strip()
+    t = re.sub(r"^(?:(?:oye|bueno|vale|venga|ahora|y|tambien|puedes|podrias|me puedes)\s+)+", "", t)
+    return bool(_FOLLOW.match(t)) and not re.search(r"\b(?:volumen|temporizador|alarma|recordatorio|pomodoro)\b", t)
 
 
 async def guess_async(text: str) -> tuple[str, list[str]] | None:
@@ -537,10 +701,32 @@ def _open(target: str):
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", target])
 
 
-def _mac_volume(op: str, steps: int):
-    script = ("set volume output muted not (output muted of (get volume settings))" if op == "silenciar" else
-              f"set volume output volume ((output volume of (get volume settings)) {'+' if op == 'subir' else '-'} {steps * 2})")
+def _mac_volume(op: str, steps: int, pct: int | None = None):
+    if op == "fijar" and pct is not None:
+        script = f"set volume output volume {int(pct)}"
+    elif op == "silenciar":
+        script = "set volume output muted not (output muted of (get volume settings))"
+    else:
+        script = f"set volume output volume ((output volume of (get volume settings)) {'+' if op == 'subir' else '-'} {steps * 2})"
     subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
+
+
+def _mac_media(op: str):
+    cmd = {"pausa": "playpause", "siguiente": "next track", "anterior": "previous track"}[op]
+    script = (
+        f'tell application "System Events"\n'
+        f'  if (name of processes) contains "Music" then tell application "Music" to {cmd}\n'
+        f'  if (name of processes) contains "Spotify" then tell application "Spotify" to {cmd}\n'
+        f'end tell'
+    )
+    subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
+
+
+def _win_set_volume(pct: int):
+    """Fija el volumen maestro en Windows (0..100 %): baja a 0 y sube los escalones exactos de 2 %."""
+    _key(_VK["bajar"], 50)
+    if pct > 0:
+        _key(_VK["subir"], max(1, round(pct / 2)))
 
 
 def _key(vk: int, times: int = 1):
@@ -602,11 +788,33 @@ def run(req: Request) -> str:
         if len(clip) > 2500:
             clip = clip[:2500] + "… (recortado)"
         return f"Contenido del portapapeles: {clip}"
+    if req.name == "recordatorio" and t.get("mode") == "list":
+        rows = store.pending_reminders(20)
+        if not rows:
+            return "No tienes ningún recordatorio pendiente."
+        items = [f"#{rid} ({time.strftime('%d/%m %H:%M', time.localtime(due))}): {txt}" for rid, due, txt in rows]
+        return "Recordatorios pendientes: " + "; ".join(items)
+    if req.name == "recordatorio" and t.get("mode") == "delete":
+        q = _plain(t["query"])
+        rows = store.pending_reminders(50)
+        hit = next(((rid, txt) for rid, _, txt in rows if str(rid) == q.lstrip("#") or q in _plain(txt)), None)
+        if not hit:
+            return f"No encontré ningún recordatorio pendiente con «{t['query']}»."
+        if not DRY:
+            store.delete_reminder(hit[0])
+        return f"Cancelé el recordatorio: {hit[1]}."
     if DRY:
         return f"(simulado) {req.detail}"
     if req.name == "recordatorio":
         store.add_reminder(t["due_ts"], t["text"])
         return f"Recordatorio guardado para el {t['when']}: {t['text']}."
+    if req.name == "enfoque":
+        from . import focus
+        if t["op"] == "stop":
+            focus._state_data.update(phase="idle", end_ts=0.0, total_s=0)
+            return "Detuve el modo enfoque."
+        focus.start_sync(work_min=t["work_min"], task=t.get("task", ""))
+        return f"{req.detail} en marcha."
     if req.name == "abrir_app":
         if sys.platform == "darwin":
             subprocess.Popen(["open", t["app"]["id"]])     # la ruta del .app
@@ -621,11 +829,17 @@ def run(req: Request) -> str:
         _open(t["path"])                                    # siempre una carpeta (comprobado), nunca un archivo
         return f"Abrí la carpeta {t['path']}."
     if req.name == "multimedia":
-        _key(_VK[t["op"]])
+        if sys.platform == "darwin":
+            _mac_media(t["op"])
+        else:
+            _key(_VK[t["op"]])
         return req.detail + "."
     if req.name == "volumen":
         if sys.platform == "darwin":
-            _mac_volume(t["op"], t["steps"])
+            _mac_volume(t["op"], t.get("steps", 5), t.get("pct"))
+            return req.detail + "."
+        if t["op"] == "fijar":
+            _win_set_volume(t["pct"])
             return req.detail + "."
         _key(_VK[t["op"]], 1 if t["op"] == "silenciar" else t["steps"])
         return req.detail + "."
@@ -635,6 +849,15 @@ def run(req: Request) -> str:
 
 
 async def run_async(req: Request) -> str:
+    if req.name == "mcp":
+        if DRY:
+            return f"(simulado) {req.detail}"
+        from . import mcp_client
+        t = req.target
+        ok, text, _ro = await mcp_client.call_tool(t["server_id"], t["tool"], t.get("arguments"))
+        if not ok:
+            raise ActionError(text or "La herramienta MCP devolvió un error.")
+        return text
     return await asyncio.to_thread(run, req)
 
 

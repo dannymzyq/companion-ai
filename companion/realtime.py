@@ -102,7 +102,6 @@ class RealtimeClient:
         self.ws = None
         self.connected = False
         self._send_lock = asyncio.Lock()
-        self._calls: dict[str, dict] = {}          # call_id → {name, args} hasta que llegan enteros
         self._responding = False
 
     # ---------------------------------------------------------------- configuración
@@ -203,6 +202,10 @@ class RealtimeClient:
     async def send_text(self, text: str, end_of_turn: bool = True, images: list[str] | None = None):
         if not self.connected or not text:
             return
+        if self.provider == "qwen" and images:
+            for img in images:
+                if img:
+                    await self.send_image(img)
         content = [{"type": "input_image", "image_url": f"data:image/jpeg;base64,{img}"}
                    for img in (images or ()) if img and self.provider != "qwen"]
         content.append({"type": "input_text", "text": text})
@@ -210,6 +213,15 @@ class RealtimeClient:
                           "item": {"type": "message", "role": "user", "content": content}})
         if end_of_turn:
             await self._create_response()
+
+    async def cancel_response(self):
+        """Cancela la respuesta en curso en el servidor Realtime (OpenAI/xAI/Qwen)."""
+        if self.connected:
+            try:
+                await self._send({"type": "response.cancel"})
+            except GeminiLiveError:
+                pass
+            self._responding = False
 
     async def _create_response(self):
         if self._responding:
@@ -283,7 +295,9 @@ class RealtimeClient:
             err = msg.get("error") or {}
             if err.get("code") in ("response_cancel_not_active", "conversation_already_has_active_response"):
                 return
-            log.warning("En vivo (%s): %s", self.provider, _err(msg))
+            detail = _err(msg)
+            log.warning("En vivo (%s): %s", self.provider, detail)
+            yield ("error", detail)
 
     async def close(self):
         self.connected = False

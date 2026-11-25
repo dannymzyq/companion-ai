@@ -173,12 +173,13 @@ function Version-Instalada([string]$dir) {
 }
 
 function Carpeta-Por-Defecto {
-    # Donde ya esté instalado (lo apuntó el instalador en Aplicaciones instaladas); si no, C:\Program Files\Companion.
+    # Donde ya esté instalado (lo apuntó el instalador en Aplicaciones instaladas); si no, en el perfil del usuario
+    # (%LOCALAPPDATA%\Programs\Companion), donde no hace falta pedir permiso de administrador ni cambiar ACLs del sistema.
     try {
         $loc = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CompanionPC" -ErrorAction Stop).InstallLocation
         if ($loc -and (Test-Path "$loc\iniciar.ps1") -and -not (Test-Path "$loc\.git")) { return $loc }
     } catch { }
-    return Join-Path $env:ProgramFiles "Companion"
+    return Join-Path $env:LOCALAPPDATA "Programs\Companion"
 }
 
 function Cambiar-Destino([string]$dir) {

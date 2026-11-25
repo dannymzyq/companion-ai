@@ -29,7 +29,9 @@ if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env" }
 # segundo fallaba con «solo se permite un uso de cada dirección de socket». Uno espera a que termine el otro, y
 # solo después lee el puerto (el primero puede haberlo cambiado).
 $candado = New-Object System.Threading.Mutex($false, "Local\CompanionPC-iniciar")
-try { [void]$candado.WaitOne([TimeSpan]::FromMinutes(3)) } catch [System.Threading.AbandonedMutexException] { }
+$tieneCandado = $false
+try { $tieneCandado = $candado.WaitOne([TimeSpan]::FromMinutes(3)) } catch [System.Threading.AbandonedMutexException] { $tieneCandado = $true }
+try {
 
 $puerto = Leer-Puerto
 $url = "http://127.0.0.1:$puerto"
@@ -143,3 +145,7 @@ $navegador = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
                "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($navegador) { Start-Process $navegador -ArgumentList "--app=$url", "--window-size=520,880" }
 else { Start-Process $url }
+} finally {
+    if ($tieneCandado) { try { $candado.ReleaseMutex() } catch { } }
+    $candado.Dispose()
+}

@@ -25,12 +25,31 @@ def _words(s: str) -> list[str]:
     return re.sub(r"[^a-zñ0-9 ]+", " ", s).split()
 
 
+def _resample_24_to_16(pcm24: bytes, x: np.ndarray) -> np.ndarray:
+    """Remuestrea 24 kHz → 16 kHz con filtro antialiasing (PyAV si está, o pasa-bajos FIR ligero)."""
+    try:
+        import av
+        frame = av.AudioFrame.from_ndarray(np.frombuffer(pcm24, dtype=np.int16).reshape(1, -1), format="s16", layout="mono")
+        frame.sample_rate = 24000
+        resampler = av.AudioResampler(format="fltp", layout="mono", rate=16000)
+        parts = [f.to_ndarray()[0] for f in resampler.resample(frame)]
+        parts.extend(f.to_ndarray()[0] for f in resampler.resample(None))
+        if parts:
+            return np.concatenate(parts).astype(np.float32)
+    except Exception:  # noqa: BLE001
+        pass
+    # Filtro FIR ligero de 5 taps antes de diezmar 1.5x
+    kernel = np.array([0.1, 0.22, 0.36, 0.22, 0.1], dtype=np.float32)
+    xf = np.convolve(x, kernel, mode="same")
+    return np.interp(np.arange(0, len(xf), 1.5), np.arange(len(xf)), xf).astype(np.float32)
+
+
 def heard(model, pcm24: bytes) -> str:
     """Lo que se oye en ese audio (PCM 16 bits, 24 kHz)."""
     x = np.frombuffer(pcm24, dtype=np.int16).astype(np.float32) / 32768
     if len(x) < 2400:
         return ""
-    x16 = np.interp(np.arange(0, len(x), 1.5), np.arange(len(x)), x).astype(np.float32)
+    x16 = _resample_24_to_16(pcm24, x)
     segs, _ = model.transcribe(x16, language="es", beam_size=1, condition_on_previous_text=False,
                                without_timestamps=True, vad_filter=False)
     return " ".join(s.text.strip() for s in segs)

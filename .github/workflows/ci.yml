@@ -1,0 +1,92 @@
+# Integración continua en cada push y pull request: pruebas unitarias de Python, sintaxis y BOM UTF-8 de PowerShell,
+# sintaxis de módulos JS, pruebas del núcleo móvil y compilación/pruebas de la edición portable en Rust.
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python-y-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar uv y Python 3.13
+        run: |
+          python3 -m pip install --quiet uv==0.13.8
+          uv venv --python 3.13 "$RUNNER_TEMP/venv"
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" -r requirements-mac.lock
+
+      - name: Pruebas unitarias (Python)
+        run: "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s tests -t .
+
+      - name: Verificar BOM UTF-8 en scripts PowerShell
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" - <<'PY'
+          import pathlib, sys
+          bad = []
+          for p in sorted(pathlib.Path(".").rglob("*.ps1")):
+              raw = p.read_bytes()
+              if any(b > 127 for b in raw) and not raw.startswith(b"\xef\xbb\xbf"):
+                  bad.append(str(p))
+          if bad:
+              sys.exit(f"Scripts .ps1 con caracteres no ASCII sin BOM UTF-8: {bad}")
+          print("BOM UTF-8 verificado en todos los .ps1.")
+          PY
+
+      - name: Verificar sintaxis JS y pruebas del núcleo móvil
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Comprobar módulos JS (web/, desktop/, movil/)
+        run: |
+          for f in web/js/*.js desktop/*.js movil/core/*.js; do
+            node --check "$f"
+          done
+          node movil/core/pruebas.mjs
+
+  rust-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar web/vendor con verificación SHA-256
+        shell: powershell
+        run: |
+          $three = "0.180.0"; $vrm = "3.5.5"; $cdn = "https://cdn.jsdelivr.net/npm"
+          $files = @(
+            @{ url = "$cdn/three@$three/build/three.module.min.js";                 dst = "web/vendor/three/build/three.module.min.js";                 sha = "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6" },
+            @{ url = "$cdn/three@$three/build/three.core.min.js";                   dst = "web/vendor/three/build/three.core.min.js";                   sha = "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de" },
+            @{ url = "$cdn/three@$three/examples/jsm/loaders/GLTFLoader.js";        dst = "web/vendor/three/examples/jsm/loaders/GLTFLoader.js";        sha = "67ac5551fdafa6e349bd80c8f8e5e39c136d6b2fb1ad647db9abb21dc86f9e4a" },
+            @{ url = "$cdn/three@$three/examples/jsm/utils/BufferGeometryUtils.js"; dst = "web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js"; sha = "fda7e946b8e0b5ab39b779206589e7a1079a22eb24efb89d7223e03fdfb1f751" },
+            @{ url = "$cdn/three@$three/examples/jsm/controls/OrbitControls.js";    dst = "web/vendor/three/examples/jsm/controls/OrbitControls.js";    sha = "b97879c748170baadeb3fb84cea1ffdf4674e283dc06042f34e2acb95a76042c" },
+            @{ url = "$cdn/@pixiv/three-vrm@$vrm/lib/three-vrm.module.min.js";      dst = "web/vendor/three-vrm/three-vrm.module.min.js";               sha = "99f943e956e52dbf52bbe418899e8a8ae5e35f5c79a94ab8e404926afc620bf2" }
+          )
+          foreach ($f in $files) {
+            New-Item -ItemType Directory -Force (Split-Path -Parent $f.dst) | Out-Null
+            Invoke-WebRequest -Uri $f.url -OutFile $f.dst -UseBasicParsing
+            if ((Get-FileHash $f.dst -Algorithm SHA256).Hash.ToLowerInvariant() -ne $f.sha) { throw "SHA-256 inválido en $($f.dst)" }
+          }
+
+      - name: Validar AST de todos los scripts PowerShell
+        shell: powershell
+        run: |
+          $errores = @()
+          foreach ($f in Get-ChildItem -Recurse -Filter *.ps1) {
+            $tokens = $null; $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) { $errores += "$($f.FullName): $($parseErrors[0].Message)" }
+          }
+          if ($errores.Count -gt 0) { throw ($errores -join "`n") }
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Pruebas unitarias en Rust
+        working-directory: rust-live
+        run: cargo test

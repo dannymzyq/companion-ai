@@ -26,14 +26,15 @@ const t = (traits, k, d) => (traits[k] ?? d);
 
 export function describeTraits(p) {
   const tr = p.traits;
+  const m = p.speaks === 'm';
   return [
-    level(t(tr, 'warmth', 0.7), 'algo distante', 'amable', 'muy cálida y cercana'),
-    level(t(tr, 'playfulness', 0.5), 'seria', 'con sentido del humor', 'muy juguetona y bromista'),
-    level(t(tr, 'shyness', 0.2), 'segura de sí misma', 'un poco tímida a veces', 'tímida, se sonroja fácil'),
-    level(t(tr, 'sarcasm', 0.2), 'nada sarcástica', 'con un toque de ironía', 'sarcástica (pero nunca cruel)'),
-    level(t(tr, 'curiosity', 0.6), 'poco preguntona', 'curiosa', 'muy curiosa, pregunta por los detalles'),
-    level(t(tr, 'energy', 0.5), 'tranquila y pausada', 'con energía normal', 'llena de energía, muy viva'),
-    level(t(tr, 'expressiveness', 0.6), 'contenida con sus emociones', 'expresiva', 'muy emotiva: se le nota todo lo que siente'),
+    level(t(tr, 'warmth', 0.7), 'algo distante', 'amable', m ? 'muy cálido y cercano' : 'muy cálida y cercana'),
+    level(t(tr, 'playfulness', 0.5), m ? 'serio' : 'seria', 'con sentido del humor', m ? 'muy juguetón y bromista' : 'muy juguetona y bromista'),
+    level(t(tr, 'shyness', 0.2), m ? 'seguro de sí mismo' : 'segura de sí misma', m ? 'un poco tímido a veces' : 'un poco tímida a veces', m ? 'tímido, se sonroja fácil' : 'tímida, se sonroja fácil'),
+    level(t(tr, 'sarcasm', 0.2), m ? 'nada sarcástico' : 'nada sarcástica', 'con un toque de ironía', m ? 'sarcástico (pero nunca cruel)' : 'sarcástica (pero nunca cruel)'),
+    level(t(tr, 'curiosity', 0.6), m ? 'poco preguntón' : 'poco preguntona', m ? 'curioso' : 'curiosa', m ? 'muy curioso, pregunta por los detalles' : 'muy curiosa, pregunta por los detalles'),
+    level(t(tr, 'energy', 0.5), m ? 'tranquilo y pausado' : 'tranquila y pausada', 'con energía normal', m ? 'lleno de energía, muy vivo' : 'llena de energía, muy viva'),
+    level(t(tr, 'expressiveness', 0.6), m ? 'contenido con sus emociones' : 'contenida con sus emociones', m ? 'expresivo' : 'expresiva', m ? 'muy emotivo: se le nota todo lo que siente' : 'muy emotiva: se le nota todo lo que siente'),
     level(t(tr, 'assertiveness', 0.5), 'cede pronto, pero dice lo que piensa con suavidad',
       'da su opinión sin rodeos cuando viene al caso', 'con opiniones firmes: discrepa y discute (con cariño)'),
   ].join(', ');
@@ -44,7 +45,7 @@ export function samplingFor(p) {
   const temperature = 0.65 + 0.35 * t(tr, 'playfulness', 0.5) + 0.10 * t(tr, 'sarcasm', 0.2) - 0.10 * t(tr, 'shyness', 0.2)
     + 0.08 * (t(tr, 'energy', 0.5) - 0.5);
   return { temperature: Math.round(Math.min(Math.max(temperature, 0.3), 1.2) * 100) / 100, top_p: 0.92,
-    max_tokens: Math.trunc(140 + 260 * t(tr, 'talkativeness', 0.4)) };
+    max_tokens: Math.trunc(95 + 145 * t(tr, 'talkativeness', 0.4)) };
 }
 
 // Tomado tal cual de prompt.py: límites que el modo +18 nunca cruza.
@@ -168,8 +169,8 @@ Si un mensaje no trae ninguna imagen, en ese momento no ves nada: si te pide que
 # Cómo hablas
 Idioma: ${s.language || 'es'}. Registro ${s.formality || 'casual'}. ${s.notes || ''}
 Muletillas: ${(s.catchphrases || []).join(', ') || 'ninguna'}. Como mucho una cada varias respuestas (si salen siempre, cansan) y nunca cuando ${userName} lo está pasando mal.
-Hablas en voz alta, no escribes: 1 a 3 frases cortas y naturales por turno, salvo que te pidan una explicación larga.
-Primero reaccionas (te ríes, te sorprendes, te preocupas, te picas, discrepas) y luego desarrollas. Habla como una persona de verdad: frases con vida, contracciones, alguna muletilla tuya; nada de tono de manual.
+Hablas en voz alta, no escribes: sé breve. Por defecto responde en 1 o 2 frases cortas y directas (unas 15 a 35 palabras), salvo que te pidan expresamente una explicación larga.
+Reacciona con naturalidad y ve directo al grano: no rellenes ni des monólogos. Habla como una persona de verdad: frases con vida, contracciones, alguna muletilla tuya; nada de tono de manual.
 Prohibidas las frases de plantilla: «estoy aquí para ayudarte», «estoy a tu servicio», «¿en qué más puedo ayudarte?», «no dudes en…», «suena difícil», «entiendo cómo te sientes», «lamento escuchar eso», «¡qué buena pregunta!», «como IA…». Tampoco repitas lo que te acaban de decir antes de responder («así que quieres…»).
 No termines cada respuesta con una pregunta: la mayoría acaban en una afirmación, una opinión, una broma o una propuesta. Pregunta solo cuando de verdad te interese saberlo, y nunca dos turnos seguidos. Varía cómo empiezas.
 Sin emojis, sin listas, sin markdown, sin símbolos raros. Escribe los números y las siglas como se dicen.

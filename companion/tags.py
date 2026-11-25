@@ -12,7 +12,9 @@ from .prompt import EMOTIONS, GESTURES
 
 BRACKET = re.compile(r"\[[^\]]*\]")
 TAG = re.compile(r"\[\s*([^\W\d]+)\s*:\s*([^\]]*)\]")
-SENTENCE_END = re.compile(r"[.!?…]+[\"»)']*\s+|\n+")
+SENTENCE_END = re.compile(
+    r"(?<!\bSr)(?<!\bSra)(?<!\bDr)(?<!\bDra)(?<!\bAv)(?<!\betc)(?<!\bp\. ej)(?:[.!?…]+(?!\d)[\"»)']*\s+|\n+)"
+)
 CLAUSE_END = re.compile(r"[,;:]\s+")
 MARKDOWN = re.compile("[*_`#~\U0001F000-\U0001FAFF☀-➿️‍]+")     # y emojis: los modelos pequeños los ponen igual
 HAS_WORD = re.compile(r"\w")

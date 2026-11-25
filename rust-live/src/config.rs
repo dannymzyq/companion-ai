@@ -1,9 +1,112 @@
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
+
+#[cfg(windows)]
+pub fn seal_secret(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.starts_with("dpapi:") {
+        return trimmed.to_string();
+    }
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+    let mut bytes = trimmed.as_bytes().to_vec();
+    let in_blob = CRYPT_INTEGER_BLOB {
+        cbData: bytes.len() as u32,
+        pbData: bytes.as_mut_ptr(),
+    };
+    let mut out_blob = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+    unsafe {
+        if CryptProtectData(
+            &in_blob,
+            null(),
+            null(),
+            null_mut(),
+            null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut out_blob,
+        ) != 0
+            && !out_blob.pbData.is_null()
+        {
+            let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let encoded = format!("dpapi:{}", B64.encode(slice));
+            LocalFree(out_blob.pbData as _);
+            return encoded;
+        }
+    }
+    trimmed.to_string()
+}
+
+#[cfg(not(windows))]
+pub fn seal_secret(raw: &str) -> String {
+    raw.trim().to_string()
+}
+
+#[cfg(windows)]
+pub fn unseal_secret(stored: &str) -> String {
+    let trimmed = stored.trim();
+    let Some(b64) = trimmed.strip_prefix("dpapi:") else {
+        if trimmed.starts_with("keychain:") {
+            return String::new();
+        }
+        return trimmed.to_string();
+    };
+    let Ok(mut raw) = B64.decode(b64) else {
+        return String::new();
+    };
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+    let in_blob = CRYPT_INTEGER_BLOB {
+        cbData: raw.len() as u32,
+        pbData: raw.as_mut_ptr(),
+    };
+    let mut out_blob = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+    unsafe {
+        if CryptUnprotectData(
+            &in_blob,
+            null_mut(),
+            null(),
+            null_mut(),
+            null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut out_blob,
+        ) != 0
+            && !out_blob.pbData.is_null()
+        {
+            let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let plain = String::from_utf8_lossy(slice).to_string();
+            LocalFree(out_blob.pbData as _);
+            return plain;
+        }
+    }
+    String::new()
+}
+
+#[cfg(not(windows))]
+pub fn unseal_secret(stored: &str) -> String {
+    let trimmed = stored.trim();
+    if trimmed.starts_with("dpapi:") || trimmed.starts_with("keychain:") {
+        return String::new();
+    }
+    trimmed.to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveProviderMeta {
@@ -296,7 +399,8 @@ impl AppConfig {
         let mut key = lv
             .and_then(|o| o.get("key"))
             .and_then(|v| v.as_str())
-            .unwrap_or("")
+            .map(unseal_secret)
+            .unwrap_or_default()
             .trim()
             .to_string();
 
@@ -308,7 +412,8 @@ impl AppConfig {
                 .filter(|c| c.get("preset").and_then(|v| v.as_str()).unwrap_or("gemini") == "gemini")
                 .and_then(|c| c.get("key"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
+                .map(unseal_secret)
+                .unwrap_or_default()
                 .trim()
                 .to_string();
             if !cloud_key.is_empty() {
@@ -320,6 +425,8 @@ impl AppConfig {
             key = self.env_or("OPENAI_API_KEY", "");
         } else if key.is_empty() && prov == "xai" {
             key = self.env_or("XAI_API_KEY", "");
+        } else if key.is_empty() && prov == "qwen" {
+            key = self.env_or("DASHSCOPE_API_KEY", "");
         }
 
         let model = lv
@@ -425,10 +532,32 @@ impl AppConfig {
             .unwrap_or(false)
     }
 
+    pub fn speaks(&self) -> String {
+        self.persona_base
+            .get("speaks")
+            .and_then(|v| v.as_str())
+            .unwrap_or("f")
+            .to_string()
+    }
+
     pub fn version(&self) -> String {
         fs::read_to_string(self.root.join("VERSION"))
             .map(|s| format!("{}-rust-live", s.trim()))
-            .unwrap_or_else(|_| "0.9.0-rust-live".to_string())
+            .unwrap_or_else(|_| "0.10.0-rust-live".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seals_and_unseals_secrets() {
+        let plain = "AIzaSyTestSecretKey12345";
+        let sealed = seal_secret(plain);
+        #[cfg(windows)]
+        assert!(sealed.starts_with("dpapi:"));
+        assert_eq!(unseal_secret(&sealed), plain);
     }
 }
 

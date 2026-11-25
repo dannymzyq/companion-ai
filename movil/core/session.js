@@ -130,6 +130,28 @@ export class Session {
       if (text) { await this.interrupt(); this._start(text, null); }
     } else if (kind === 'start') {
       if (!this.busy) this._start(null, GREETING);
+    } else if (kind === 'touch' || kind === 'look') {
+      const zone = String(data.zone || data.kind || '').trim();
+      if (zone && !this.busy) {
+        const note = kind === 'touch'
+          ? `(El usuario te acaba de dar un toque cariñoso en: ${zone}. Reacciona de forma breve y natural.)`
+          : `(El usuario te está mirando de cerca: ${zone}. Reacciona con brevedad.)`;
+        this._start(null, note);
+      }
+    } else if (kind === 'game') {
+      const mode = String(data.mode || '').trim();
+      if (!mode || mode === 'stop') return;
+      const rps = ['piedra', 'papel', 'tijera'][Math.floor(Math.random() * 3)];
+      const prompts = {
+        rps: `(El usuario inició Piedra, Papel o Tijera contigo. Cuenta «¡Piedra, papel o tijera!» y di que sacaste «${rps}».)`,
+        trivia: '(El usuario inició una ronda de Trivia contigo. Hazle una pregunta curiosa con 3 opciones breves.)',
+        twenty: '(El usuario inició 20 preguntas contigo. Piensa en algo en secreto y dile que empiece a preguntar sí o no.)',
+        ispy: '(El usuario inició «Veo, veo» contigo. Di «¡Veo, veo!» dando una pista breve.)',
+      };
+      if (!prompts[mode]) return;
+      if (mode === 'rps') this.send({ type: 'rps', choice: rps });
+      await this.interrupt();
+      this._start(null, prompts[mode]);
     } else if (kind === 'interrupt') {
       await this.interrupt();
       this.setState('idle');
@@ -203,7 +225,7 @@ export class Session {
       const p = this.persona();
       const gap = mood.sinceLastTalk(this.prevTs);
       this.prevTs = Date.now() / 1000;
-      last.content = `${turnContext(localTime(), mood.describe(p.personality), gap)}${done}\n${last.content}`;
+      last.content = `${turnContext(localTime(), mood.describe(p.personality, undefined, p.speaks), gap)}${done}\n${last.content}`;
       // Con la cámara activa y el cerebro en la nube, la imagen de ahora va con su mensaje (como _images_openai).
       // Con la pantalla compartida, igual: la pantalla de su teléfono (lo que está viendo).
       const fresh = (f) => f && Date.now() - f.at <= FRAME_MAX_AGE;
@@ -260,9 +282,11 @@ export class Session {
       return;
     }
     const full = parser.spoken.join(' ');
-    if (full) { store.addMessage('assistant', full, this.emotion); mood.feel(this.emotion, (this.persona().personality)); }
-    for (const fact of parser.memories) store.addMemory(fact);
-    this.send({ type: 'reply_end', text: full });
+    const pers = this.persona().personality;
+    if (full) { store.addMessage('assistant', full, this.emotion); mood.feel(this.emotion, pers); }
+    const screenFresh = this.frames.screen && Date.now() - this.frames.screen.at <= 15000;
+    if (!screenFresh) for (const fact of parser.memories) store.addMemory(fact);
+    this.send({ type: 'reply_end', text: full, mood: mood.pub(pers).emotion || 'neutral' });
   }
 
   // Turno cortado: se guarda lo que alcanzó a decir; si no dijo nada, el mensaje del usuario se retira (vuelve

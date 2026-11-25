@@ -59,9 +59,18 @@ async def run(sess, req: actions.Request):
                              sees=", una imagen de la ventana" if sees else "",
                              coords=OPERATOR_COORDS if sees else "")
     try:
+        # Si la ventana estaba minimizada y no hay nada a pantalla completa delante, se restaura sin robar el foco
+        # (SW_SHOWNOACTIVATE=4) para que UI Automation lea sus controles y coordenadas reales.
+        is_iconic = getattr(control.user32, "IsIconic", None)
+        show_win = getattr(control.user32, "ShowWindow", None)
+        if (callable(is_iconic) and callable(show_win) and is_iconic(win.hwnd)
+                and not control.fullscreen(control.user32.GetForegroundWindow())):
+            show_win(win.hwnd, 4)
+            await asyncio.sleep(0.45)
         # En segundo plano: la ventana NO se trae al frente. Solo un paso que necesite el teclado o el ratón de
         # verdad lo hace, y únicamente si no estás usando la PC (control.real_input).
         with control.EscWatch() as esc:
+            esc.target_hwnd = win.hwnd
             for n in range(1, control.MAX_STEPS + 1):
                 if esc.pressed or sess.control_stop or sess.closed:
                     result = f"{settings.user_name} lo paró" + (" con Esc" if esc.pressed else "")
@@ -76,6 +85,15 @@ async def run(sess, req: actions.Request):
                     result = f"{settings.user_name} cambió a otra ventana, así que me detuve"
                     break
                 items, texts = await asyncio.to_thread(control.snapshot, win.hwnd)
+                if n == 1 and not items:
+                    # Apps WinUI 3 / Electron recién abiertas (ej. Apple Music, Spotify) tardan unos segundos en poblar controles
+                    for _ in range(12):
+                        if esc.pressed or sess.control_stop or sess.closed:
+                            break
+                        await asyncio.sleep(0.5)
+                        items, texts = await asyncio.to_thread(control.snapshot, win.hwnd)
+                        if items:
+                            break
                 sig = control.signature(items, texts)
                 if last_sig is not None and sig == last_sig and steps and "no se pudo" not in steps[-1]:
                     steps[-1] += " — no cambió nada en la ventana"
@@ -101,9 +119,12 @@ async def run(sess, req: actions.Request):
                 images = [llm.Image("window", shot.jpeg, win.title[:60])] if shot else []
                 messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
                 # background: en la nube, cada paso va primero al modelo de más cuota (no gasta la de la charla)
-                reply = "".join([p async for p in llm.stream_chat(messages, {"temperature": 0.2, "top_p": 0.9, "max_tokens": 450},
-                                                                  images, background=True)])
-                llm.pop_notices()
+                try:
+                    reply = "".join([p async for p in llm.stream_chat(messages, {"temperature": 0.2, "top_p": 0.9, "max_tokens": 450},
+                                                                      images, background=True)])
+                except llm.LLMError as e:
+                    result = f"el modelo no pudo seguir ({e})"
+                    break
                 step = control.parse(reply)
                 log.info("Control %d%s: %s → %s", n, " (con imagen)" if shot else "", shown(reply[:120]),
                          step and (step[0], [a[:60] if settings.log_text else f"<{len(a)}>" for a in step[1]]))

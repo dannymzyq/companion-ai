@@ -23,7 +23,75 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "web" / "anim" / "clips.json"
+OUT_BIN = ROOT / "web" / "anim" / "clips.bin"
 FPS = 30
+
+
+def _wrap_pi(a: float) -> float:
+    x = (a + math.pi) % (2 * math.pi)
+    return x - math.pi
+
+
+def _canonical_euler(e, prev=None):
+    """Elige entre las dos ramas equivalentes de Euler XYZ: (x, y, z) y (x+π, π-y, z+π)."""
+    ax, ay, az = _wrap_pi(e[0]), _wrap_pi(e[1]), _wrap_pi(e[2])
+    bx, by, bz = _wrap_pi(e[0] + math.pi), _wrap_pi(math.pi - e[1]), _wrap_pi(e[2] + math.pi)
+    if prev is None:
+        return [bx, by, bz] if (bx * bx + by * by + bz * bz) + 1e-4 < (ax * ax + ay * ay + az * az) else [ax, ay, az]
+    ua = [v + 2 * math.pi * round((p - v) / (2 * math.pi)) for v, p in zip((ax, ay, az), prev)]
+    ub = [v + 2 * math.pi * round((p - v) / (2 * math.pi)) for v, p in zip((bx, by, bz), prev)]
+    da = sum((v - p) ** 2 for v, p in zip(ua, prev))
+    db = sum((v - p) ** 2 for v, p in zip(ub, prev))
+    return ub if db + 1e-4 < da else ua
+
+
+def pack_bin(json_path: Path = OUT, bin_path: Path = OUT_BIN) -> Path:
+    """Empaqueta clips.json en un archivo binario compacto clips.bin (cabecera JSON + Float32Array contiguo)."""
+    raw = json.loads(json_path.read_text(encoding="utf-8"))
+    meta_clips = {}
+    floats: list[float] = []
+    for name, c in (raw.get("clips") or {}).items():
+        bones_meta = {}
+        for b, arr in (c.get("bones") or {}).items():
+            fixed: list[float] = []
+            prev = None
+            for i in range(0, len(arr), 3):
+                ce = _canonical_euler(arr[i:i + 3], prev)
+                fixed.extend(ce)
+                prev = ce
+            off = len(floats)
+            floats.extend(fixed)
+            bones_meta[b] = [off, len(fixed)]
+        hips = c.get("hips") or []
+        hoff = len(floats)
+        floats.extend(hips)
+        entry = {
+            "frames": c["frames"], "fps": c["fps"], "loop": c["loop"],
+            "dur": c["dur"], "stride": c.get("stride", 0),
+            "bones": bones_meta, "hips": [hoff, len(hips)],
+        }
+        if "cycles" in c:
+            entry["cycles"] = c["cycles"]
+        if "speed" in c:
+            entry["speed"] = c["speed"]
+        if "source" in c:
+            entry["source"] = c["source"]
+        meta_clips[name] = entry
+    header_bytes = json.dumps(
+        {"version": raw.get("version", 1), "license": raw.get("license", ""), "clips": meta_clips},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    pad = (4 - ((8 + len(header_bytes)) % 4)) % 4
+    arr_bytes = np.asarray(floats, dtype="<f4").tobytes()
+    bin_path.parent.mkdir(parents=True, exist_ok=True)
+    with bin_path.open("wb") as fh:
+        fh.write(b"CLPB")
+        fh.write(struct.pack("<I", len(header_bytes)))
+        fh.write(header_bytes)
+        if pad:
+            fh.write(b"\x00" * pad)
+        fh.write(arr_bytes)
+    return bin_path
 
 # ---------------------------------------------------------------- nombres de huesos de cada esqueleto
 def _rigify():
@@ -257,10 +325,7 @@ def convert(rig, ref_rot, ref_pos, hips_h, name, loop):
             while par and par not in delta:
                 par = PARENT.get(par)
             local = qmul(qinv(delta[par]), delta[b]) if par else delta[b]
-            e = euler_xyz(local)
-            prev = tracks[b][-1] if tracks[b] else None
-            if prev:                                              # sin saltos de ±π de un cuadro a otro
-                e = [v + 2 * math.pi * round((p - v) / (2 * math.pi)) for v, p in zip(e, prev)]
+            e = _canonical_euler(euler_xyz(local), tracks[b][-1] if tracks[b] else None)
             tracks[b].append(e)
         hi = rig.index[rig.map["hips"]]
         hips.append(((pos[hi] - ref_pos[hi]) / hips_h).tolist())
@@ -322,6 +387,10 @@ def styles(folder, clips):
 
 
 def main(args):
+    if "--empaquetar-bin" in args:
+        out_bin = pack_bin()
+        print(f"{out_bin.relative_to(ROOT)}: {out_bin.stat().st_size / 1e6:.2f} MB")
+        return
     clips = {}
     paths = []
     folder = None
@@ -363,7 +432,8 @@ def main(args):
         lic += "; walk_*/idle_*: CC BY 4.0, The 100STYLE Dataset - Ian Mason"
     OUT.write_text(json.dumps({"version": 1, "license": lic,
                                "clips": clips}, separators=(",", ":")), encoding="utf-8")
-    print(f"{OUT.relative_to(ROOT)}: {OUT.stat().st_size / 1e6:.2f} MB")
+    out_bin = pack_bin(OUT, OUT_BIN)
+    print(f"{OUT.relative_to(ROOT)}: {OUT.stat().st_size / 1e6:.2f} MB | {out_bin.relative_to(ROOT)}: {out_bin.stat().st_size / 1e6:.2f} MB")
 
 
 if __name__ == "__main__":

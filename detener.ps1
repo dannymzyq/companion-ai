@@ -51,7 +51,6 @@ foreach ($id in @(Escucha $servidorPuerto)) {
     if ($id -and -not (Cerrar-Arbol $id)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
 }
 if ($SoloServidor) { if ($estaba) { Write-Host "Companion detenido." }; exit 0 }
-if ($SoloServidor) { if ($estaba) { Write-Host "Companion detenido." }; exit 0 }
 foreach ($id in @(Escucha 8210)) { if ($id) { [void](Cerrar-Arbol $id) } }
 Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
     Where-Object { (Es-Nuestro $_) -and $_.CommandLine -match 'servidor:app' -and $_.CommandLine -match '--port 8210' } |

@@ -14,7 +14,7 @@ async function api(path, body) {
   return data;
 }
 
-export function initOnboarding({ onDone, uploadModel, selectModel }) {
+export function initOnboarding({ onDone, uploadModel, selectModel, onPreviewAudio }) {
   const box = $('onboard');
   const sections = Object.fromEntries([...box.querySelectorAll('section')].map((s) => [s.dataset.step, s]));
   let setup = null;            // lo que devuelve /api/setup
@@ -25,9 +25,16 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
   let checked = null;          // {preset, key, base} de la última clave comprobada con éxito
   let localPick = '';
   let voicePick = '';
-  let enginePick = '';         // completa | ligera
+  let enginePick = '';         // completa | kokoro | ligera | nube
   let poll = 0;
   let player = null;
+  let playerUrl = '';
+
+  function stopPreview() {
+    if (player) { player.pause(); player = null; }
+    if (playerUrl) { URL.revokeObjectURL(playerUrl); playerUrl = ''; }
+    if (onPreviewAudio) onPreviewAudio(null);
+  }
 
   const order = () => ['perfil', brain, 'modelo', 'voz'];
   const fail = (msg) => { $('ob-error').textContent = msg || ''; $('ob-error').hidden = !msg; };
@@ -108,18 +115,28 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
     const preset = $('ob-preset').value, key = $('ob-key').value.trim(), base = $('ob-base').value.trim();
     const same = checked && checked.preset === preset && checked.key === key && checked.base === base;
     if (!same) {
+      $('ob-key-state').style.color = '';
       $('ob-key-state').textContent = 'Comprobando la clave…';
-      const res = await api('/api/cloud/check', { preset, key, base }).finally(() => ($('ob-key-state').textContent = ''));
+      const res = await api('/api/cloud/check', { preset, key, base }).catch((err) => {
+        $('ob-key-state').textContent = '';
+        throw err;
+      });
       checked = { preset, key, base };
-      $('ob-key-state').textContent = 'Clave correcta.';
+      $('ob-key-state').style.color = 'var(--green)';
+      $('ob-key-state').textContent = '✓ Clave verificada correctamente.';
       if (preset !== 'gemini') {
         const before = $('ob-model').value;
-        setModels(res.models, before || setup.cloud.model);
-        if (!before) throw new Error('La clave funciona. Ahora elige el modelo que quieres usar y pulsa otra vez.');
+        const pick = before || setup.cloud.model || (res.models && res.models[0]) || '';
+        setModels(res.models || [], pick);
+        if (!before && res.models && res.models.length > 1) {
+          $('ob-key-state').textContent = '✓ Clave correcta. Elige el modelo abajo y pulsa Siguiente otra vez.';
+          return false;
+        }
       }
     }
     const model = preset === 'gemini' ? '' : $('ob-model').value;
     await api('/api/setup', { cloud: { preset, key, base, model }, provider: 'gemini' });
+    return true;
   }
 
   // ---------------------------------------------------------------- 2b. modelo local
@@ -204,38 +221,47 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
       b.innerHTML = '<b></b><small></small>';
       b.firstChild.textContent = x.name;
       if (x.id === e.recommended) { const s = document.createElement('span'); s.className = 'badge'; s.textContent = 'Recomendada para tu PC'; b.firstChild.append(s); }
-      b.lastChild.textContent = x.note + (x.id === 'completa' && !e.node ? ' No está instalada.' : '') + (x.id === 'ligera' && !e.light_installed ? ` Hay que descargarla (${e.light_size_mb} MB).` : '');
+      b.lastChild.textContent = x.note
+        + (x.id === 'completa' && !e.node ? ' No está instalada.' : '')
+        + (x.id === 'ligera' && !e.light_installed ? ` Hay que descargarla (${e.light_size_mb} MB).` : '')
+        + (x.id === 'kokoro' && !e.kokoro_installed ? ` Hay que descargarla (${e.kokoro_size_mb || 310} MB).` : '');
       b.onclick = () => { enginePick = x.id; drawEngine(); };
       return b;
     }));
     $('ob-engine-note').textContent = !res.total_gb
-      ? 'No encontré una tarjeta NVIDIA: la voz completa necesita una; aquí va la ligera.'
+      ? 'No encontré una tarjeta NVIDIA: la voz completa necesita una; aquí van muy bien Kokoro (neuronal en CPU) o la ligera.'
       : e.recommended === 'completa' && e.fits_now
         ? `En tu tarjeta de ${gb} GB la voz completa cabe junto con ${brain}.`
         : e.recommended === 'completa'
           ? `En tu tarjeta de ${gb} GB la voz completa cabe con el cerebro en la nube. Con ${brain} no caben las dos: mientras lo uses, ${setup.character || 'tu personaje'} pasa sola a la voz ligera (puedes apagarlo en Ajustes › Voz y sonido).`
-        : (e.node ? `La voz completa usa unos ${String(res.engines.completa.vram_gb).replace('.', ',')} GB de memoria de vídeo y, junto con ${brain}, no cabe bien en tu tarjeta de ${gb} GB: mejor la ligera.`
-          : 'La voz completa no está instalada en esta PC (instalar.ps1 -Voz ambas): usa la ligera.');
-    const p = e.light_progress, loading = p && p.status === 'descargando';
+        : (e.node ? `La voz completa usa unos ${String(res.engines.completa.vram_gb).replace('.', ',')} GB de memoria de vídeo y, junto con ${brain}, no cabe bien en tu tarjeta de ${gb} GB: usa Kokoro o la ligera.`
+          : 'La voz completa no está instalada en esta PC (instalar.ps1 -Voz ambas): usa Kokoro o la ligera.');
+    const isKokoro = enginePick === 'kokoro';
+    const p = isKokoro ? e.kokoro_progress : e.light_progress;
+    const loading = p && p.status === 'descargando';
+    const needInstall = (enginePick === 'ligera' && !e.light_installed) || (isKokoro && !e.kokoro_installed);
     const get = $('ob-engine-get');
-    get.hidden = !(enginePick === 'ligera' && !e.light_installed);
+    get.hidden = !needInstall;
     get.disabled = !!loading;
-    get.textContent = loading ? `Descargando la voz ligera… ${p.percent} %` : `Descargar la voz ligera (${e.light_size_mb} MB)`;
-    if (p && p.error && enginePick === 'ligera' && !e.light_installed) fail(p.error);
+    const mb = isKokoro ? (e.kokoro_size_mb || 310) : e.light_size_mb;
+    const label = isKokoro ? 'voz Kokoro' : 'voz ligera';
+    get.textContent = loading ? `Descargando la ${label}… ${p.percent || 0} %` : `Descargar la ${label} (${mb} MB)`;
+    if (p && p.error && needInstall) fail(p.error);
   }
   $('ob-engine-get').onclick = async () => {
-    try { await api('/api/voice-engine/install', {}); setup = await api('/api/setup'); drawEngine(); } catch (e) { fail(e.message); }
+    const url = enginePick === 'kokoro' ? '/api/voice-engine/install-kokoro' : '/api/voice-engine/install';
+    try { await api(url, {}); setup = await api('/api/setup'); drawEngine(); } catch (e) { fail(e.message); }
   };
 
   function fillVoices() {
     voicePick = (setup.voices.find((v) => v.selected) || {}).id || '';
-    // Quien ya eligió ve su elección; en la bienvenida se parte de la recomendada para esta PC.
     enginePick = setup.onboarded ? setup.voice_engine.selected : setup.voice_engine.recommended;
     $('ob-tts').hidden = true;
     drawEngine();
-    poll = setInterval(async () => {                 // progreso de la descarga de la voz ligera
-      const p = setup.voice_engine.light_progress;
-      if (step !== 'voz' || !(p && p.status === 'descargando')) return;
+    poll = setInterval(async () => {                 // progreso de la descarga de la voz ligera o Kokoro
+      const lp = setup.voice_engine.light_progress, kp = setup.voice_engine.kokoro_progress;
+      const active = (lp && lp.status === 'descargando') || (kp && kp.status === 'descargando');
+      if (step !== 'voz' || !active) return;
       try { setup = await api('/api/setup'); drawEngine(); } catch { /* servidor ocupado */ }
     }, 1500);
     const draw = () => {
@@ -336,22 +362,31 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
     }
   }
   async function preview(id, button) {
-    if (player) { player.pause(); player = null; }
+    stopPreview();
     button.textContent = '…';
     try {
       const r = await fetch('/api/voices/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, engine: enginePick }) });
-      if (!r.ok) throw new Error(enginePick === 'ligera' && !setup.voice_engine.light_installed ? 'Descarga primero la voz ligera para oírla.' : 'No pude generar la muestra de esa voz.');
-      player = new Audio(URL.createObjectURL(await r.blob()));
-      await routeElement(player);         // la salida y el volumen elegidos en Ajustes
+      if (!r.ok) {
+        const missing = (enginePick === 'ligera' && !setup.voice_engine.light_installed)
+          || (enginePick === 'kokoro' && !setup.voice_engine.kokoro_installed);
+        throw new Error(missing ? 'Descarga primero este motor de voz para oír la muestra.' : 'No pude generar la muestra de esa voz.');
+      }
+      playerUrl = URL.createObjectURL(await r.blob());
+      player = new Audio(playerUrl);
+      player.onended = () => stopPreview();
+      await routeElement(player);
+      if (onPreviewAudio) onPreviewAudio(player);
       await player.play();
     } catch (e) {
+      stopPreview();
       fail(e.message);
     }
     button.textContent = '▶';
   }
   async function saveVoice() {
-    if (player) { player.pause(); player = null; }
-    if (enginePick === 'ligera' && !setup.voice_engine.light_installed) throw new Error('Descarga la voz ligera con el botón de arriba, o elige la voz completa.');
+    stopPreview();
+    if (enginePick === 'ligera' && !setup.voice_engine.light_installed) throw new Error('Descarga la voz ligera con el botón de arriba, o elige otro motor.');
+    if (enginePick === 'kokoro' && !setup.voice_engine.kokoro_installed) throw new Error('Descarga la voz Kokoro con el botón de arriba, o elige otro motor.');
     await api('/api/setup', voicePick ? { voice: voicePick, voice_engine: enginePick } : { voice_engine: enginePick });
   }
 
@@ -381,7 +416,7 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
 
   function close(changed) {
     clearInterval(poll);
-    if (player) { player.pause(); player = null; }
+    stopPreview();
     box.hidden = true;
     box.classList.remove('preview');
     $('start').style.visibility = '';
@@ -393,7 +428,8 @@ export function initOnboarding({ onDone, uploadModel, selectModel }) {
     button.disabled = true;
     fail('');
     try {
-      await SAVE[step]();
+      const ok = await SAVE[step]();
+      if (ok === false) return;
       if (single) return close(true);
       const steps = order(), i = steps.indexOf(step);
       if (i === steps.length - 1) {

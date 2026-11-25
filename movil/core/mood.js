@@ -9,7 +9,12 @@ export const VA = {
   triste: [-0.65, -0.45], molesta: [-0.55, 0.45], sorprendida: [0.15, 0.7], pensativa: [0, -0.25], carinosa: [0.7, -0.05],
   enamorada: [0.8, 0.3], nerviosa: [-0.25, 0.6], asustada: [-0.6, 0.75], confundida: [-0.15, 0.15],
 };
-const WORD = { timida: 'tímida', carinosa: 'cariñosa' };
+const WORD_F = { timida: 'tímida', carinosa: 'cariñosa' };
+const WORD_M = {
+  timida: 'tímido', carinosa: 'cariñoso', emocionada: 'emocionado', sonrojada: 'sonrojado',
+  molesta: 'molesto', sorprendida: 'sorprendido', pensativa: 'pensativo', enamorada: 'enamorado',
+  nerviosa: 'nervioso', asustada: 'asustado', confundida: 'confundido',
+};
 let state = {};
 const nowS = () => Date.now() / 1000;
 
@@ -37,20 +42,25 @@ export function feel(emotion, personality, now = nowS()) {
   save();
 }
 
-export function describe(personality, now = nowS()) {
+export function describe(personality, now = nowS(), speaks = 'f') {
   if (!personality || !('v' in state)) return '';
+  const masc = speaks === 'm';
   const base = personality.base_mood || 'neutral';
   const [v, a] = nowVA(base, now);
   const [bv, ba] = VA[base] || [0, 0];
   const parts = [];
   if (Math.hypot(v - bv, a - ba) >= 0.12) {
-    const mood = v > 0.5 ? 'de muy buen humor' : v > 0.2 ? 'de buen humor' : v < -0.4 && a < 0 ? 'algo decaída'
-      : v < -0.3 ? 'molesta o tensa' : v < -0.15 ? 'un poco baja de ánimo' : 'tranquila';
+    const mood = v > 0.5 ? 'de muy buen humor' : v > 0.2 ? 'de buen humor'
+      : v < -0.4 && a < 0 ? (masc ? 'algo decaído' : 'algo decaída')
+      : v < -0.3 ? (masc ? 'molesto o tenso' : 'molesta o tensa')
+      : v < -0.15 ? (masc ? 'un poco bajo de ánimo' : 'un poco baja de ánimo')
+      : (masc ? 'tranquilo' : 'tranquila');
     const energy = a > 0.5 ? ' y con mucha energía' : a > 0.25 ? ' y con energía' : a < -0.25 ? ' y sin mucha energía' : '';
     parts.push(`Ahora mismo estás ${mood}${energy}`);
   }
   if (state.last && now - (state.last_t || 0) < REMEMBER) {
-    parts.push(`hace ${Math.max(1, Math.round((now - state.last_t) / 60))} min te sentiste ${WORD[state.last] || state.last}`);
+    const word = (masc ? WORD_M[state.last] : WORD_F[state.last]) || state.last;
+    parts.push(`hace ${Math.max(1, Math.round((now - state.last_t) / 60))} min te sentiste ${word}`);
   }
   return parts.length ? `(Tu ánimo: ${parts.join('; ')}. Que se note un poco en cómo respondes, sin decirlo salvo que venga al caso.)` : '';
 }

@@ -28,6 +28,8 @@ export function here(text) {
 }
 
 function fix(node) {
+  const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  if (el && el.closest && el.closest('#captions')) return;
   if (node.nodeType === Node.TEXT_NODE) {
     const t = here(node.nodeValue);
     if (t !== node.nodeValue) node.nodeValue = t;          // solo si cambia: no vuelve a disparar el observador

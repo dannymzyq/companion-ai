@@ -21,9 +21,10 @@ New-Item -ItemType Directory -Force $salida | Out-Null
 # Lo que va en el paquete: lo que está en git, menos lo que solo sirve al repositorio (y las otras ediciones:
 # movil/, rust-live/ y la web de presentación docs/).
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$lista = @(git -c core.quotepath=off ls-files --cached --others --exclude-standard) | Where-Object {
+$lista = @(git -c core.quotepath=off ls-files --cached) | Where-Object {
     $_ -and $_ -notlike ".github/*" -and $_ -notlike "movil/*" -and $_ -notlike "rust-live/*" -and $_ -notlike "docs/*" -and $_ -notin ".gitignore", ".gitattributes"
 }
+if ((Test-Path "$raiz\web\anim\clips.bin") -and ($lista -notcontains "web/anim/clips.bin")) { $lista += "web/anim/clips.bin" }
 if ($LASTEXITCODE -ne 0 -or $lista.Count -lt 20) { throw "git ls-files no devolvió la lista del proyecto." }
 
 $tmp = Join-Path $env:TEMP ("companion_paquete_" + [guid]::NewGuid().ToString("N").Substring(0, 8))

@@ -36,5 +36,34 @@ class Memoria(unittest.TestCase):
         self.assertEqual(len(store.relevant_summaries("Mika, ¿te acuerdas de las recetas de cocina?", ignore="Ana Mika")), 1)
 
 
+class OrdenarRecuerdos(unittest.TestCase):
+    """Orden de los recuerdos (23 nov 2026): se juntan los repetidos y se puede deshacer."""
+    def setUp(self):
+        store.forget_all()
+
+    def test_lista_del_modelo(self):
+        from companion.session import tidy_facts
+        texto = "DATO: A Ana le gusta el café\nDATO: a ana le gusta el café.\nDATO: Ana vive en Lima\nDATO: Su clave es 1234 5678\nDATO: Ana estudia diseño"
+        self.assertEqual(tidy_facts(texto, 5), ["A Ana le gusta el café", "Ana vive en Lima", "Ana estudia diseño"])
+        self.assertIsNone(tidy_facts("No sé hacerlo.", 10))                   # sin lista: no se toca nada
+        self.assertIsNone(tidy_facts(texto, 30))                             # perdería demasiados datos
+        self.assertIsNone(tidy_facts(texto, 2))                              # más que antes: algo inventó
+
+    def test_deshacer(self):
+        for f in ("A Ana le gusta el café", "Ana toma café cada mañana", "Ana vive en Lima"):
+            store.add_memory(f)
+        store.replace_memories(["Ana toma café cada mañana", "Ana vive en Lima"])
+        self.assertTrue(store.can_undo_tidy())
+        self.assertEqual(store.last_tidy_count(), 2)
+        store.add_memory("Ana tiene un gato llamado Miso")                  # lo de después se conserva sin esperar 1s
+        self.assertTrue(store.undo_tidy())
+        self.assertEqual(store.memories(), ["A Ana le gusta el café", "Ana toma café cada mañana", "Ana vive en Lima",
+                                            "Ana tiene un gato llamado Miso"])
+        self.assertFalse(store.can_undo_tidy())
+        store.replace_memories(["Ana vive en Lima"])
+        store.forget_all()                                                   # olvidar todo borra también la copia
+        self.assertFalse(store.can_undo_tidy())
+
+
 if __name__ == "__main__":
     unittest.main()

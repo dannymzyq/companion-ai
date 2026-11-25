@@ -30,9 +30,19 @@ pub enum LiveEvent {
     InText(String),
     OutText(String),
     ToolCall(Vec<ToolCall>),
+    SessionResume(String),
+    GoAway,
     Interrupted,
     TurnComplete,
     Closed(Option<String>),
+}
+
+pub fn sanitize_secret(msg: &str, key: &str) -> String {
+    let k = key.trim();
+    if k.is_empty() {
+        return msg.to_string();
+    }
+    msg.replace(k, "***")
 }
 
 #[derive(Debug)]
@@ -163,17 +173,18 @@ fn remember_tool_gemini() -> Value {
 fn action_tool_gemini() -> Value {
     json!({
         "name": "ejecutar_accion",
-        "description": "Ejecuta una acción segura en la PC del usuario: abrir una aplicación, abrir una web o carpeta, buscar archivos, poner un temporizador o controlar volumen/multimedia.",
+        "description": "Ejecuta una acción segura en la PC del usuario: abrir una aplicación, abrir una web o carpeta, buscar archivos, poner un temporizador, leer el portapapeles o controlar volumen/multimedia.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "accion": {
                     "type": "STRING",
-                    "description": "Tipo: 'abrir_app', 'abrir_web', 'abrir_carpeta', 'buscar_archivo', 'temporizador', 'multimedia' o 'volumen'."
+                    "enum": ["abrir_app", "abrir_web", "abrir_carpeta", "buscar_archivo", "temporizador", "multimedia", "volumen", "portapapeles"],
+                    "description": "Tipo de acción del catálogo cerrado."
                 },
                 "arg1": {
                     "type": "STRING",
-                    "description": "Argumento principal: app, URL o búsqueda, carpeta, archivo, duración ('10m'), multimedia ('pausa'|'siguiente'|'anterior') o volumen ('subir'|'bajar'|'silenciar')."
+                    "description": "Argumento principal obligatorio: app, URL o búsqueda, carpeta, archivo, duración ('10m'), 'leer' para portapapeles, multimedia ('pausa'|'siguiente'|'anterior') o volumen ('subir'|'bajar'|'silenciar')."
                 },
                 "arg2": {
                     "type": "STRING",
@@ -227,6 +238,7 @@ pub async fn connect_live(
     system_instruction: String,
     temperature: f64,
     actions_enabled: bool,
+    resume_handle: Option<String>,
 ) -> Result<(LiveHandle, mpsc::Receiver<LiveEvent>), String> {
     if cfg.key.is_empty() {
         return Err(format!(
@@ -235,7 +247,7 @@ pub async fn connect_live(
         ));
     }
     if cfg.provider == "gemini" {
-        connect_gemini(cfg, system_instruction, temperature, actions_enabled).await
+        connect_gemini(cfg, system_instruction, temperature, actions_enabled, resume_handle).await
     } else {
         connect_realtime(cfg, system_instruction, temperature, actions_enabled).await
     }
@@ -246,18 +258,29 @@ async fn connect_gemini(
     system_instruction: String,
     temperature: f64,
     actions_enabled: bool,
+    resume_handle: Option<String>,
 ) -> Result<(LiveHandle, mpsc::Receiver<LiveEvent>), String> {
     let model = if cfg.model.starts_with("models/") {
         cfg.model.clone()
     } else {
         format!("models/{}", cfg.model)
     };
-    let endpoint = format!("{}?key={}", provider_meta("gemini").url, cfg.key);
+    let endpoint = provider_meta("gemini").url;
+    let mut req = endpoint
+        .into_client_request()
+        .map_err(|e| format!("URL inválida de Gemini Live: {e}"))?;
+    req.headers_mut().insert(
+        "x-goog-api-key",
+        cfg.key
+            .trim()
+            .parse()
+            .map_err(|_| "Clave API de Gemini con caracteres inválidos.".to_string())?,
+    );
 
-    let (ws, _) = tokio::time::timeout(std::time::Duration::from_secs(15), connect_async(&endpoint))
+    let (ws, _) = tokio::time::timeout(std::time::Duration::from_secs(15), connect_async(req))
         .await
         .map_err(|_| "Tiempo agotado conectando con Gemini Live.".to_string())?
-        .map_err(|e| format!("No se pudo conectar a Gemini Live: {e}"))?;
+        .map_err(|e| format!("No se pudo conectar a Gemini Live: {}", sanitize_secret(&e.to_string(), &cfg.key)))?;
 
     let (mut sink, mut stream) = ws.split();
 
@@ -265,6 +288,11 @@ async fn connect_gemini(
     if actions_enabled {
         decls.push(action_tool_gemini());
     }
+
+    let resumption = match resume_handle {
+        Some(h) if !h.is_empty() => json!({ "handle": h }),
+        _ => json!({}),
+    };
 
     let setup = json!({
         "setup": {
@@ -281,6 +309,7 @@ async fn connect_gemini(
             "systemInstruction": {
                 "parts": [{ "text": system_instruction }]
             },
+            "sessionResumption": resumption,
             "inputAudioTranscription": {},
             "outputAudioTranscription": {},
             "tools": [{ "functionDeclarations": decls }],
@@ -289,14 +318,14 @@ async fn connect_gemini(
 
     sink.send(Message::Text(setup.to_string().into()))
         .await
-        .map_err(|e| format!("Error enviando setup a Gemini Live: {e}"))?;
+        .map_err(|e| format!("Error enviando setup a Gemini Live: {}", sanitize_secret(&e.to_string(), &cfg.key)))?;
 
     // Wait for setupComplete
     let first = tokio::time::timeout(std::time::Duration::from_secs(15), stream.next())
         .await
         .map_err(|_| "Gemini Live no respondió al setup a tiempo.".to_string())?
         .ok_or_else(|| "Gemini Live cerró la conexión al iniciar.".to_string())?
-        .map_err(|e| format!("Error leyendo respuesta inicial de Gemini Live: {e}"))?;
+        .map_err(|e| format!("Error leyendo respuesta inicial de Gemini Live: {}", sanitize_secret(&e.to_string(), &cfg.key)))?;
 
     let first_txt = match first {
         Message::Text(t) => t.to_string(),
@@ -308,14 +337,13 @@ async fn connect_gemini(
     };
     let first_json: Value = serde_json::from_str(&first_txt).unwrap_or(Value::Null);
     if first_json.get("setupComplete").is_none() {
-        return Err(format!(
-            "Gemini Live rechazó la configuración inicial: {}",
-            first_txt.chars().take(240).collect::<String>()
-        ));
+        let preview: String = sanitize_secret(&first_txt, &cfg.key).chars().take(240).collect();
+        return Err(format!("Gemini Live rechazó la configuración inicial: {preview}"));
     }
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<LiveCmd>(128);
     let (ev_tx, ev_rx) = mpsc::channel::<LiveEvent>(256);
+    let key_for_reader = cfg.key.clone();
 
     tokio::spawn(async move {
         let mut ws_sink: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message> = sink;
@@ -329,13 +357,28 @@ async fn connect_gemini(
                     Ok(Message::Close(_)) => break,
                     Ok(_) => continue,
                     Err(e) => {
-                        let _ = ev_tx_read.send(LiveEvent::Closed(Some(e.to_string()))).await;
+                        let _ = ev_tx_read
+                            .send(LiveEvent::Closed(Some(sanitize_secret(&e.to_string(), &key_for_reader))))
+                            .await;
                         return;
                     }
                 };
                 let Ok(msg) = serde_json::from_str::<Value>(&raw) else {
                     continue;
                 };
+                if let Some(upd) = msg.get("sessionResumptionUpdate").and_then(|v| v.as_object()) {
+                    let resumable = upd.get("resumable").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if resumable {
+                        if let Some(h) = upd.get("newHandle").and_then(|v| v.as_str()) {
+                            if !h.is_empty() {
+                                let _ = ev_tx_read.send(LiveEvent::SessionResume(h.to_string())).await;
+                            }
+                        }
+                    }
+                }
+                if msg.get("goAway").is_some() {
+                    let _ = ev_tx_read.send(LiveEvent::GoAway).await;
+                }
                 if let Some(calls) = msg
                     .get("toolCall")
                     .and_then(|tc| tc.get("functionCalls"))
@@ -493,7 +536,7 @@ async fn connect_realtime(
     let (ws, _) = tokio::time::timeout(std::time::Duration::from_secs(15), connect_async(req))
         .await
         .map_err(|_| format!("Tiempo agotado conectando con {}.", meta.name))?
-        .map_err(|e| format!("No se pudo conectar a {}: {e}", meta.name))?;
+        .map_err(|e| format!("No se pudo conectar a {}: {}", meta.name, sanitize_secret(&e.to_string(), &cfg.key)))?;
 
     let (mut sink, mut stream) = ws.split();
     let tools = tools_for_realtime(actions_enabled);
@@ -543,10 +586,11 @@ async fn connect_realtime(
 
     sink.send(Message::Text(session_cfg.to_string().into()))
         .await
-        .map_err(|e| format!("Error enviando session.update: {e}"))?;
+        .map_err(|e| format!("Error enviando session.update: {}", sanitize_secret(&e.to_string(), &cfg.key)))?;
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<LiveCmd>(128);
     let (ev_tx, ev_rx) = mpsc::channel::<LiveEvent>(256);
+    let key_for_reader = cfg.key.clone();
 
     tokio::spawn(async move {
         let ev_tx_read = ev_tx.clone();
@@ -559,13 +603,26 @@ async fn connect_realtime(
                     Ok(Message::Close(_)) => break,
                     Ok(_) => continue,
                     Err(e) => {
-                        let _ = ev_tx_read.send(LiveEvent::Closed(Some(e.to_string()))).await;
+                        let _ = ev_tx_read
+                            .send(LiveEvent::Closed(Some(sanitize_secret(&e.to_string(), &key_for_reader))))
+                            .await;
                         return;
                     }
                 };
                 let Ok(msg) = serde_json::from_str::<Value>(&raw) else { continue };
                 let kind = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 match kind {
+                    "error" => {
+                        let detail = msg
+                            .get("error")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Error del proveedor en vivo");
+                        let _ = ev_tx_read
+                            .send(LiveEvent::Closed(Some(sanitize_secret(detail, &key_for_reader))))
+                            .await;
+                        return;
+                    }
                     "response.audio.delta" | "response.output_audio.delta" => {
                         if let Some(b64) = msg.get("delta").and_then(|v| v.as_str()) {
                             if let Ok(bytes) = B64.decode(b64) {
@@ -721,5 +778,8 @@ mod tests {
         assert_eq!(clean_spoken_text("[emo:feliz] ¡Hola!"), "¡Hola!");
         assert_eq!(guess_emotion("¡Qué alegría me da verte! jaja"), Some("feliz"));
         assert_eq!(guess_emotion("Lo siento mucho, qué pena"), Some("triste"));
+        assert_eq!(sanitize_secret("Error con AIzaSecretKey999 en WS", "AIzaSecretKey999"), "Error con *** en WS");
+        let tool = action_tool_gemini();
+        assert_eq!(tool["parameters"]["required"], json!(["accion", "arg1"]));
     }
 }

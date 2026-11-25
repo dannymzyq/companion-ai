@@ -6,6 +6,9 @@ import { initOnboarding } from './onboarding.js';
 import { initLoading } from './loading.js';
 import { initPersonality } from './personality.js';
 import { adaptToMac } from './platform.js';
+import { MusicTracker } from './music.js';
+import { initPhotoAndScene } from './photo.js';
+import { initExtras, createUpdateApplyButton } from './extras.js';
 
 adaptToMac();                               // en el Mac, «esta PC», «tarjeta gráfica»… se dicen como en un Mac
 
@@ -32,6 +35,27 @@ let muted = false;
 let state = 'idle';
 let sentences = [];
 let calmTimer = 0;
+// Cara de reposo (23 nov 2026, idea de Animama): al callarse no vuelve a neutral sino a su ánimo de ahora, que el
+// servidor manda con reply_end (companion/mood.py). Neutral si no ha pasado nada.
+let restEmotion = 'neutral';
+// Reacciones: cuando una respuesta trae una emoción nueva y el modelo no eligió gesto, a veces reacciona con uno
+// pequeño de la emoción, al azar, sin repetir el anterior y sin sobreactuar (como mucho uno cada 25 s).
+const REACTIONS = {
+  feliz: ['risita', 'asentir'], emocionada: ['celebrar', 'aplaudir', 'saltar'], sorprendida: ['encogerse'],
+  timida: ['risita'], sonrojada: ['risita'], pensativa: ['pensar'], confundida: ['pensar', 'encogerse'],
+  molesta: ['negar'], triste: ['encogerse'], carinosa: ['asentir'], enamorada: ['risita'],
+};
+let lastEmotion = 'neutral', lastReaction = '', reactedAt = 0;
+function react(emotion, gestures) {
+  const fresh = emotion && emotion !== lastEmotion;
+  if (emotion) lastEmotion = emotion;
+  if (!avatar || !fresh || (gestures && gestures.length) || performance.now() - reactedAt < 25000) return;
+  const pool = (REACTIONS[emotion] || []).filter((g) => g !== lastReaction);
+  if (!pool.length || Math.random() > 0.45) return;
+  lastReaction = pool[Math.floor(Math.random() * pool.length)];
+  reactedAt = performance.now();
+  avatar.playGesture(lastReaction);
+}
 let pollTimer = 0;
 let talkTimer = 0;
 let autoTried = false;
@@ -74,13 +98,14 @@ const audio = new AudioIO({
     document.body.classList.add('talking');
     if (meta.emotion && avatar) avatar.setEmotion(meta.emotion);
     for (const g of meta.gestures || []) avatar && avatar.playGesture(g);
+    react(meta.emotion, meta.gestures);
     if (meta.id === 1) sentences = [];
     sentences.push(meta.text);
     $('mika-line').textContent = sentences.slice(-2).join(' ');
   },
   onPlaybackEnd: () => {
     send({ type: 'playback_end' });
-    calmTimer = setTimeout(() => avatar && avatar.setEmotion('neutral'), 7000);
+    calmTimer = setTimeout(() => avatar && avatar.setEmotion(restEmotion), 7000);
     talkTimer = setTimeout(() => document.body.classList.remove('talking'), 3500);
   },
 });
@@ -206,11 +231,47 @@ function tickPart(name, fn) {
     if (!tickErrors.has(key) && tickErrors.size < 50) { tickErrors.add(key); console.error(`Cuadro (${name}):`, err); }
   }
 }
+const musicTracker = new MusicTracker();
+let previewVoiceCtx = null;
+
+function attachPreviewAudio(player) {
+  if (previewVoiceCtx) {
+    try { previewVoiceCtx.src.disconnect(); previewVoiceCtx.an.disconnect(); } catch {}
+    previewVoiceCtx = null;
+  }
+  if (!player || !avatar || typeof player.captureStream !== 'function') return;
+  try {
+    const stream = player.captureStream();
+    if (!audio.ctx) return;
+    const src = audio.ctx.createMediaStreamSource(stream);
+    const an = audio.ctx.createAnalyser();
+    an.fftSize = 512;
+    src.connect(an);
+    previewVoiceCtx = { player, src, an, wave: new Float32Array(512) };
+  } catch { previewVoiceCtx = null; }
+}
+
 function tick() {
   requestAnimationFrame(tick);
   let voice = { vol: 0 };
-  tickPart('voz', () => { voice = audio.analyse(); });
-  if (avatar) tickPart('personaje', () => { avatar.setVoice(voice); avatar.update(); });
+  tickPart('voz', () => {
+    voice = audio.analyse();
+    if (voice.vol === 0 && previewVoiceCtx && !previewVoiceCtx.player.paused) {
+      previewVoiceCtx.an.getFloatTimeDomainData(previewVoiceCtx.wave);
+      let s = 0;
+      for (let i = 0; i < previewVoiceCtx.wave.length; i++) s += previewVoiceCtx.wave[i] * previewVoiceCtx.wave[i];
+      const pv = Math.sqrt(s / previewVoiceCtx.wave.length);
+      if (pv > 0.005) voice = { vol: pv, low: pv * 0.4, mid: pv * 0.45, high: pv * 0.25, bands: null, centroid: 1600 };
+    }
+  });
+  if (avatar) tickPart('personaje', () => {
+    const music = musicTracker.update(audio);
+    avatar.setMusic(music);
+    if (previewVoiceCtx && !previewVoiceCtx.player.paused && state === 'idle') avatar.setState('speaking');
+    else if (previewVoiceCtx && previewVoiceCtx.player.paused && state === 'idle' && avatar.state === 'speaking') avatar.setState('idle');
+    avatar.setVoice(voice, avatar._lastDt || 0.016);
+    avatar.update();
+  });
   // Niveles de voz y micrófono: solo cuando cambian (con dos decimales). Escribirlos en cada cuadro obligaba al
   // navegador a recalcular estilos 60 veces por segundo aunque no se movieran (19 nov 2026).
   tickPart('niveles', () => {
@@ -232,8 +293,16 @@ function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
+let reconnectTries = 0;
+
+function sendPttConfig() {
+  const key = savedPtt();
+  send({ type: 'ptt_config', enabled: !!key, key });
+}
+
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
   ws.binaryType = 'arraybuffer';
   ws.onmessage = (e) => {
     if (e.data instanceof ArrayBuffer) { audio.enqueue(e.data); return; }
@@ -241,19 +310,58 @@ function connect() {
   };
   ws.onclose = () => {
     audio.flush();
+    document.body.classList.remove('talking');
+    if ($('control')) $('control').hidden = true;
+    if ($('asks')) $('asks').replaceChildren();
+    petWorking = false;
     $('status').textContent = 'Sin conexión con el companion…';
-    setTimeout(connect, 1500);
+    const base = Math.min(12000, 1000 * (2 ** Math.min(reconnectTries++, 4)));
+    const jitter = Math.round(Math.random() * 450);
+    setTimeout(connect, base + jitter);
   };
 }
 
 function handle(ev) {
   switch (ev.type) {
     case 'hello':
+      reconnectTries = 0;
       applyConfig(ev);
       setState('idle');
       send({ type: 'watch', on: watchOn() });          // cada conexión es una sesión nueva en el servidor
+      sendPttConfig();
+      for (const kind of ['camera', 'screen']) {
+        if (vision.active(kind)) vision.push(kind, true);
+      }
       if (autoStart && !autoTried) { autoTried = true; begin(true); }
       checkUpdate();
+      break;
+    case 'ptt_state':
+      if (savedPtt() && started && audio.hasMic) {
+        clearTimeout(pttTail);
+        if (ev.down) {
+          pttDown = true;
+          muted = false;
+          audio.setMuted(false);
+          $('mic').classList.remove('muted');
+          setState(state);
+        } else {
+          pttDown = false;
+          pttTail = setTimeout(() => {
+            if (!pttDown && savedPtt() && audio.hasMic) {
+              muted = true;
+              audio.setMuted(true);
+              $('mic').classList.add('muted');
+              setState(state);
+            }
+          }, 260);
+        }
+      }
+      break;
+    case 'focus':
+      if (extrasUI) extrasUI.onFocusEvent(ev);
+      break;
+    case 'rps':
+      if (extrasUI) extrasUI.onRpsEvent(ev);
       break;
     case 'state': setState(ev.value); break;
     case 'user_text':
@@ -266,13 +374,14 @@ function handle(ev) {
       if (avatar) {
         if (ev.emotion) { clearTimeout(calmTimer); avatar.setEmotion(ev.emotion); }
         for (const g of ev.gestures || []) avatar.playGesture(g);
+        react(ev.emotion, ev.gestures);
       }
       break;
     case 'caption_delta':
       if (ev.text) $('mika-line').textContent = ev.text;
       break;
     case 'sentence_end': audio.endSentence(); break;
-    case 'reply_end': audio.markReplyDone(); break;
+    case 'reply_end': if (ev.mood) restEmotion = ev.mood; audio.markReplyDone(); break;
     case 'interrupt': audio.flush(); document.body.classList.remove('talking'); break;
     case 'error': toast(ev.message, true); break;
     case 'notice': toast(ev.message); refreshConfig(); break;
@@ -456,7 +565,7 @@ function applyConfig(cfg) {
   $('me-line').textContent = cfg.profile.name ? `${cfg.profile.name} · ${cfg.profile.birth_year} · ${GENDER[cfg.profile.gender] || ''}` : 'Sin completar';
   $('cloud-name').textContent = cfg.cloud.name;
   $('cloud-line').textContent = cfg.cloud.has_key ? `${cfg.cloud.name}${cfg.cloud.model ? ' · ' + cfg.cloud.model : ''}` + " · clave guardada" : 'Sin clave de API';
-  const engineName = (id) => ({ ligera: 'voz ligera', nube: 'voz en la nube' }[id] || 'voz completa');
+  const engineName = (id) => ({ ligera: 'voz ligera', kokoro: 'voz Kokoro', nube: 'voz en la nube' }[id] || 'voz completa');
   const earCloud = cfg.stt.engine === 'nube';
   $('cloud-only').checked = !!cfg.cloud_only;
   if ($('gemini-live')) $('gemini-live').checked = !!cfg.gemini_live;
@@ -512,11 +621,13 @@ function applyConfig(cfg) {
   } else if (!live && !cfg.tts) {
     banner = cfg.voice_engine === 'ligera'
       ? `La voz ligera no está instalada: descárgala en Ajustes › Voz. ${cfg.name} responderá solo con texto.`
+      : cfg.voice_engine === 'kokoro'
+        ? `La voz Kokoro no está instalada: descárgala en Ajustes › Voz. ${cfg.name} responderá solo con texto.`
       : cfg.voice_engine === 'nube'
         ? `La voz en la nube no está disponible ahora. ${cfg.name} responderá solo con texto.`
-        : `La voz completa no está disponible (su servidor no responde; mira data\\voz.log). ${cfg.name} responderá solo con texto; en Ajustes › Voz puedes pasar a la voz ligera.`;
+        : `La voz completa no está disponible (su servidor no responde; mira data\\voz.log). ${cfg.name} responderá solo con texto; en Ajustes › Voz puedes pasar a Kokoro o a la voz ligera.`;
   }
-  $('banner').innerHTML = banner;
+  $('banner').textContent = banner;
   $('banner').hidden = !banner;
 
   for (const b of $('provider').children) b.classList.toggle('on', b.dataset.value === cfg.llm.provider);
@@ -537,8 +648,8 @@ function applyConfig(cfg) {
       : earCloud ? `Nube · ${cfg.stt.cloud.last ? `${cfg.stt.cloud.last.provider} (${String(cfg.stt.cloud.last.seconds).replace('.', ',')} s)` : (cfg.stt.cloud.groq ? 'Groq' : 'Gemini')}`
       : cfg.stt.ready ? `Whisper ${cfg.stt.model} · ${{ cuda: 'GPU', mps: 'GPU del Mac' }[cfg.stt.device] || 'CPU'}` : (cfg.stt.error ? 'Error' : 'Cargando…'), live ? cfg.live.has_key : !cfg.stt.error],
     ['Voz', live ? `${liveName} · ${cfg.gemini_live_voice || 'Aoede'} `
-      : cfg.tts ? `${engineName(cfg.voice_engine)} · ${{ ligera: 'procesador', nube: 'internet' }[cfg.voice_engine] || 'GPU'}` : 'No disponible', live ? cfg.live.has_key : cfg.tts],
-    ['Modelo 3D', cfg.model ? (/^avatar\d$/.test(cfg.model_id) ? `Avatar ${cfg.model_id.slice(-1)} (incluido)` : 'Modelo propio') : 'Falta el .vrm', cfg.model],
+      : cfg.tts ? `${engineName(cfg.voice_engine)} · ${{ ligera: 'procesador', kokoro: 'procesador', nube: 'internet' }[cfg.voice_engine] || 'GPU'}` : 'No disponible', live ? cfg.live.has_key : cfg.tts],
+    ['Modelo 3D', cfg.model ? (/^avatar\d$/.test(cfg.model_id) ? `Avatar ${cfg.model_id.slice(-1)} (incluido)` : 'Modelo propio') : 'Orbe 3D expresivo', cfg.model || !!avatar],
   ];
   if (cfg.llm.detail) health[0][1] += ` · ${cfg.llm.detail}`;
   if (cfg.gpu) {
@@ -548,19 +659,32 @@ function applyConfig(cfg) {
   }
   const bad = health.filter(([, , ok]) => !ok).map(([k]) => k.toLowerCase());
   $('sum-estado').textContent = bad.length ? `Revisar: ${bad.join(', ')}` : 'Todo funciona';
-  $('health').innerHTML = health.map(([k, v, ok]) => `<dt>${k}</dt><dd class="${ok ? '' : 'bad'}">${v}</dd>`).join('');
+  const healthEl = $('health');
+  healthEl.replaceChildren();
+  for (const [k, v, ok] of health) {
+    const dt = document.createElement('dt');
+    dt.textContent = k;
+    const dd = document.createElement('dd');
+    if (!ok) dd.className = 'bad';
+    dd.textContent = v;
+    healthEl.append(dt, dd);
+  }
   if (update && update.newer && /^https:\/\/github\.com\//.test(update.url)) {
     const dt = document.createElement('dt'), dd = document.createElement('dd'), a = document.createElement('a');
     dt.textContent = 'Versión';
     a.href = update.url; a.target = '_blank'; a.rel = 'noopener';
-    a.textContent = `Hay una nueva: ${update.latest} (tienes ${update.current}). Descargar`;
+    a.textContent = `Hay una nueva: ${update.latest} (tienes ${update.current}). Ver notas`;
     dd.append(a);
-    $('health').append(dt, dd);
+    const applyBtn = createUpdateApplyButton(update, toast);
+    if (applyBtn) dd.append(applyBtn);
+    healthEl.append(dt, dd);
   }
 
+  if (extrasUI) extrasUI.applyConfig(cfg);
   applyQuality();
-  if (cfg.model && avatar && !avatar.loaded && !loadingModel) loadModel();
-  if (!cfg.model || !avatar) showOrb(true);
+  if (cfg.model && avatar && (!avatar.loaded || avatar.orb) && !loadingModel) loadModel();
+  else if (!cfg.model && avatar && !avatar.orb && !loadingModel) { avatar.loadOrb(); showOrb(false); }
+  else if (!avatar) showOrb(true);
 
   clearTimeout(pollTimer);
   if (!cfg.stt.ready && !cfg.stt.error) pollTimer = setTimeout(refreshConfig, 2000);
@@ -626,7 +750,7 @@ async function reloadModel() {
   await refreshConfig();
   if (!avatar) return;
   if (config && config.model) await loadModel();
-  else { avatar.unload(); showOrb(true); }
+  else { avatar.loadOrb(); showOrb(false); }
 }
 
 function renderModels(list) {
@@ -695,6 +819,7 @@ async function uploadModel(file) {
 let welcomed = false;
 const onboarding = initOnboarding({
   uploadModel, selectModel,
+  onPreviewAudio: attachPreviewAudio,
   onDone: async (changed, single) => {
     if (!changed) return;
     await refreshConfig();
@@ -737,6 +862,13 @@ async function refreshMemory() {
     const row = document.createElement('div');
     row.textContent = 'Todavía no hay recuerdos guardados.';
     rows.push(row);
+  }
+  if (data.can_undo) {                   // los recuerdos se ordenaron solos hace poco: se puede volver atrás
+    const undo = document.createElement('button');
+    undo.className = 'ghost';
+    undo.textContent = 'Deshacer el último orden de recuerdos';
+    undo.onclick = async () => { await fetch('/api/memory/undo', { method: 'POST' }); refreshMemory(); };
+    rows.unshift(undo);
   }
   $('memory-list').replaceChildren(...rows);
 }
@@ -1023,9 +1155,10 @@ if ($('ptt-key')) {
     const val = $('ptt-key').value;
     localStorage.setItem(PTT_KEY, val);
     pttDown = false;
+    sendPttConfig();
     if (val) {
       applyPttState();
-      toast(`Push-to-Talk activado: mantén pulsada ${val} para hablar.`);
+      toast(`Push-to-Talk activado: mantén pulsada ${val} para hablar (incluso dentro de juegos).`);
     } else if (audio.hasMic) {
       muted = false;
       audio.setMuted(false);
@@ -1079,16 +1212,44 @@ if (desktop && desktop.onShortcut) {
 }
 if (desktop && desktop.desktopPrefs && $('desk-app-card')) {
   $('desk-app-card').hidden = false;
+  const applyDeskShortcuts = (sc) => {
+    if (!sc) return;
+    if ($('desk-sc-mute')) $('desk-sc-mute').value = sc.mute || 'CommandOrControl+Shift+M';
+    if ($('desk-sc-float')) $('desk-sc-float').value = sc.float || 'CommandOrControl+Shift+F';
+    if ($('desk-sc-stop')) $('desk-sc-stop').value = sc.stop || 'CommandOrControl+Shift+S';
+  };
   desktop.desktopPrefs.get().then((p) => {
     if (!p) return;
     $('desk-shortcuts').checked = p.shortcuts !== false;
     $('desk-tray').checked = !!p.trayOnClose;
     $('desk-autostart').checked = !!p.openAtLogin;
+    applyDeskShortcuts(p.customShortcuts || {});
   }).catch(() => {});
-  const saveDesk = (patch) => desktop.desktopPrefs.set(patch).catch(() => {});
-  $('desk-shortcuts').onchange = () => saveDesk({ shortcuts: $('desk-shortcuts').checked });
+  const saveDesk = (patch) => desktop.desktopPrefs.set(patch).catch(() => null);
+  $('desk-shortcuts').onchange = async () => {
+    const res = await saveDesk({ shortcuts: $('desk-shortcuts').checked });
+    if (res && res.failedShortcuts && res.failedShortcuts.length) {
+      toast(`No se pudieron registrar algunos atajos (en uso por otra app): ${res.failedShortcuts.join(', ')}`, true);
+    }
+  };
   $('desk-tray').onchange = () => saveDesk({ trayOnClose: $('desk-tray').checked });
   $('desk-autostart').onchange = () => saveDesk({ openAtLogin: $('desk-autostart').checked });
+  if ($('desk-sc-save')) {
+    $('desk-sc-save').onclick = async () => {
+      const customShortcuts = {
+        mute: ($('desk-sc-mute')?.value || '').trim() || 'CommandOrControl+Shift+M',
+        float: ($('desk-sc-float')?.value || '').trim() || 'CommandOrControl+Shift+F',
+        stop: ($('desk-sc-stop')?.value || '').trim() || 'CommandOrControl+Shift+S',
+      };
+      const res = await saveDesk({ customShortcuts });
+      if (res && res.customShortcuts) applyDeskShortcuts(res.customShortcuts);
+      if (res && res.failedShortcuts && res.failedShortcuts.length) {
+        toast(`Algunos atajos no se pudieron registrar (en uso por otra app): ${res.failedShortcuts.join(', ')}`, true);
+      } else {
+        toast('Atajos globales actualizados.');
+      }
+    };
+  }
 }
 
 function showKeyboard(show) {
@@ -1115,29 +1276,84 @@ $('text-form').onsubmit = async (e) => {
 };
 
 const personalityUI = initPersonality({ toast, onChange: () => refreshConfig() });
+const photoUI = initPhotoAndScene({
+  getAvatar: () => avatar,
+  getName: () => (config ? config.name : 'companion'),
+  toast,
+});
+const extrasUI = initExtras({
+  getAvatar: () => avatar,
+  getConfig: () => config,
+  send,
+  toast,
+  reloadAll: async () => {
+    await reloadModel();
+    await refreshModels();
+    personalityUI.refresh();
+    if (extrasUI) {
+      extrasUI.refreshMemory();
+      extrasUI.refreshPresets();
+    }
+  },
+});
+if ($('focus-chip')) $('focus-chip').onclick = () => openSettings(true, 'memoria');
+if ($('mika-line')) {
+  $('mika-line').title = 'Clic para copiar el texto';
+  $('mika-line').onclick = async () => {
+    const txt = $('mika-line').textContent.trim();
+    if (!txt || window.getSelection?.().toString()) return;
+    try { await navigator.clipboard.writeText(txt); toast('Frase copiada al portapapeles.'); } catch {}
+  };
+}
 
-const selectSettingsTab = (tab) => {
+const selectSettingsTab = (tab, focusTab = false) => {
   for (const b of document.querySelectorAll('.snav[data-stab]')) {
     const on = b.dataset.stab === tab;
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    if (on && focusTab) b.focus();
   }
   for (const p of document.querySelectorAll('.stab-panel[data-stab-panel]')) {
     p.classList.toggle('active', p.dataset.stabPanel === tab);
   }
 };
-for (const b of document.querySelectorAll('.snav[data-stab]')) {
+const stabList = [...document.querySelectorAll('.snav[data-stab]')];
+stabList.forEach((b, idx) => {
+  b.tabIndex = b.classList.contains('active') ? 0 : -1;
   b.onclick = () => selectSettingsTab(b.dataset.stab);
-}
+  b.onkeydown = (e) => {
+    if (!['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    let next = idx;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') next = (idx + 1) % stabList.length;
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') next = (idx - 1 + stabList.length) % stabList.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = stabList.length - 1;
+    selectSettingsTab(stabList[next].dataset.stab, true);
+  };
+});
 
+let lastFocusedBeforeSettings = null;
 const openSettings = (open, tab = null) => {
+  if (open && $('settings').hidden) lastFocusedBeforeSettings = document.activeElement;
   $('settings').hidden = !open;
-  if (!open) return;
+  if (!open) {
+    if (lastFocusedBeforeSettings && typeof lastFocusedBeforeSettings.focus === 'function') {
+      try { lastFocusedBeforeSettings.focus(); } catch {}
+    }
+    return;
+  }
   if (tab) selectSettingsTab(tab);
   refreshConfig();
   refreshActions();
   refreshModels();
-  refreshMemory();
+  extrasUI.refreshMemory();
+  extrasUI.refreshReminders();
+  extrasUI.refreshPresets();
+  extrasUI.refreshFocus();
+  extrasUI.refreshPairing();
+  extrasUI.refreshMcp();
   personalityUI.refresh();
   Promise.all([fillMics(), fillCams()]).then(() => {
     const pick = (id) => { const o = $(id).selectedOptions[0]; return o && o.value ? o.textContent : ''; };
@@ -1151,7 +1367,21 @@ $('open-settings').onclick = () => openSettings(true);
 $('brain').onclick = () => openSettings(true, 'cerebro');
 $('close-settings').onclick = () => openSettings(false);
 $('settings').onclick = (e) => { if (e.target === $('settings')) openSettings(false); };
-addEventListener('keydown', (e) => { if (e.key === 'Escape') openSettings(false); });
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (photoUI && photoUI.isOpen) photoUI.closeBooth();
+    else if (!$('settings').hidden) openSettings(false);
+  } else if (e.key === 'Tab' && !$('settings').hidden) {
+    const sheet = document.querySelector('#settings .sheet');
+    if (!sheet) return;
+    const focusables = [...sheet.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')]
+      .filter((el) => !el.closest('[hidden]') && el.offsetParent !== null);
+    if (!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
 
 // ---------------------------------------------------------------- modo de funcionamiento
 // Antes lo mismo se decidía en cuatro sitios (modo rápido, «en vivo», «solo nube» y «dónde piensa»); ahora hay un
@@ -1172,20 +1402,26 @@ function drawModes(cfg) {
   for (const el of document.querySelectorAll('#mode-settings [data-modes]')) el.hidden = !el.dataset.modes.split(' ').includes(shown);
   $('mode-settings-title').textContent = `Ajustes de «${MODE_NAMES[shown]}»`;
   const lv = cfg.live || {};
-  const now = {
-    live: `<b>En uso: En vivo</b> con ${lv.name || 'Gemini Live'}. Te oye, piensa y habla en la nube; tu tarjeta gráfica queda libre.`,
-    hybrid: `<b>En uso: Nube + voz en tu PC.</b> Piensa con ${cfg.cloud.name}${cfg.cloud.has_key ? '' : ' (falta la clave)'} y habla con ${cfg.voice || 'su voz'} desde tu PC.`,
-    cloud: `<b>En uso: Solo nube.</b> Cerebro (${cfg.cloud.name}), oído y voz por internet; nada se carga en tu tarjeta.`,
-    local: `<b>En uso: 100 % en tu PC.</b> Piensa con ${cfg.local_model} en Ollama; nada sale de tu PC.`,
+  const nowParts = {
+    live: ['En uso: En vivo', ` con ${lv.name || 'Gemini Live'}. Te oye, piensa y habla en la nube; tu tarjeta gráfica queda libre.`],
+    hybrid: ['En uso: Nube + voz en tu PC.', ` Piensa con ${cfg.cloud.name}${cfg.cloud.has_key ? '' : ' (falta la clave)'} y habla con ${cfg.voice || 'su voz'} desde tu PC.`],
+    cloud: ['En uso: Solo nube.', ` Cerebro (${cfg.cloud.name}), oído y voz por internet; nada se carga en tu tarjeta.`],
+    local: ['En uso: 100 % en tu PC.', ` Piensa con ${cfg.local_model} en Ollama; nada sale de tu PC.`],
   }[active];
   const wait = shown !== active
     ? (shown === 'live' ? `Para activar «En vivo» falta la clave de ${lv.providers ? (lv.providers.find((p) => p.id === $('live-provider').value) || {}).name : 'su proveedor'}: escríbela abajo y pulsa «Guardar y activar».`
       : `Para activar «${MODE_NAMES[shown]}» falta la clave del cerebro en la nube: pulsa «Cambiar».`)
     : '';
-  $('mode-now').innerHTML = '';
-  $('mode-now').classList.toggle('warn', !!wait);
-  if (wait) $('mode-now').textContent = wait;
-  else $('mode-now').innerHTML = now;   // solo textos propios y nombres que da el servidor (sin HTML de fuera)
+  const modeNowEl = $('mode-now');
+  modeNowEl.replaceChildren();
+  modeNowEl.classList.toggle('warn', !!wait);
+  if (wait) {
+    modeNowEl.textContent = wait;
+  } else if (nowParts) {
+    const b = document.createElement('b');
+    b.textContent = nowParts[0];
+    modeNowEl.append(b, document.createTextNode(nowParts[1]));
+  }
   $('live-save').textContent = shown === 'live' && active !== 'live' ? 'Guardar y activar' : 'Guardar';
 }
 async function chooseMode(m) {
@@ -1340,6 +1576,7 @@ $('forget').onclick = async () => {
   toast(r.ok ? 'Listo: empezamos de cero.' : 'No se pudo borrar.', !r.ok);
   $('user-line').textContent = '';
   $('mika-line').textContent = '';
+  if (r.ok && extrasUI) extrasUI.refreshMemory();
 };
 
 // Empezar de nuevo: repetir la bienvenida (conserva lo guardado) o restablecer todos los datos del usuario.
@@ -1402,6 +1639,7 @@ function setMode(mode) {
   if (on) {
     openSettings(false);                             // los ajustes no se ven flotando
     showKeyboard(false);
+    if (!started) begin(true);
   } else {
     showOrb(!config || !config.model || !avatar);
   }
@@ -1411,29 +1649,40 @@ function setMode(mode) {
 }
 // Flotando, la barra de botones encoge para caber entera en la ventana (pequeña con la rueda, o en parte fuera de la
 // pantalla): antes se cortaban los botones de los lados (17 nov 2026). `zoom` también encoge la zona que se pulsa.
+let barNaturalWidth = 0;
 function fitBar() {
   const bar = document.querySelector('footer > .controls');
   if (!bar) return;
   if (!floating) { bar.style.zoom = ''; return; }
-  bar.style.zoom = '1';
-  const avail = bar.parentElement.clientWidth - 16, need = bar.offsetWidth;
-  bar.style.zoom = need > avail && need > 0 ? String(Math.max(0.55, avail / need)) : '1';
+  if (!barNaturalWidth) {
+    barNaturalWidth = bar.scrollWidth || bar.offsetWidth || 310;
+  }
+  const avail = (bar.parentElement.clientWidth || 320) - 16;
+  const z = barNaturalWidth > avail && barNaturalWidth > 0 ? String(Math.max(0.55, avail / barNaturalWidth)) : '1';
+  if (bar.style.zoom !== z) bar.style.zoom = z;
 }
 new ResizeObserver(fitBar).observe(document.querySelector('footer'));
 if (desktop && desktop.onMode) desktop.onMode(setMode);
 
-// ---------------------------------------------------------------- mascota de escritorio (Ajustes › Escritorio)
-// Solo en la app y solo flotando: desktop/pet.js mueve la ventana (gravedad, paseos, sentarse, ir a la ventana que
-// maneja) y aquí se ponen las animaciones. Los ajustes se recuerdan en esta app (localStorage).
-// Calidad del personaje (18 nov 2026): texturas y resolución según la memoria de vídeo de la tarjeta (config.gpu,
-// en MB; en el Mac, la parte de la memoria unificada que puede usar la GPU). Sin dato (gráfica integrada, AMD): media.
+function detectWebGLTier() {
+  if (!avatar || !avatar.renderer) return 'media';
+  try {
+    const gl = avatar.renderer.getContext();
+    const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    const name = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '') : '';
+    if (/Apple M[1-9]|Radeon RX [6789]\d{3}|RTX [2345]\d{2}|Arc A7/i.test(name)) return 'alta';
+    if (/Intel\(R\) (HD|UHD)|SwiftShader|llvmpipe|Mali-G5/i.test(name)) return 'baja';
+  } catch {}
+  return 'media';
+}
+
 function QUALITY() { return { alta: { maxTex: 4096, ratio: 2 }, media: { maxTex: 2048, ratio: 1.5 }, baja: { maxTex: 1024, ratio: 1 } }; }   // función: applyConfig puede llegar antes
 function qualityPref() { try { return localStorage.getItem('companion.quality') || 'auto'; } catch { return 'auto'; } }
 function qualityNow() {
   const pref = qualityPref();
   if (pref in QUALITY()) return pref;
   const total = config && config.gpu ? config.gpu.total : 0;
-  return !total ? 'media' : total >= 7800 ? 'alta' : total >= 5500 ? 'media' : 'baja';
+  return !total ? detectWebGLTier() : total >= 7800 ? 'alta' : total >= 5500 ? 'media' : 'baja';
 }
 function applyQuality() {
   if (!avatar || !avatar.setQuality) return;
@@ -1588,7 +1837,10 @@ function updateHit() {
 // Doble clic: vuelve al encuadre de siempre. Los oyentes están siempre puestos y solo actúan flotando.
 {
   const canvas = $('canvas');
-  addEventListener('mousemove', (e) => { if (floating) mouse = { x: e.clientX, y: e.clientY }; });
+  addEventListener('mousemove', (e) => {
+    if (floating) mouse = { x: e.clientX, y: e.clientY };
+    else if (avatar && $('settings').hidden) avatar.setCursor(e.clientX, e.clientY);
+  });
   document.addEventListener('mouseleave', () => { if (floating && !dragging && !rotating) mouse = null; });
   canvas.addEventListener('pointerdown', (e) => {
     if (!floating || !avatar || !avatar.probeHit || petWorking) return;

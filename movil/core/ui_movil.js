@@ -286,19 +286,51 @@ function latido() {
   const a = window.companion && window.companion.audio;
   const ctx = a && a.ctx;
   if (!ctx || pip.latido) return;
-  try {
-    const n = ctx.createScriptProcessor(2048, 1, 1);
-    let ultimo = 0;
-    n.onaudioprocess = (e) => {
-      const out = e.outputBuffer.getChannelData(0);
-      for (let i = 0; i < out.length; i++) out[i] = (Math.random() - 0.5) * 2e-4;
-      const now = performance.now();
-      if (pip.on && document.hidden && pip.tick && now - ultimo > 60) { ultimo = now; pip.tick(); }
-    };
-    n.connect(ctx.destination);
-    pip.latido = n;
-    if (ctx.state !== 'running') ctx.resume().catch(() => {});
-  } catch (err) { console.warn('Ventana flotante: sin latido de audio', err); }
+  const fallbackScriptNode = () => {
+    try {
+      const n = ctx.createScriptProcessor(2048, 1, 1);
+      let ultimo = 0;
+      n.onaudioprocess = (e) => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < out.length; i++) out[i] = (Math.random() - 0.5) * 2e-4;
+        const now = performance.now();
+        if (pip.on && document.hidden && pip.tick && now - ultimo > 60) { ultimo = now; pip.tick(); }
+      };
+      n.connect(ctx.destination);
+      pip.latido = n;
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    } catch (err) { console.warn('Ventana flotante: sin latido de audio', err); }
+  };
+  if (ctx.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
+    const code = `class PipKeepalive extends AudioWorkletProcessor {
+      constructor() { super(); this._frames = 0; }
+      process(_in, outputs) {
+        const ch = outputs[0] && outputs[0][0];
+        if (ch) { for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() - 0.5) * 2e-4; }
+        this._frames += (ch ? ch.length : 128);
+        if (this._frames >= sampleRate * 0.062) { this._frames = 0; this.port.postMessage(1); }
+        return true;
+      }
+    }
+    registerProcessor('pip-keepalive', PipKeepalive);`;
+    const blobUrl = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+    pip.latido = { disconnect() {} }; // reserva mientras carga el módulo
+    ctx.audioWorklet.addModule(blobUrl).then(() => {
+      URL.revokeObjectURL(blobUrl);
+      if (!pip.on) { pip.latido = null; return; }
+      const node = new AudioWorkletNode(ctx, 'pip-keepalive', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
+      node.port.onmessage = () => { if (pip.on && document.hidden && pip.tick) pip.tick(); };
+      node.connect(ctx.destination);
+      pip.latido = node;
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    }).catch(() => {
+      URL.revokeObjectURL(blobUrl);
+      pip.latido = null;
+      fallbackScriptNode();
+    });
+    return;
+  }
+  fallbackScriptNode();
 }
 
 function cerrarFlotante() {
@@ -637,9 +669,40 @@ export function init() {
     abrirFlotante(true).catch((err) => console.warn('Ventana flotante', err));
   }, 1000);
 
-  // La pestaña «Acciones y memoria» aquí solo tiene la memoria.
+  // La pestaña «Acciones y memoria» aquí solo tiene la memoria y la mochila / Modo En Casa.
   const pestana = document.querySelector('[data-stab="memoria"] b');
   if (pestana) pestana.textContent = 'Memoria';
+
+  // Modo En Casa (cliente LAN opt-in): conecta con el servidor de tu PC en red privada Wi-Fi (192.168.x.x / 10.x.x.x / 172.16-31.x.x).
+  const memTab = $('tab-memoria');
+  if (memTab) {
+    const lanCard = el('div', 'set-card');
+    const head = el('div', 'card-head');
+    head.append(el('h3', null, 'Modo En Casa (tu PC por Wi-Fi)'));
+    const desc = el('p', 'card-desc', 'Pega el enlace de emparejamiento de tu PC en la misma red local (ej. http://192.168.1.50:8200/?pair=…) para usar su voz F5-TTS o Kokoro y compartir memoria en vivo.');
+    const row = el('div', 'preset-bar');
+    const inp = el('input');
+    inp.type = 'url';
+    inp.placeholder = 'http://192.168.x.x:8200/?pair=…';
+    try { inp.value = localStorage.getItem('companion.lan_pc') || ''; } catch {}
+    const go = el('button', 'ghost', 'Abrir PC');
+    go.type = 'button';
+    go.onclick = () => {
+      const raw = inp.value.trim();
+      let u;
+      try { u = new URL(raw); } catch { aviso('Escribe una dirección http:// válida de tu red local.'); return; }
+      const isPrivateLan = /^(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/.test(u.hostname);
+      if (u.protocol !== 'http:' || !isPrivateLan) {
+        aviso('Por seguridad solo se permiten direcciones privadas de tu red local (192.168.x.x, 10.x.x.x o 172.16-31.x.x).');
+        return;
+      }
+      try { localStorage.setItem('companion.lan_pc', u.href); } catch {}
+      window.open(u.href, '_blank', 'noopener');
+    };
+    row.append(inp, go);
+    lanCard.append(head, desc, row);
+    memTab.append(lanCard);
+  }
 
   // Tocar fuera del chat cierra el teclado (en iOS no se cierra solo).
   document.addEventListener('pointerdown', (e) => {

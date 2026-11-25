@@ -84,16 +84,19 @@ fi
 
 paso interfaz "Librerias de la interfaz (web/vendor)"
 THREE=0.180.0; VRM=3.5.5; CDN=https://cdn.jsdelivr.net/npm
-while read -r url dst; do
-  [ -f "$dst" ] && continue
+sha_archivo() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
+while read -r url dst esperada; do
+  if [ -f "$dst" ] && [ "$(sha_archivo "$dst")" = "$esperada" ]; then continue; fi
   mkdir -p "$(dirname "$dst")"; echo "Descargando $url"; curl -fsSL "$url" -o "$dst"
+  real="$(sha_archivo "$dst")"
+  if [ "$real" != "$esperada" ]; then rm -f "$dst"; marca error "Suma SHA-256 invalida en $dst"; exit 1; fi
 done <<EOF
-$CDN/three@$THREE/build/three.module.min.js web/vendor/three/build/three.module.min.js
-$CDN/three@$THREE/build/three.core.min.js web/vendor/three/build/three.core.min.js
-$CDN/three@$THREE/examples/jsm/loaders/GLTFLoader.js web/vendor/three/examples/jsm/loaders/GLTFLoader.js
-$CDN/three@$THREE/examples/jsm/utils/BufferGeometryUtils.js web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js
-$CDN/three@$THREE/examples/jsm/controls/OrbitControls.js web/vendor/three/examples/jsm/controls/OrbitControls.js
-$CDN/@pixiv/three-vrm@$VRM/lib/three-vrm.module.min.js web/vendor/three-vrm/three-vrm.module.min.js
+$CDN/three@$THREE/build/three.module.min.js web/vendor/three/build/three.module.min.js e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6
+$CDN/three@$THREE/build/three.core.min.js web/vendor/three/build/three.core.min.js 61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de
+$CDN/three@$THREE/examples/jsm/loaders/GLTFLoader.js web/vendor/three/examples/jsm/loaders/GLTFLoader.js 67ac5551fdafa6e349bd80c8f8e5e39c136d6b2fb1ad647db9abb21dc86f9e4a
+$CDN/three@$THREE/examples/jsm/utils/BufferGeometryUtils.js web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js fda7e946b8e0b5ab39b779206589e7a1079a22eb24efb89d7223e03fdfb1f751
+$CDN/three@$THREE/examples/jsm/controls/OrbitControls.js web/vendor/three/examples/jsm/controls/OrbitControls.js b97879c748170baadeb3fb84cea1ffdf4674e283dc06042f34e2acb95a76042c
+$CDN/@pixiv/three-vrm@$VRM/lib/three-vrm.module.min.js web/vendor/three-vrm/three-vrm.module.min.js 99f943e956e52dbf52bbe418899e8a8ae5e35f5c79a94ab8e404926afc620bf2
 EOF
 
 # ---------------------------------------------------------------- 3. modelos segun la tarjeta
