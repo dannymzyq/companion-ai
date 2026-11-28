@@ -773,15 +773,18 @@
                 </div>
               </div>
               <label class="row set">
-                <span><b>Modo En Casa (red local)</b><small>Permite conectar la app móvil a esta PC dentro de tu Wi-Fi con un token efímero.</small></span>
+                <span><b>Modo En Casa (red local)</b><small>Tu teléfono, en la misma Wi-Fi, conversa con este companion: su voz, su personaje y su memoria. Desde el teléfono no se cambian ajustes ni se hacen acciones en la PC.</small></span>
                 <input type="checkbox" id="pairing-on" class="switch">
               </label>
               <div id="pairing-box" class="set" hidden>
+                <p class="note" id="pairing-state"></p>
                 <code id="pairing-url" class="pair-code"></code>
+                <p class="note" id="pairing-fp" hidden></p>
                 <div class="buttons buttons-inline">
                   <button type="button" id="pairing-copy" class="mini primary-mini">Copiar enlace</button>
-                  <button type="button" id="pairing-rotate" class="mini">Renovar código</button>
+                  <button type="button" id="pairing-rotate" class="mini">Renovar enlace</button>
                 </div>
+                <p class="note">El enlace es la llave: no lo compartas. La conexión va cifrada con un certificado propio de esta PC, así que la primera vez el teléfono avisará de que no es de confianza: si la huella que enseña coincide con la de aquí, continúa. Windows puede pedir permiso para usar la red: acéptalo solo para redes privadas.</p>
               </div>
             </div>
           </section>

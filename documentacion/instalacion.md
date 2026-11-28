@@ -187,13 +187,13 @@ archivo, así que normalmente no hace falta tocarlo. Lo más útil:
 | Qué pasa | Qué hacer |
 | --- | --- |
 | PowerShell dice que la ejecución de scripts está deshabilitada | Usa el comando completo con `-ExecutionPolicy Bypass`, como en esta guía |
-| «Falta la clave del cerebro en la nube» | Ajustes › Cerebro › «Proveedor y clave», o cambia a «Local» |
-| El personaje responde solo con texto, sin voz | Voz completa: mira `data\voz.log`. O pasa a la voz ligera en Ajustes › Voz y sonido |
-| «La voz ligera no está instalada» | Ajustes › Voz y sonido › Voz › «Cambiar» › botón de descarga, o `instalar.ps1 -Voz ambas` |
-| No se oye nada, o suena por otro aparato | Ajustes › Voz y sonido › «Salida de audio» y «Volumen» |
-| El modelo local responde muy lento | No cabe en la tarjeta: elige uno más pequeño en Ajustes › Cerebro › «Modelo local», cierra juegos, o usa la nube |
+| «Falta la clave del cerebro en la nube» | Ajustes › Cerebro y voz › «Cerebro en la nube» › «Cambiar», o cambia a «100 % en tu PC» |
+| El personaje responde solo con texto, sin voz | Voz completa: mira `data\voz.log`. O pasa a la voz ligera en Ajustes › Cerebro y voz › «Su voz» |
+| «La voz ligera no está instalada» | Ajustes › Cerebro y voz › «Su voz» › «Cambiar» › botón de descarga, o `instalar.ps1 -Voz ambas` |
+| No se oye nada, o suena por otro aparato | Ajustes › Cerebro y voz › Sonido › «Salida de audio» y el volumen de la voz |
+| El modelo local responde muy lento | No cabe en la tarjeta: elige uno más pequeño en Ajustes › Cerebro y voz › «Cerebro en tu PC», cierra juegos, o usa la nube |
 | «Ollama no está abierto en esta PC» | Ábrelo desde el menú Inicio, o vuelve a ejecutar `iniciar.ps1` |
-| No te oye | Revisa el micrófono elegido en Ajustes; la barra debe moverse al hablar |
+| No te oye | Revisa el micrófono elegido en Ajustes › Dispositivos; la barra debe moverse al hablar |
 | El companion no arranca | Mira las últimas líneas de `data\companion.log` (el aviso de error las enseña) |
 | «solo se permite un uso de cada dirección de socket» (error 10048) | Otro programa usaba el puerto 8200. El instalador y el arranque ya eligen uno libre y lo guardan en `.env` (`PORT=8202`, por ejemplo); en versiones anteriores, pon tú esa línea en `.env` |
 | Se cerró solo y al volver a abrirlo no sé por qué | El registro de la vez anterior queda en `data\companion.1.log` (y `.2`, `.3`) |

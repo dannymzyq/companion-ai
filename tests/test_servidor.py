@@ -7,20 +7,22 @@ from fastapi.testclient import TestClient
 
 from companion import server
 
+LOCAL = ("127.0.0.1", 50000)        # quien llama desde esta misma PC
+
 
 class SeguridadLocal(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Sin «with»: no corre el arranque (no carga Whisper, ni la voz, ni el modelo local).
-        cls.local = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        cls.local = TestClient(server.app, base_url="http://127.0.0.1:8299", client=LOCAL)
 
     def test_nombre_de_esta_pc(self):
         self.assertEqual(self.local.get("/api/models").status_code, 200)
-        self.assertEqual(TestClient(server.app, base_url="http://localhost:8299").get("/api/models").status_code, 200)
+        self.assertEqual(TestClient(server.app, base_url="http://localhost:8299", client=LOCAL).get("/api/models").status_code, 200)
 
     def test_dns_rebinding(self):
         """Una página cuyo dominio pasa a apuntar a 127.0.0.1 no puede leer los recuerdos."""
-        ajeno = TestClient(server.app, base_url="http://malicioso.example:8299")
+        ajeno = TestClient(server.app, base_url="http://malicioso.example:8299", client=LOCAL)
         self.assertEqual(ajeno.get("/api/memory").status_code, 400)
         self.assertEqual(ajeno.get("/").status_code, 400)
 

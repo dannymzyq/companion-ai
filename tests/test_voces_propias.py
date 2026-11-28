@@ -93,7 +93,7 @@ class VocesPropias(unittest.TestCase):
             voice_import.remove("mika")
 
     def test_por_la_interfaz(self):
-        web = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        web = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000))
         origin = {"Origin": "http://127.0.0.1:8299"}
         with mock.patch.object(server.transcriber, "model", WhisperFalso()):
             r = web.post("/api/voices/custom", params={"name": "José María"}, content=grabacion(), headers=origin)

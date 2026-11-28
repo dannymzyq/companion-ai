@@ -33,13 +33,13 @@ class MejorasSeguridadYPrivacidad(unittest.TestCase):
         self.assertIn("caracteres>", hist[0]["result"])
 
     def test_sec_fetch_site_cross_site_bloqueado(self):
-        c = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        c = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000))
         r = c.post("/api/memory/forget", json={"fact": "x"}, headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status_code, 403)
 
     def test_custom_cloud_cambio_base_exige_clave_nueva(self):
         state.save(cloud={"preset": "custom", "base": "https://uno.example/v1", "model": "m1", "key": "sk-secreta"})
-        c = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        c = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000))
         r = c.post("/api/cloud/check", json={"preset": "custom", "base": "https://atacante.example/v1", "key": ""}, headers=ORIGIN)
         self.assertEqual(r.status_code, 400)
 
@@ -67,7 +67,7 @@ class MejorasMemoriaYDiario(unittest.TestCase):
         self.assertEqual(len(res["items"]), 1)
 
         # Edición vía API
-        c = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        c = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000))
         mid = store.memory_items()[0]["id"]
         rp = c.patch(f"/api/memory/item/{mid}", json={"fact": "Ana usa Mac y GPU dedicada", "pinned": True}, headers=ORIGIN)
         self.assertEqual(rp.status_code, 200)
@@ -138,7 +138,7 @@ class MejorasAccionesYNuevosFeatures(unittest.TestCase):
             cloud={"preset": "gemini", "base": "https://x", "model": "", "key": "CLAVE_SUPER_SECRETA"},
         )
         store.add_memory("Danny juega en una RTX 5070 Ti", pinned=True)
-        c = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        c = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000))
         pack = c.get("/api/backpack").json()
         raw_pack = json.dumps(pack)
         self.assertNotIn("CLAVE_SUPER_SECRETA", raw_pack)
@@ -151,7 +151,7 @@ class MejorasAccionesYNuevosFeatures(unittest.TestCase):
         self.assertTrue(store.memory_items()[0]["pinned"])
 
     def test_pomodoro_presets_juegos_y_mcp_seguro(self):
-        c = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        c = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000))
         rf = c.post("/api/focus", json={"action": "start", "work_min": 25, "break_min": 5, "task": "código"}, headers=ORIGIN)
         self.assertEqual(rf.status_code, 200)
         self.assertEqual(rf.json()["phase"], "work")

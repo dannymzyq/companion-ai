@@ -12,14 +12,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import actions, config, focus, llm, mcp_client, models, mood, pairing, personality, profile, state, store, tts, voice_import, voz_proc
 from .config import settings
 from .prompt import adult_active, load_persona
-from .session import Session
+from .session import Session, _open as open_sessions
+from .update import current as current_version
 from . import lifecycle
 from .stt import Transcriber
 
@@ -98,47 +99,100 @@ async def lifespan(_: FastAPI):
     # cerrada de golpe (con 6 GB no deja sitio a la voz completa).
     _background(llm.warm_local() if not settings.is_cloud else llm.unload_local())
     await asyncio.to_thread(voz_proc.sync)   # la voz completa corre en su propio proceso (voz/servidor.py)
+    await _lan_sync()                        # Modo En Casa encendido de antes: vuelve a escuchar en la red
     yield
+    await pairing.stop_lan()
     voz_proc.stop()
     await llm.unload_local()             # al cerrar con normalidad se libera la memoria de vídeo del modelo local
 
 
-app = FastAPI(title="Companion", version="0.10.0", lifespan=lifespan)
-# Solo se atiende a quien llama al servidor por su nombre de esta PC (contra DNS rebinding), salvo que el usuario haya
-# encendido explícitamente «Modo En Casa» (companion/pairing.py) Y la petición llegue de red privada con token válido.
+app = FastAPI(title="Companion", version=current_version(), lifespan=lifespan)   # la de VERSION, no una escrita a mano
+# Solo se atiende a esta misma PC, que llama por su nombre (contra DNS rebinding), salvo que el usuario haya encendido
+# «Modo En Casa» (companion/pairing.py) Y la petición llegue de una red privada, nombrando a la PC por su IP y con token.
 LOCAL_HOSTS = {"127.0.0.1", "localhost", *({settings.host} if settings.host not in ("127.0.0.1", "localhost", "0.0.0.0") else set())}
+WIDE = settings.host in ("0.0.0.0", "::")     # HOST en .env: el servidor principal ya escucha en toda la red
+# Un teléfono emparejado conversa y mira (GET), pero no cambia nada de la PC ni se lleva sus datos.
+PAIRED_BLOCKED = ("/api/backpack", "/api/pairing", "/api/mcp", "/api/update")
+PAIRED_ONLY_TALKS = "Desde el teléfono emparejado solo se conversa: esto se cambia en la PC."
+
+
+def _host_name(host_header: str | None) -> str:
+    raw = (host_header or "").strip().lower()
+    if raw.startswith("["):                                     # IPv6: [::1]:8200
+        return raw[1:].split("]")[0]
+    return raw.split(":")[0]
 
 
 def _host_is_local(host_header: str | None) -> bool:
-    raw = (host_header or "").strip().lower()
-    if not raw:
-        return False
-    host_only = raw.split(":")[0]
-    return host_only in LOCAL_HOSTS
+    return _host_name(host_header) in LOCAL_HOSTS
 
 
-def _paired_request_ok(host_header: str | None, client_ip: str | None, headers, query_params=None, cookies=None) -> bool:
-    if _host_is_local(host_header):
-        return True
+def _client_kind(host_header: str | None, client_ip: str | None, headers, query_params=None, cookies=None) -> str | None:
+    """«local» (esta misma PC), «paired» (un teléfono emparejado) o None (se rechaza).
+
+    Que sea esta PC lo dice la dirección de quien llama, no la cabecera Host: esa la escribe el cliente, y un equipo
+    de la red con «Host: localhost» se saltaba el token (27 nov 2026). La cabecera Host frena el DNS rebinding."""
+    if pairing.is_loopback(client_ip):
+        return "local" if _host_is_local(host_header) else None
     if not pairing.enabled() or not pairing.is_private_client(client_ip):
-        return False
-    tok = pairing.extract_token(headers, query_params, cookies)
-    return pairing.valid_token(tok)
+        return None
+    if _host_name(host_header) not in pairing.lan_hosts():
+        return None
+    return "paired" if pairing.valid_token(pairing.extract_token(headers, query_params, cookies)) else None
+
+
+def _is_local(request: Request) -> bool:
+    return pairing.is_loopback(request.client.host if request.client else None) and _host_is_local(request.headers.get("host"))
 
 
 @app.middleware("http")
 async def security_and_cache_middleware(request: Request, call_next):
-    host_hdr = request.headers.get("host")
     client_ip = request.client.host if request.client else None
-    if not _paired_request_ok(host_hdr, client_ip, request.headers, request.query_params, request.cookies):
+    kind = _client_kind(request.headers.get("host"), client_ip, request.headers, request.query_params, request.cookies)
+    if kind is None:
         return PlainTextResponse("Invalid host header", status_code=400)
-    response = await call_next(request)
-    if not request.url.path.startswith("/api/"):
-        response.headers["Cache-Control"] = "no-cache"
     pair_q = request.query_params.get("pair")
-    if pair_q and pairing.valid_token(pair_q):
-        response.set_cookie(pairing.COOKIE_NAME, pair_q, httponly=True, samesite="lax")
+    path = request.url.path
+    if kind == "paired":
+        if request.method not in ("GET", "HEAD") or path.startswith(PAIRED_BLOCKED):
+            return JSONResponse({"detail": PAIRED_ONLY_TALKS}, status_code=403)
+        if pair_q and not path.startswith("/api/"):
+            # El enlace trae el token: queda en una cookie y se quita de la dirección (historial, capturas).
+            url = request.url.remove_query_params("pair")
+            response = RedirectResponse(url.path + (f"?{url.query}" if url.query else ""), status_code=303)
+            _pair_cookie(response, pair_q, request)
+            return response
+    response = await call_next(request)
+    if not path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    if kind == "paired" and pair_q:
+        _pair_cookie(response, pair_q, request)
     return response
+
+
+def _pair_cookie(response, token: str, request: Request):
+    """La llave del teléfono, solo para esta PC y nunca al alcance del JavaScript; por https, solo cifrada."""
+    response.set_cookie(pairing.COOKIE_NAME, token, httponly=True, samesite="lax", secure=request.url.scheme == "https")
+
+
+async def _lan_sync():
+    """La escucha en la red sigue al interruptor de En Casa (salvo que HOST ya abra el servidor principal)."""
+    if WIDE:
+        return
+    if pairing.enabled():
+        await pairing.start_lan(app, settings.port)
+    else:
+        await pairing.stop_lan()
+
+
+async def _drop_paired():
+    """Al apagar En Casa o renovar el código, los teléfonos que ya estaban conectados se desconectan."""
+    for s in list(open_sessions):
+        if getattr(s, "remote", False):
+            try:
+                await s.ws.close(code=1008)
+            except Exception:  # noqa: BLE001  (ya se había cerrado)
+                pass
 
 
 # ---------------------------------------------------------------- seguridad local
@@ -147,17 +201,17 @@ def _origin_ok(origin: str | None, *, paired: bool = False) -> bool:
     if not origin:
         return True                       # clientes que no son navegador (scripts de prueba)
     allowed = {f"http://{h}:{settings.port}" for h in ("127.0.0.1", "localhost")}
-    if paired:
-        allowed |= {f"http://{ip}:{settings.port}" for ip in pairing.local_ips()}
+    if paired:                                    # la página del teléfono, por https (o por http sin certificado)
+        allowed |= {f"{scheme}://{ip}:{settings.port}" for scheme in ("https", "http") for ip in pairing.lan_hosts()}
     return origin in allowed
 
 
 def same_origin(request: Request, origin: str | None = Header(default=None)):
+    """Para lo que cambia algo: solo la propia interfaz en esta PC (un teléfono emparejado ya se frena antes)."""
     sfs = (request.headers.get("sec-fetch-site") or "").strip().lower()
     if sfs and sfs not in ("same-origin", "none"):
         raise HTTPException(403, "Origen no permitido")
-    is_paired = pairing.valid_token(pairing.extract_token(request.headers, request.query_params, request.cookies))
-    if not _origin_ok(origin, paired=is_paired):
+    if not _origin_ok(origin):
         raise HTTPException(403, "Origen no permitido")
 
 
@@ -992,8 +1046,7 @@ async def post_backpack(body: dict):
 
 @app.get("/api/pairing")
 async def get_pairing(request: Request):
-    local_req = _host_is_local(request.headers.get("host"))
-    return pairing.status(settings.port, include_secret=local_req)
+    return pairing.status(settings.port, include_secret=_is_local(request), wide=WIDE)
 
 
 class PairingIn(BaseModel):
@@ -1003,9 +1056,14 @@ class PairingIn(BaseModel):
 
 @app.post("/api/pairing", dependencies=[Depends(same_origin)])
 async def set_pairing(request: Request, body: PairingIn):
-    if not _host_is_local(request.headers.get("host")):
+    if not _is_local(request):
         raise HTTPException(403, "El emparejamiento solo se puede cambiar desde esta misma PC.")
-    return await asyncio.to_thread(pairing.configure, on=body.enabled, rotate=body.rotate, port=settings.port)
+    await asyncio.to_thread(pairing.configure, on=body.enabled, rotate=body.rotate, port=settings.port)
+    if not body.enabled or body.rotate:          # el código viejo deja de valer también para quien ya estaba dentro
+        await pairing.stop_lan()
+        await _drop_paired()
+    await _lan_sync()
+    return pairing.status(settings.port, include_secret=True, wide=WIDE)
 
 
 @app.get("/api/presets")
@@ -1042,8 +1100,9 @@ async def remove_preset(pid: str):
 @app.get("/api/mcp")
 async def get_mcp():
     cfg = mcp_client.config()
-    tools = await mcp_client.list_tools() if cfg["enabled"] else []
-    return {**cfg, "tools": tools}
+    errors: dict = {}
+    tools = await mcp_client.list_tools(errors) if cfg["enabled"] else []
+    return {**cfg, "tools": tools, "errors": errors}
 
 
 class McpIn(BaseModel):
@@ -1058,24 +1117,24 @@ async def set_mcp(body: McpIn):
         cfg = await asyncio.to_thread(mcp_client.save, enabled=body.enabled, add=body.add, remove_id=body.remove_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
-    tools = await mcp_client.list_tools() if cfg["enabled"] else []
-    return {**cfg, "tools": tools}
+    errors: dict = {}
+    tools = await mcp_client.list_tools(errors) if cfg["enabled"] else []
+    for s in list(open_sessions):                # el siguiente turno ya conoce las herramientas nuevas
+        s._mcp_tools = tools if s.actions_on() else []
+    return {**cfg, "tools": tools, "errors": errors}
 
 
 # ---------------------------------------------------------------- conversación en vivo
 @app.websocket("/ws")
 async def live(ws: WebSocket):
-    host_hdr = ws.headers.get("host")
     client_ip = ws.client.host if ws.client else None
-    is_paired = pairing.valid_token(pairing.extract_token(ws.headers, ws.query_params, ws.cookies))
-    if not _paired_request_ok(host_hdr, client_ip, ws.headers, ws.query_params, ws.cookies):
-        await ws.close(code=1008)
-        return
-    if not _origin_ok(ws.headers.get("origin"), paired=is_paired):
+    kind = _client_kind(ws.headers.get("host"), client_ip, ws.headers, ws.query_params, ws.cookies)
+    if kind is None or not _origin_ok(ws.headers.get("origin"), paired=kind == "paired"):
         await ws.close(code=1008)
         return
     await ws.accept()
-    session = Session(ws, persona, transcriber)
+    # Un teléfono emparejado conversa, pero no hace acciones en la PC (ni maneja sus ventanas ni usa MCP).
+    session = Session(ws, persona, transcriber, remote=kind == "paired")
     session.start()
     await ws.send_text(json.dumps({"type": "hello", **await full_config()}, ensure_ascii=False))
     try:

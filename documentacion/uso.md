@@ -22,8 +22,8 @@ La primera vez se abre un asistente de cinco pasos. Cada paso se guarda al pulsa
    sabe cómo tratarte. Los temas +18 del cerebro local solo se activan si por tu año de nacimiento eres mayor de edad.
 2. **Cerebro**: proveedor y clave de API. Gemini está probado; OpenAI, OpenRouter, Groq, Mistral u otro
    compatible con la API de OpenAI están previstos pero sin probar (hace falta una clave de cada uno). La clave
-   se comprueba con el proveedor antes de guardarla y nunca vuelve a la interfaz (solo sus cuatro últimos
-   caracteres). Con otro proveedor que no sea Gemini, el modelo se elige de la lista que devuelve su API.
+   se comprueba con el proveedor antes de guardarla y nunca vuelve a la interfaz, ni un trozo de ella. Con otro
+   proveedor que no sea Gemini, el modelo se elige de la lista que devuelve su API.
    - **Sin clave** → «usar un modelo en esta PC»: muestra la memoria de vídeo de tu tarjeta, recomienda el modelo
      ligero que le corresponde (12 GB o más: Gemma 4 E4B; menos: E2B), lo descarga con Ollama con barra de
      progreso y lista también los modelos que ya tengas instalados.
@@ -48,7 +48,7 @@ La primera vez se abre un asistente de cinco pasos. Cada paso se guarda al pulsa
    Arriba del paso se elige el **motor de voz**, con el recomendado para la PC marcado: **voz completa** (clonada
    con F5-TTS, `voz\servidor.py`, alrededor de 1,5 GB de memoria de vídeo) o **voz ligera** (Piper en el procesador, 0 GB de vídeo,
    más sintética; sus modelos, ~380 MB, se descargan con un botón).
-   **Cambio automático** (Ajustes › Voz y sonido › «Pasar sola a la voz ligera», encendido por defecto): con la
+   **Cambio automático** (Ajustes › Cerebro y voz › «Si falta memoria, usar la voz ligera», encendido por defecto): con la
    completa elegida y las dos instaladas, si no cabe en la tarjeta junto al modelo local (o el modelo se queda sin
    memoria con un juego abierto), suena la ligera; al volver a la nube, la completa (`profile.engine_now`,
    `llm._free_voice`). Si la completa deja de responder a mitad de una respuesta, esa respuesta sigue con la ligera.
@@ -75,7 +75,7 @@ abierto ya no cabe. El modelo que eliges es el que se carga, aunque no quepa (se
 lento, el companion pasa primero a la voz ligera (si suena la completa y el cambio automático está encendido) y
 después al siguiente modelo más pequeño que tengas descargado y que vea imágenes (12B → E4B → E2B) y
 lo dice. Los modelos de solo texto no pueden mirar la
-cámara ni la pantalla. Todo se cambia en Ajustes › Cerebro › «Modelo local» y Ajustes › Voz y sonido.
+cámara ni la pantalla. Todo se cambia en Ajustes › Cerebro y voz («Cerebro en tu PC» y «Su voz»).
 
 **Que diga todo el subtítulo** (`companion/voicecheck.py`, 13 nov 2026): el modelo de voz es aleatorio y a veces se
 come palabras (medido: ~9 % de las palabras). Ahora cada frase se genera con más calidad (32 pasos, ritmo 0,9),
@@ -91,10 +91,9 @@ La lista está en `voices\pronunciacion.json`: puedes editarla o añadir palabra
 versiones de una palabra nueva y quedarte con la que mejor se entiende, añádela en
 `scripts\herramientas\calibrar_pronunciacion.py` y ejecútalo.
 
-**Ajustes** van por secciones que se abren de una en una: Tú y tu personaje · Cerebro · Voz y sonido · Micrófono
-y cámara · Pantalla y cámara compartidas · Acciones en tu PC · Memoria y datos · Estado. Cada sección enseña en su
-cabecera cómo está ahora, y cada opción lleva una «i» con una explicación corta. En **Voz y sonido** se elige
-también la **salida de audio** (altavoces, auriculares… `AudioContext.setSinkId`) y el **volumen** de la voz (0–150 %,
+**Ajustes** tiene cinco pestañas en la barra lateral: Personaje · Cerebro y voz · Dispositivos · Acciones y memoria ·
+Estado. Cada pestaña enseña bajo su nombre cómo está ahora, y cada opción lleva una «i» con una explicación corta. En
+**Cerebro y voz › Sonido** se elige también la **salida de audio** (altavoces, auriculares… `AudioContext.setSinkId`) y el **volumen** de la voz (0–150 %,
 aparte del de Windows); se recuerdan en esta PC y valen también para la muestra ▶ de las voces.
 
 ### Al abrir y al cerrar (15 nov 2026)
@@ -112,11 +111,11 @@ aparte del de Windows); se recuerdan en esta PC y valen también para la muestra
 
 ### Solo nube (15 nov 2026)
 
-Ajustes › Cerebro › **Solo nube** pone el cerebro, el oído y la voz en la nube: no se carga ningún modelo en esta
+Ajustes › Cerebro y voz › **Solo nube** pone el cerebro, el oído y la voz en la nube: no se carga ningún modelo en esta
 PC (ni Whisper, ni la voz completa, ni el respaldo local del cerebro). Sirve en PC sin tarjeta gráfica o mientras
 juegas. Al apagarlo vuelve lo que tenías antes. Se elige también por partes:
 
-- **Oído** (Ajustes › Micrófono y cámara › Oído, `companion/stt_cloud.py`): **Groq** (`whisper-large-v3-turbo`, el
+- **Oído** (Ajustes › Dispositivos › Oído, `companion/stt_cloud.py`): **Groq** (`whisper-large-v3-turbo`, el
   mismo modelo que el oído local) da unas **2.000 frases y 8 horas de audio al día gratis** con una clave propia
   gratuita (console.groq.com/keys). Sin ella, o si se acaba, usa **Gemini** (`gemini-3.5-flash-lite` y luego
   `gemini-3.1-flash-lite`) con la clave del cerebro. Si la nube falla, transcribe con Whisper en el procesador.
@@ -140,7 +139,7 @@ La ventana (Electron con el avatar 3D) es igual en los dos modos: unos 790 MB de
 con un avatar VRM (menos con la esfera). Pasar a la nube sin reiniciar descarga Whisper, pero las librerías de
 CUDA (~200 MB de vídeo, ~500 MB de RAM) siguen cargadas hasta reiniciar el companion: Ajustes lo avisa.
 
-**Empezar de nuevo** (Ajustes › Memoria y datos): «Repetir la bienvenida» vuelve a pasar por los pasos con lo guardado;
+**Empezar de nuevo** (Ajustes › Acciones y memoria › «Reiniciar y borrar datos»): «Repetir la bienvenida» vuelve a pasar por los pasos con lo guardado;
 «Restablecer mis datos» borra perfil, clave, voz y personaje elegidos, dispositivos recordados, conversación y
 recuerdos (`POST /api/setup/reset`), y deja el companion como recién instalado.
 
@@ -171,7 +170,7 @@ y cuerpo mientras habla y puede guardar recuerdos; las conexiones largas se rean
 ## Memoria
 
 - **Corto plazo**: los últimos 14–28 mensajes van tal cual al modelo.
-- **Largo plazo, datos**: lo duradero que le cuentas (`[recordar: …]`). Se ven en Ajustes › Memoria y datos y se pueden
+- **Largo plazo, datos**: lo duradero que le cuentas (`[recordar: …]`). Se ven en Ajustes › Acciones y memoria › «Diario de recuerdos y avisos» y se pueden
   borrar uno a uno.
 - **Largo plazo, conversaciones**: cuando un tramo sale de la ventana de corto plazo (o al volver otro día), en
   un rato de calma se resume en 2–4 frases con su fecha. Los ocho resúmenes más recientes acompañan cada
@@ -193,7 +192,7 @@ y cuerpo mientras habla y puede guardar recuerdos; las conexiones largas se rean
 
 ## Personalidad
 
-Ajustes › Personalidad (`companion/personality.py`, catálogo en `personas/personalidades.json`). La elegida cambia
+Ajustes › Personaje › Personalidad (`companion/personality.py`, catálogo en `personas/personalidades.json`). La elegida cambia
 rasgos, forma de hablar, muletillas, gustos, ánimo habitual, emociones que más se le notan y frases de ejemplo
 (lo que más ayuda a que no suene plano). «Personalizar» una incluida hace una copia propia; también se crea desde
 cero. Las propias se guardan en `data\settings.json` (`personality`). El nombre, la edad, la voz, los límites, el
@@ -215,7 +214,7 @@ hablando, y la conversación, el micrófono y la cámara siguen igual.
 - Arrástrala para moverla; la rueda del ratón la hace más grande o más pequeña.
 - Con el botón derecho la giras y con el central la desplazas; Ctrl + rueda acerca o aleja la cámara. Doble clic
   la vuelve a encuadrar.
-- Ajustes › Tú y tu personaje › «Desvanecer los pies al flotar»: encendido, de medio cuerpo con la parte de abajo
+- Ajustes › Dispositivos › «Escritorio (modo flotante)» › «Desvanecer los pies al flotar»: encendido, de medio cuerpo con la parte de abajo
   desvanecida; apagado, el modelo entero, sin degradado.
 - Los clics solo «tocan» al personaje: en la zona transparente atraviesan hacia la ventana de debajo.
 - Al pasar el ratón por encima aparecen sus botones: cámara, micrófono, pantalla, callar, volver a la ventana y cerrar.
@@ -223,7 +222,7 @@ hablando, y la conversación, el micrófono y la cámara siguen igual.
 
 ## Tu personaje en el escritorio
 
-Mientras flota, tu personaje vive en el escritorio. Todo se ajusta en Ajustes › «Escritorio (modo flotante)»:
+Mientras flota, tu personaje vive en el escritorio. Todo se ajusta en Ajustes › Dispositivos › «Escritorio (modo flotante)»:
 
 - **Te sigue con la mirada** a donde muevas el ratón.
 - **Reacciona** si pasas el ratón por encima (te mira, a veces saluda) o si le haces clic (también en la ventana
@@ -249,7 +248,7 @@ Mientras flota, tu personaje vive en el escritorio. Todo se ajusta en Ajustes �
 ## Acciones en tu PC (con permiso)
 
 **Tu orden es la autorización:** cuando le pides algo de la lista, lo hace directamente (decisión del 13 nov
-2026). Si prefieres aprobar cada acción, enciende **Ajustes › Acciones en tu PC › Pedir permiso antes de cada
+2026). Si prefieres aprobar cada acción, enciende **Ajustes › Acciones y memoria › Acciones en tu PC › Pedir permiso antes de cada
 acción**: entonces cada una espera en una tarjeta con **Permitir**, **Permitir siempre** y **No** (también vale
 decir «sí» o «no»; caduca a los 2 minutos).
 
@@ -285,7 +284,7 @@ Aunque esté apagado, sí aparece una tarjeta en dos casos:
 - **Modelos:** funciona con la nube y con Gemma 4 E2B o E4B. Con Qwen 3 1.7B y Gemma 3 1B queda apagado: se
   equivocan demasiado.
 - **Con el cerebro en la nube**, los nombres de archivo que encuentre una búsqueda van al proveedor; la tarjeta lo avisa.
-- **Ajustes › Acciones en tu PC:** apagarlas del todo, quitar lo que marcaste como «permitir siempre» y ver el
+- **Ajustes › Acciones y memoria › Acciones en tu PC:** apagarlas del todo, quitar lo que marcaste como «permitir siempre» y ver el
   registro de lo que pidió y qué respondiste (`data\acciones.jsonl`).
 
 ### Usar una aplicación con tu ratón y teclado
@@ -357,7 +356,7 @@ tu ratón:
 - Mientras están activas se ve una miniatura con un punto rojo; se apagan con el mismo botón o con la ✕.
 - Se toma una imagen por segundo y la última viaja con tu siguiente mensaje. No se graba ni se guarda en el
   historial. Con el cerebro en la nube esa imagen se envía a Google; con el local no sale de la PC.
-- **Mirada en vivo** (Ajustes, activada por defecto): mientras compartes, el personaje mira por su cuenta cada pocos
+- **Mirada en vivo** (Ajustes › Dispositivos › Pantalla compartida, activada por defecto): mientras compartes, el personaje mira por su cuenta cada pocos
   segundos y comenta en una frase lo que le llama la atención («Oh, mira, un perrito», «Algo pasó detrás de ti»).
   Solo mira si la imagen cambió, si nadie está hablando y si han pasado unos segundos desde lo último que se
   dijo; recibe dos imágenes de cada fuente (la de hace unos segundos y la actual; las de la pantalla, en
@@ -454,14 +453,26 @@ siempre que no haya un juego usando la tarjeta.
 - **Modo Foto / Cabina**: el botón de cámara fotográfica de la barra inferior abre un estudio con encuadres (*retrato*,
   *plano medio*, *cuerpo entero*), fondos (*transparente*, *estudio oscuro*, *atardecer*, *neón*), poses, emociones y
   cuenta atrás 3-2-1 para guardar capturas PNG nítidas en alta resolución.
-- **Compañera de Enfoque (Pomodoro)**: en *Ajustes › Personaje* (y en el indicador superior durante la sesión) puedes
+- **Compañera de Enfoque (Pomodoro)**: en *Ajustes › Acciones y memoria › Enfoque y mini-juegos* (y en el indicador superior durante la sesión) puedes
   iniciar bloques de concentración **25/5** o **50/10** minutos con seguimiento de racha diaria; durante el bloque el
   personaje trabaja en silencio a tu lado y te avisa suavemente al llegar el descanso.
 - **Presets de ambiente, accesorios 3D y mini-juegos**: acopla gafas, auriculares, taza caliente o gorro de dormir en
   tiempo real, guarda tus combinaciones favoritas en un clic y lanza partidas rápidas de **Piedra, papel o tijera**,
   **Trivia**, **20 preguntas** o **Veo, veo**.
-- **Diario de recuerdos, Mochila del Compañero, Modo En Casa y MCP**: en *Ajustes › Acciones y memoria* puedes buscar al
-  instante entre tus recuerdos y resúmenes pasados, fijar 📌 los esenciales o editarlos en línea; exportar o importar tu
-  **Mochila** (`.json` sin claves ni secretos) entre PC, Mac, Rust-Live y móvil; abrir el **Modo En Casa** en tu red
-  Wi-Fi local con código de 6 dígitos; o conectar herramientas locales mediante **Model Context Protocol (MCP)** bajo
-  confirmación explícita.
+- **Diario de recuerdos y Mochila del Compañero**: en *Ajustes › Acciones y memoria* puedes buscar al instante entre tus
+  recuerdos y resúmenes pasados, fijar 📌 los esenciales o editarlos en línea. En *Ajustes › Estado* se exporta o
+  importa la **Mochila** (`.json` sin claves ni secretos) entre PC, Mac, Rust-Live y móvil.
+- **Modo En Casa** (*Ajustes › Estado*, apagado por defecto): tu teléfono, en la misma Wi-Fi, conversa con este
+  companion (su voz, su personaje y su memoria).
+  - Al encenderlo, el companion escucha también en las IP de tu red (Windows puede pedir permiso al cortafuegos:
+    acéptalo solo para redes privadas) y enseña un enlace con una llave larga (`https://IP:8200/?pair=…`). Al
+    abrirlo en el teléfono, la llave queda en una cookie y desaparece de la dirección.
+  - Va cifrado (`https`) con un certificado propio de esta PC, así que el navegador del teléfono deja usar el
+    micrófono. La primera vez avisa de que el certificado no es de confianza: si la huella que enseña coincide con la
+    de Ajustes, continúa. El certificado se guarda en `data\en_casa` y se renueva solo si cambia la IP de la PC o le
+    queda menos de un mes.
+  - Al apagarlo deja de escuchar en la red. «Renovar enlace» invalida el anterior y desconecta los teléfonos.
+  - Desde el teléfono solo se conversa: no se cambian ajustes, no se exportan datos y no hay acciones en la PC.
+- **Herramientas MCP** (*Ajustes › Acciones y memoria*, avanzado): conecta servidores MCP locales
+  (`http://127.0.0.1:…`, transporte «Streamable HTTP», el de los SDK oficiales). Cada herramienta pide confirmación con
+  una tarjeta, salvo que marques el servidor como de solo lectura. Si un servidor no responde, Ajustes dice por qué.

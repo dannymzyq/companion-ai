@@ -1,6 +1,6 @@
 [package]
 name = "companion-live"
-version = "0.11.0"
+version = "0.11.1"
 edition = "2021"
 description = "Companion PC — Ejecutable portable ultra-ligero en Rust para modo Live API"
 

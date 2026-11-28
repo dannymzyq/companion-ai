@@ -9,7 +9,7 @@
   pasa solo a Avatar 1, 2 o 3. Sus archivos (`models\mika.vrm`, `models\base\mika_base.vrm`) siguen en disco sin
   usarse, igual que `chica.vrm` y `chico.vrm`, que se quedaron para no romper un companion abierto con el código
   anterior; se pueden borrar.
-- `models\custom\` guarda los **modelos propios**. Se suben desde Ajustes › Modelo 3D › «Subir un modelo .vrm» o
+- `models\custom\` guarda los **modelos propios**. Se suben desde Ajustes › Personaje › «Tú y tu modelo 3D» › «Subir un modelo .vrm» o
   arrastrando el archivo a la ventana; el recién subido queda activo. En la misma lista se cambia entre ellos o se
   quita uno propio. Un modelo cambia solo el cuerpo: el nombre y la voz son los de la voz elegida.
 

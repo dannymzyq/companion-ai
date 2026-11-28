@@ -324,6 +324,63 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   - `models/kokoro/` está en `.gitignore`.
 - MCP: un servidor nuevo NO es de solo lectura (con tarjeta siempre) y `readOnlyHint` no cuenta. Lo que devuelve
   una herramienta no va al registro.
+- Modo En Casa (27 nov 2026, `companion/pairing.py` y `server._client_kind`):
+  - El fallo: `_paired_request_ok` daba por local cualquier petición con `Host: localhost`. Con `HOST=0.0.0.0` (lo
+    que hacía falta para usarlo), un equipo de la red exportaba los recuerdos, cambiaba ajustes y leía el token.
+  - Ahora es local solo si la dirección de quien llama es de esta PC (`pairing.is_loopback`) y el Host es uno de
+    `LOCAL_HOSTS`. Desde la red hace falta En Casa encendido, una IP privada o de Tailscale, el Host igual a una IP
+    de la PC (`pairing.lan_hosts`) y el token.
+  - Escucha: `pairing.start_lan` abre un segundo `uvicorn.Server` en el mismo bucle, con sockets propios en cada IP
+    privada y el mismo puerto (`SO_EXCLUSIVEADDRUSE` en Windows). Va sin lifespan, sin cabeceras de proxy, sin
+    registro de accesos (las direcciones llevan el token) y sin tocar las señales del principal (`capture_signals`).
+    Si uvicorn sale con `sys.exit`, se captura. `server._lan_sync` lo abre al arrancar y lo sigue al interruptor. Con
+    `HOST=0.0.0.0` no se abre (`WIDE`).
+  - Teléfono emparejado (`kind == "paired"`): solo GET, sin `PAIRED_BLOCKED` (mochila, emparejamiento, MCP,
+    actualización). Su WebSocket crea `Session(remote=True)`: `actions_on()` da False, así que no hay acciones,
+    control de ventanas ni MCP, y el prompt no las ofrece.
+  - Apagar o renovar: `stop_lan` y `_drop_paired` cierran los WebSocket de los teléfonos. El `?pair=` de una página se
+    cambia por la cookie con una redirección 303.
+  - `https` (27 nov 2026): el navegador del teléfono no da micrófono fuera de un contexto seguro.
+    - `pairing.tls_cert` hace un certificado propio, sin depender de otro programa:
+      - clave EC P-256, SHA-256 y 397 días (el máximo de Safari);
+      - SAN con las IP de la PC, `CA:FALSE` y EKU `serverAuth`.
+    - Se guarda en `data\en_casa` y se reutiliza mientras cubra las IP y le quede más de un mes. La huella SHA-256 va a
+      Ajustes, para compararla con el aviso del teléfono.
+    - Lo usa la escucha en la red (`ssl_certfile`/`ssl_keyfile`). El principal sigue por http en 127.0.0.1. La cookie
+      va con `Secure` por https.
+    - Paquetes nuevos: `cryptography==50.0.2`, `cffi==2.1.1` y `pycparser==3.12`, en `requirements.txt` y en los dos
+      locks.
+      - Resueltos con el lock anterior como restricción. Para el Mac, hay que quitar las líneas `nvidia` de
+        `requirements.txt` y poner `MACOSX_DEPLOYMENT_TARGET=14.0`: si no, uv busca macOS 13 y onnxruntime no tiene
+        rueda.
+      - El resto de versiones no cambió.
+    - Sin `cryptography` (instalaciones viejas) va por http y Ajustes lo dice.
+  - Pendiente: si la IP de la PC cambia con En Casa encendido, hay que apagarlo y encenderlo.
+  - Pruebas: `tests/test_en_casa.py`. La escucha se prueba en 127.0.0.1; en una IP de la red saltaría el aviso del
+    cortafuegos.
+- Cliente MCP (27 nov 2026, `companion/mcp_client.py`):
+  - El fallo: mandaba `tools/list` sin `initialize`, sin `Accept: application/json, text/event-stream` y sin leer
+    SSE, y los servidores de los SDK oficiales lo rechazaban (406 o 400). Además, fuera de En vivo `_mcp_tools` nunca
+    se llenaba, y en En vivo el prompt no tenía la lista.
+  - Ahora sigue la especificación 2025-06-18:
+    - `initialize` y `notifications/initialized`, con `Mcp-Session-Id` y `MCP-Protocol-Version` en lo siguiente;
+    - respuestas JSON o SSE (hasta el `id` pedido, como mucho 1 MB);
+    - si la sesión se pierde (404, o 400 con sesión), un solo saludo nuevo;
+    - sin proxies ni redirecciones;
+    - nunca el puerto del companion ni el de la voz.
+  - `Session.load_mcp` las carga al abrir la ventana y `POST /api/mcp` las refresca. `prompt.mcp_block` las pone con
+    sus argumentos (de `inputSchema`) en los dos modos.
+  - Pruebas: `tests/test_mcp.py`, con un servidor falso que exige lo mismo que el SDK.
+  - Probado además contra el SDK oficial (paquete `mcp` 2.3.0 en un entorno aparte, `MCPServer` con
+    `streamable-http`): con sesión y SSE, con sesión y JSON, y sin sesión. Herramientas con sus argumentos, llamadas,
+    error de una herramienta que no existe y sesión nueva tras reiniciar el servidor: todo bien. El cliente de la
+    0.11.0, contra el mismo servidor, recibía `400 Bad Request: Missing session ID` y ninguna herramienta.
+- Actualizador (27 nov 2026, `update.download_and_verify`):
+  - Si no hay `SHA256SUMS.txt`, o no trae la línea de ese instalador, no se descarga ni se abre. Antes se abría sin
+    comprobar.
+  - La suma viene del mismo Release, así que solo detecta descargas rotas. Contra un Release manipulado haría falta
+    firmar el `.exe` (Authenticode) y notarizar el `.dmg`, que hoy lleva una firma ad hoc.
+  - Pruebas: `tests/test_actualizacion.py`.
 - Ideas de Animama (23 nov 2026; su código es AGPL: solo se tomaron ideas, nada de código):
   - Cara de reposo: `reply_end` lleva `mood` (`Session._rest`, la emoción más cercana al ánimo de `mood.py`).
     `main.js` vuelve a ella a los 7 s de callarse, en lugar de a neutral.
@@ -463,8 +520,9 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
   `summaries_fts`, recuerdos fijados `pinned` y filtro `_PRIVATE` contra contraseñas, claves API y tarjetas); los
   resúmenes los hace `Session._summarize` en ratos de calma.
 - Mejoras técnicas y nuevos módulos (24 nov 2026):
-  - **Seguridad y aislamiento**: `TrustedHostMiddleware` (`127.0.0.1` / `localhost`, ampliado dinámicamente a la IP LAN
-    solo si el usuario enciende *Modo En Casa* con token de sesión `HttpOnly` en `companion/pairing.py`); claves de
+  - **Seguridad y aislamiento**: filtro de Host propio (`security_and_cache_middleware`, `127.0.0.1` / `localhost`; desde
+    el 27 nov 2026 decide por la dirección de quien llama, ver «Modo En Casa» arriba) y token `HttpOnly` de *Modo En
+    Casa* en `companion/pairing.py`; claves de
     Gemini enviadas siempre por cabecera `x-goog-api-key` (en Python, `rust-live`, iOS y Android, nunca `?key=` en URL);
     protección anti-ZipSlip en `instalador/Lanzador.cs`; `ShellExecuteW` y DPAPI en `rust-live`; e IPC ReplayKit en iOS
     cifrado con `ChaChaPoly` de 256 bits sobre puerto efímero en App Group Keychain (`ReceptorPantalla.swift` /
@@ -479,7 +537,7 @@ Conversación por voz en tiempo real con Mika (avatar VRM). Ver `README.md` para
     manos para SpringBones, micro-brisa en pelo, lectura PBO sin fugas de `fenceSync` y compilación asíncrona de shaders.
   - **Nuevas funciones interactivas**: `web/js/music.js` (detector de pulsos musicales sobre audio compartido),
     `web/js/photo.js` (cabina de fotos 2K PNG), `companion/focus.py` (Pomodoro con racha diaria), `companion/games.py`
-    (Piedra-papel-tijera 1-2-3, Trivia, 20 preguntas, Veo-veo), `companion/mcp_client.py` (cliente MCP `stdio` opt-in con
+    (Piedra-papel-tijera 1-2-3, Trivia, 20 preguntas, Veo-veo), `companion/mcp_client.py` (cliente MCP por HTTP local, opt-in, con
     confirmación obligatoria), `web/js/extras.js` (presets, accesorios 3D en `props.js`, diario FTS5 y Mochila
     `companion-backpack-v1`), y `update.py` con descarga verificada contra `SHA256SUMS.txt`.
 
