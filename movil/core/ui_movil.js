@@ -677,27 +677,27 @@ export function init() {
   const pestana = document.querySelector('[data-stab="memoria"] b');
   if (pestana) pestana.textContent = 'Memoria';
 
-  // Modo En Casa (cliente LAN opt-in): conecta con el servidor de tu PC en red privada Wi-Fi (192.168.x.x / 10.x.x.x / 172.16-31.x.x).
+  // Modo En Casa (cliente LAN opt-in): conecta con el servidor de tu PC en red privada Wi-Fi (192.168.x.x / 10.x.x.x / 172.16-31.x.x / Tailscale 100.64-127.x.x), por https (0.11.1) o http (PCs anteriores).
   const memTab = $('tab-memoria');
   if (memTab) {
     const lanCard = el('div', 'set-card');
     const head = el('div', 'card-head');
     head.append(el('h3', null, 'Modo En Casa (tu PC por Wi-Fi)'));
-    const desc = el('p', 'card-desc', 'Pega el enlace de emparejamiento de tu PC en la misma red local (ej. http://192.168.1.50:8200/?pair=…) para usar su voz F5-TTS o Kokoro y compartir memoria en vivo.');
+    const desc = el('p', 'card-desc', 'Pega el enlace de emparejamiento de tu PC en la misma red local (ej. https://192.168.1.50:8200/?pair=…) para usar su voz F5-TTS o Kokoro y compartir memoria en vivo.');
     const row = el('div', 'preset-bar');
     const inp = el('input');
     inp.type = 'url';
-    inp.placeholder = 'http://192.168.x.x:8200/?pair=…';
+    inp.placeholder = 'https://192.168.x.x:8200/?pair=…';
     try { inp.value = localStorage.getItem('companion.lan_pc') || ''; } catch {}
     const go = el('button', 'ghost', 'Abrir PC');
     go.type = 'button';
     go.onclick = () => {
       const raw = inp.value.trim();
       let u;
-      try { u = new URL(raw); } catch { aviso('Escribe una dirección http:// válida de tu red local.'); return; }
-      const isPrivateLan = /^(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/.test(u.hostname);
-      if (u.protocol !== 'http:' || !isPrivateLan) {
-        aviso('Por seguridad solo se permiten direcciones privadas de tu red local (192.168.x.x, 10.x.x.x o 172.16-31.x.x).');
+      try { u = new URL(raw); } catch { aviso('Escribe una dirección https:// válida de tu red local.'); return; }
+      const isPrivateLan = /^(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3})$/.test(u.hostname);
+      if (!['https:', 'http:'].includes(u.protocol) || !isPrivateLan) {
+        aviso('Por seguridad solo se permiten direcciones privadas de tu red local (192.168.x.x, 10.x.x.x, 172.16-31.x.x o Tailscale 100.64-127.x.x).');
         return;
       }
       try { localStorage.setItem('companion.lan_pc', u.href); } catch {}
