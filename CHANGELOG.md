@@ -4,6 +4,28 @@ Cada versión se publica como un Release en GitHub con su instalador (`Companion
 nueva: sube la versión en `VERSION`, añade su apartado aquí arriba y publica la etiqueta (`git tag vX.Y.Z` y
 `git push origin vX.Y.Z`); GitHub Actions crea el instalador y el Release.
 
+## 0.11.1 — 2026-11-27
+
+- **Modo En Casa seguro, y ahora funciona**:
+  - Un equipo de tu red ya no puede hacerse pasar por la PC. Antes, con el servidor escuchando en la red, le bastaba
+    la cabecera `Host: localhost` para saltarse la llave.
+  - El interruptor abre y cierra él mismo la escucha en la red: ya no hace falta tocar `HOST` en `.env`.
+  - El teléfono emparejado solo conversa: no cambia ajustes, no exporta datos y no hace acciones en la PC.
+  - La llave desaparece de la dirección al abrir el enlace, y renovarla desconecta a los teléfonos.
+  - Va cifrado (`https`) con un certificado propio de la PC, así que en el teléfono ya funciona el micrófono.
+    Necesita el paquete `cryptography`, que ya viene en las versiones fijas.
+  - No es un «código de 6 dígitos», como decía la 0.11.0: es un enlace con una llave larga.
+- **MCP que conecta de verdad**:
+  - El cliente sigue el protocolo (saludo `initialize`, sesión, respuestas en streaming), así que funciona con los
+    servidores hechos con los SDK oficiales.
+  - El modelo ve las herramientas también fuera del modo En vivo, con sus argumentos.
+  - Ajustes dice por qué no responde un servidor, y no se puede apuntar al propio companion.
+  - Probado con servidores reales del SDK oficial de MCP: con sesión y streaming, con sesión y JSON, y sin sesión.
+- **Actualizar en un clic, solo comprobado**: si una versión no trae la huella SHA-256 de su instalador, ya no se
+  descarga ni se abre.
+- **Guías al día con los Ajustes de la 0.10.0**: las rutas «Ajustes › …» de las guías nombran las pestañas y tarjetas
+  de ahora, y la guía ya no dice que se enseñan los cuatro últimos caracteres de la clave (nunca se enseña nada).
+
 ## 0.11.0 — 2026-11-24
 
 - **La cara sigue su ánimo**: al terminar de hablar ya no vuelve a una cara neutra, sino a la de su estado de ánimo.

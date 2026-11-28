@@ -137,8 +137,11 @@ def split_summary(text: str) -> tuple[str, list[str]]:
 
 
 class Session:
-    def __init__(self, ws, persona: dict, transcriber):
+    remote = False                          # (también en las sesiones a medio construir de las pruebas)
+
+    def __init__(self, ws, persona: dict, transcriber, *, remote: bool = False):
         self.ws, self.base_persona, self.stt = ws, persona, transcriber
+        self.remote = remote                # un teléfono emparejado (Modo En Casa): conversa, sin acciones en la PC
         self.vad = StreamingVAD()
         self._screen_vad = StreamingVAD()
         self._pcm_buf = bytearray()
@@ -592,7 +595,8 @@ class Session:
             # «Abre Apple Music» y luego «pon La Barca»: es para la aplicación que acaba de abrir.
             guessed = ("controlar", [self._recent_app(), text.strip()[:200]])
         if guessed and not self.actions_on():                 # orden clara pero sin acciones: que no diga que lo hará
-            off = ("las acciones en la PC están apagadas en Ajustes" if not actions.config()["enabled"]
+            off = ("desde el teléfono no puede hacer acciones en la PC" if self.remote
+                   else "las acciones en la PC están apagadas en Ajustes" if not actions.config()["enabled"]
                    else "el modelo local que usa ahora es demasiado pequeño para hacer acciones")
             messages, guessed = self._messages(instruction, refuse=off), None
         else:
@@ -658,7 +662,17 @@ class Session:
 
     # ------------------------------------------------------------ acciones en la PC (con permiso)
     def actions_on(self) -> bool:
-        return actions.config()["enabled"] and llm.can_act()
+        return not self.remote and actions.config()["enabled"] and llm.can_act()
+
+    async def load_mcp(self):
+        """Las herramientas MCP van en el prompt (también fuera de En vivo, que antes nunca las veía)."""
+        if self.remote or not mcp_client.config()["enabled"]:
+            self._mcp_tools = []
+            return
+        try:
+            self._mcp_tools = await mcp_client.list_tools()
+        except Exception:  # noqa: BLE001  (un servidor MCP caído no frena la conversación)
+            self._mcp_tools = []
 
     async def _ask(self, wanted: list[tuple[str, list[str]]], quiet: bool = False, trusted: set[str] | None = None,
                    card: bool = False):
@@ -1352,13 +1366,7 @@ class Session:
             voice_name = lv["voice"] or (gemini_live.voice_for(v["id"] if v else None, speaks) if lv["provider"] == "gemini"
                                          else realtime.voice_for(lv["provider"], speaks))
             samp = sampling_for(self.persona)
-            if mcp_client.config()["enabled"]:
-                try:
-                    self._mcp_tools = await mcp_client.list_tools()
-                except Exception:  # noqa: BLE001
-                    self._mcp_tools = []
-            else:
-                self._mcp_tools = []
+            await self.load_mcp()
             tools = [gemini_live.EXPRESS_TOOL, gemini_live.REMEMBER_TOOL,
                      *(gemini_live.ACTION_TOOLS if self.actions_on() else [])]
             recent_block = ""
@@ -1879,6 +1887,8 @@ class Session:
     def start(self):
         self.watcher = asyncio.create_task(self._watch_loop())
         _open.append(self)
+        if not self.remote and mcp_client.config()["enabled"]:
+            self._spawn(self.load_mcp())
         while _missed:                        # temporizadores que acabaron sin ninguna ventana abierta
             self._spawn(self._timer_done(_missed.pop(0), late=True))
         self._spawn(self._check_reminders(late=True))

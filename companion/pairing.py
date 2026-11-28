@@ -2,23 +2,35 @@
 
 Seguridad estricta:
 - La mochila exportada NUNCA incluye claves de API ni secretos cifrados.
-- El emparejamiento LAN está APAGADO por defecto (`enabled=False`). Mientras está apagado, el servidor mantiene el
-  bloqueo 100 % exclusivo a `127.0.0.1` / `localhost` contra DNS Rebinding.
-- Cuando el usuario lo enciende explícitamente, solo se aceptan conexiones fuera de localhost si provienen de una IP
-  privada/Tailscale Y presentan el token aleatorio de 256 bits válido (`Authorization: Bearer <token>`, `?pair=<token>`
-  o cookie `companion_pair`).
+- El emparejamiento LAN está APAGADO por defecto (`enabled=False`). Mientras está apagado, el servidor solo escucha
+  en `127.0.0.1` y solo atiende a esta misma PC.
+- Al encenderlo se abre una segunda escucha en las IP privadas de la PC (`start_lan`, mismo puerto); al apagarlo se
+  cierra. Desde la red solo pasa quien llega desde una IP privada o de Tailscale, nombra a la PC por una de sus IP y
+  presenta el token aleatorio de 256 bits (`Authorization: Bearer <token>`, `?pair=<token>` o cookie `companion_pair`).
+- Si una petición es de esta PC lo decide la dirección de quien llama (`is_loopback`), nunca la cabecera Host, que la
+  escribe el cliente (27 nov 2026: con `Host: localhost` un equipo de la red se saltaba el token).
 """
+import asyncio
+import contextlib
 import hmac
 import ipaddress
+import logging
 import secrets
 import socket
 import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import uvicorn
 
 from . import personality, profile, state, store
+from .config import settings
 from .text_utils import is_private_fact
 
+log = logging.getLogger("companion.pairing")
 BACKPACK_FORMAT = "companion-backpack-v1"
 COOKIE_NAME = "companion_pair"
+CGNAT = ipaddress.ip_network("100.64.0.0/10")      # Tailscale y otras VPN de malla
 
 
 def export_backpack() -> dict:
@@ -105,28 +117,59 @@ def enabled() -> bool:
     return c["enabled"] and len(c["token"]) >= 32
 
 
+def _addr(host: str | None):
+    """La dirección IP de `host` (sin zona IPv6 y con las IPv4 metidas en IPv6 ya sacadas), o None."""
+    if not host:
+        return None
+    try:
+        addr = ipaddress.ip_address(host.split("%")[0])
+    except ValueError:
+        return None
+    return addr.ipv4_mapped if getattr(addr, "ipv4_mapped", None) else addr
+
+
+def is_loopback(host: str | None) -> bool:
+    """¿La petición sale de esta misma PC? (127.0.0.0/8 o ::1). Un nombre que no es una IP, nunca."""
+    addr = _addr(host)
+    return bool(addr and addr.is_loopback)
+
+
 def local_ips() -> list[str]:
+    """Las IP de esta PC en una red privada (Wi-Fi, cable) o en Tailscale."""
     ips: list[str] = []
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
             ip = info[4][0]
             addr = ipaddress.ip_address(ip)
-            if (addr.is_private or ip.startswith("100.")) and not addr.is_loopback and ip not in ips:
+            if ((addr.is_private and not addr.is_link_local) or addr in CGNAT) and not addr.is_loopback and ip not in ips:
                 ips.append(ip)
     except OSError:
         pass
     return ips
 
 
-def status(port: int, *, include_secret: bool = False) -> dict:
+def lan_hosts() -> set[str]:
+    """Nombres con los que un teléfono puede llamar a esta PC (la cabecera Host): sus IP de la red."""
+    return set(local_ips()) | set(_lan["ips"])
+
+
+def status(port: int, *, include_secret: bool = False, wide: bool = False) -> dict:
+    """`wide`: el servidor principal ya escucha en toda la red (HOST=0.0.0.0 en .env), sin escucha aparte."""
     c = _cfg()
-    urls = [f"http://{ip}:{port}" for ip in local_ips()]
+    on = c["enabled"] and bool(c["token"])
+    ips = local_ips() if wide else (list(_lan["ips"]) if listening() else [])
+    secure = bool(ips) and not wide and _lan["secure"]
+    urls = [f"{'https' if secure else 'http'}://{ip}:{port}" for ip in ips]
     out = {
-        "enabled": c["enabled"] and bool(c["token"]),
+        "enabled": on,
+        "listening": bool(ips),
+        "secure": secure,
+        "fingerprint": _lan["fingerprint"] if secure else "",
+        "error": _lan["error"] if on else "",
         "urls": urls,
         "has_token": bool(c["token"]),
     }
-    if include_secret and c["enabled"] and c["token"]:
+    if include_secret and on and urls:
         out["token"] = c["token"]
         out["pair_urls"] = [f"{u}/?pair={c['token']}" for u in urls]
     return out
@@ -145,14 +188,9 @@ def configure(*, on: bool, rotate: bool = False, port: int = 8200) -> dict:
 
 
 def is_private_client(host: str | None) -> bool:
-    if not host:
-        return False
-    try:
-        addr = ipaddress.ip_address(host.split("%")[0])
-        # RFC1918 privada o rango CGNAT 100.64.0.0/10 (Tailscale)
-        return addr.is_loopback or addr.is_private or (addr in ipaddress.ip_network("100.64.0.0/10"))
-    except ValueError:
-        return False
+    """RFC1918 privada, rango CGNAT 100.64.0.0/10 (Tailscale) o esta misma PC."""
+    addr = _addr(host)
+    return bool(addr and (addr.is_loopback or addr.is_private or (addr.version == 4 and addr in CGNAT)))
 
 
 def valid_token(candidate: str | None) -> bool:
@@ -171,3 +209,170 @@ def extract_token(headers, query_params=None, cookies=None) -> str:
     if query_params and query_params.get("pair"):
         return str(query_params.get("pair"))
     return ""
+
+
+# ---------------------------------------------------------------- certificado propio (https en la red)
+TLS_DAYS = 397                    # lo máximo que Safari acepta para un certificado de servidor
+
+
+def _tls_paths() -> tuple[Path, Path]:
+    folder = settings.data_dir / "en_casa"
+    return folder / "cert.pem", folder / "key.pem"
+
+
+def tls_cert(ips: list[str]) -> dict | None:
+    """Certificado propio de la PC para sus IP de la red: el navegador del teléfono solo da el micrófono en una página
+    segura (https). Se reutiliza mientras cubra esas IP y le queden más de 30 días; si no, se hace otro.
+    None si falta el paquete `cryptography` (entonces En Casa va por http, sin micrófono en el teléfono)."""
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+    except ImportError:
+        return None
+    want = sorted({ip for ip in ips if _addr(ip)})
+    if not want:
+        return None
+    cert_p, key_p = _tls_paths()
+    now = datetime.now(timezone.utc)
+
+    def done(cert) -> dict:
+        return {"cert": cert_p, "key": key_p, "fingerprint": cert.fingerprint(hashes.SHA256()).hex(":").upper()}
+
+    if cert_p.exists() and key_p.exists():
+        try:
+            cert = x509.load_pem_x509_certificate(cert_p.read_bytes())
+            san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+            have = {str(a) for a in san.get_values_for_type(x509.IPAddress)}
+            if set(want) <= have and cert.not_valid_after_utc - now > timedelta(days=30):
+                return done(cert)
+        except (ValueError, OSError, x509.ExtensionNotFound):
+            pass                                  # roto o de otra versión: se hace otro
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Companion - Modo En Casa")])
+    usage = x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                          data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                          encipher_only=False, decipher_only=False)
+    cert = (x509.CertificateBuilder()
+            .subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5)).not_valid_after(now + timedelta(days=TLS_DAYS))
+            .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(ip)) for ip in want]),
+                           critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(usage, critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            .sign(key, hashes.SHA256()))
+    cert_p.parent.mkdir(parents=True, exist_ok=True)
+    key_p.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                        serialization.NoEncryption()))
+    cert_p.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    log.info("Modo En Casa: certificado nuevo para %d dirección/es de la red", len(want))
+    return done(cert)
+
+
+# ---------------------------------------------------------------- escucha en la red (solo con En Casa encendido)
+# Un segundo servidor uvicorn en el mismo proceso y el mismo bucle, atado a las IP privadas de la PC. El principal sigue
+# en 127.0.0.1: con En Casa apagado no hay nada escuchando en la red (ni aviso del cortafuegos de Windows).
+_lan: dict = {"server": None, "task": None, "ips": [], "error": "", "secure": False, "fingerprint": ""}
+
+
+class _LanServer(uvicorn.Server):
+    @contextlib.contextmanager
+    def capture_signals(self):
+        """Las señales (Ctrl+C) son del servidor principal: este no las toca."""
+        yield
+
+
+def _socket(ip: str, port: int) -> socket.socket:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):       # Windows: que ningún otro programa pueda escuchar en el mismo
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:                                            # Mac: poder volver a abrirla enseguida tras cerrarla
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((ip, port))
+        s.setblocking(False)
+    except OSError:
+        s.close()
+        raise
+    return s
+
+
+def listening() -> bool:
+    task, server = _lan["task"], _lan["server"]
+    return bool(task and not task.done() and server and server.started)
+
+
+async def start_lan(app, port: int, ips: list[str] | None = None, *, tls: bool = True) -> None:
+    """Abre la escucha en la red, por https si se puede. `ips` solo en las pruebas (127.0.0.1, que no despierta al
+    cortafuegos)."""
+    if _lan["task"] and not _lan["task"].done():
+        return
+    ips = local_ips() if ips is None else ips
+    socks, bound, failed = [], [], []
+    for ip in ips:
+        try:
+            socks.append(_socket(ip, port))
+            bound.append(ip)
+        except OSError as e:
+            failed.append(f"{ip} ({e.strerror or type(e).__name__})")
+    if not socks:
+        _lan.update(server=None, task=None, ips=[], secure=False, fingerprint="",
+                    error=("No encontré ninguna red Wi-Fi o por cable en esta PC." if not ips else
+                           "No pude escuchar en la red: " + ", ".join(failed) + "."))
+        log.warning("Modo En Casa: %s", _lan["error"])
+        return
+    cert = None
+    if tls:
+        try:
+            cert = await asyncio.to_thread(tls_cert, bound)
+        except Exception as e:  # noqa: BLE001  (sin certificado, por http: mejor que no abrir)
+            log.warning("Modo En Casa: no pude preparar el certificado (%s); va por http", type(e).__name__)
+    # Sin registro de accesos: las direcciones llevan el token (?pair=…). Sin cabeceras de proxy: la IP es la del socket.
+    config = uvicorn.Config(app, lifespan="off", proxy_headers=False, log_config=None, access_log=False,
+                            server_header=False, timeout_graceful_shutdown=3,
+                            ssl_certfile=str(cert["cert"]) if cert else None, ssl_keyfile=str(cert["key"]) if cert else None)
+    server = _LanServer(config)
+
+    async def run():
+        try:
+            await server.serve(sockets=socks)
+        except (Exception, SystemExit) as e:     # uvicorn sale con sys.exit si no puede arrancar: que no tumbe al principal
+            _lan["error"] = f"La escucha en la red se cerró ({type(e).__name__})."
+            log.warning("Modo En Casa: %s", _lan["error"])
+        finally:
+            for s in socks:
+                with contextlib.suppress(OSError):
+                    s.close()
+            if _lan["server"] is server:
+                _lan.update(server=None, task=None, ips=[], secure=False, fingerprint="")
+
+    _lan.update(server=server, task=asyncio.create_task(run()), ips=bound, secure=bool(cert),
+                fingerprint=cert["fingerprint"] if cert else "",
+                error=("No pude escuchar en " + ", ".join(failed) + ".") if failed else "")
+    for _ in range(100):                          # hasta 2 s a que acepte conexiones
+        if server.started or _lan["task"] is None or _lan["task"].done():
+            break
+        await asyncio.sleep(0.02)
+    if listening():
+        log.info("Modo En Casa: escuchando en la red local (%d dirección/es, %s)", len(bound),
+                 "https" if cert else "http")
+
+
+async def stop_lan() -> None:
+    """Cierra la escucha en la red y corta las conexiones que entraron por ella."""
+    server, task = _lan["server"], _lan["task"]
+    _lan.update(error="")
+    if not server or not task:
+        return
+    server.should_exit = True
+    try:
+        await asyncio.wait_for(asyncio.shield(task), 6)
+    except asyncio.TimeoutError:
+        server.force_exit = True
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+    _lan.update(server=None, task=None, ips=[], secure=False, fingerprint="")

@@ -122,7 +122,9 @@ async def check() -> dict:
 
 
 async def download_and_verify(*, launch: bool = False) -> dict:
-    """Descarga el instalador de la última versión oficial a %TEMP% y comprueba SHA256SUMS.txt si existe."""
+    """Descarga el instalador de la última versión oficial a %TEMP% y lo comprueba con SHA256SUMS.txt.
+
+    Sin huella con la que comprobarlo no se descarga ni se abre (27 nov 2026: antes se abría igual, sin comprobar)."""
     info = await check()
     asset_url = str(info.get("asset_url") or "")
     asset_name = re.sub(r"[^\w.\-]+", "", str(info.get("asset_name") or ""))
@@ -145,6 +147,9 @@ async def download_and_verify(*, launch: bool = False) -> dict:
                     if len(parts) >= 2 and parts[-1].lstrip("*") == asset_name and re.fullmatch(r"[0-9a-fA-F]{64}", parts[0]):
                         expected_sha = parts[0].lower()
                         break
+        if not expected_sha:
+            raise ValueError("No pude comprobar el instalador nuevo: la versión no trae su huella SHA-256 "
+                             "(SHA256SUMS.txt). Por seguridad no lo descargo; bájalo desde la página de la versión.")
         h = hashlib.sha256()
         async with client.stream("GET", asset_url) as r:
             r.raise_for_status()
@@ -153,7 +158,7 @@ async def download_and_verify(*, launch: bool = False) -> dict:
                     f.write(chunk)
                     h.update(chunk)
         got_sha = h.hexdigest().lower()
-        if expected_sha and got_sha != expected_sha:
+        if got_sha != expected_sha:
             part.unlink(missing_ok=True)
             raise ValueError("La huella SHA-256 del instalador descargado no coincide. Se canceló por seguridad.")
         part.replace(dest)
@@ -163,4 +168,4 @@ async def download_and_verify(*, launch: bool = False) -> dict:
             os.startfile(str(dest))
         elif sys.platform == "darwin":
             subprocess.Popen(["open", str(dest)])
-    return {"ok": True, "path": str(dest), "sha256": got_sha, "verified": bool(expected_sha), "launched": bool(launch)}
+    return {"ok": True, "path": str(dest), "sha256": got_sha, "verified": True, "launched": bool(launch)}

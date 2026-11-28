@@ -1,5 +1,5 @@
-# Integración continua en cada push y pull request: pruebas unitarias de Python, sintaxis y BOM UTF-8 de PowerShell,
-# sintaxis de módulos JS, pruebas del núcleo móvil y compilación/pruebas de la edición portable en Rust.
+# Integración continua en cada push y pull request: pruebas unitarias de Python (en Linux y en Windows), sintaxis y BOM
+# UTF-8 de PowerShell, sintaxis de módulos JS, pruebas del núcleo móvil y compilación/pruebas de la edición en Rust.
 name: CI
 
 on:
@@ -51,6 +51,27 @@ jobs:
             node --check "$f"
           done
           node movil/core/pruebas.mjs
+
+  # Las mismas pruebas rápidas en Windows: las de manejar aplicaciones y acciones solo corren aquí (en Linux se saltan).
+  python-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar uv y Python 3.13 (sin las librerías de CUDA, que las pruebas no usan)
+        shell: powershell
+        run: |
+          python -m pip install --quiet uv==0.13.8
+          uv venv --python 3.13 "$env:RUNNER_TEMP\venv"
+          Get-Content requirements.lock | Where-Object { $_ -notmatch '^nvidia' } | Out-File -Encoding ascii "$env:RUNNER_TEMP\req.txt"
+          uv pip install --python "$env:RUNNER_TEMP\venv\Scripts\python.exe" -r "$env:RUNNER_TEMP\req.txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Pruebas unitarias (Python, en Windows)
+        shell: powershell
+        run: |
+          & "$env:RUNNER_TEMP\venv\Scripts\python.exe" -m unittest discover -s tests -t .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   rust-portable:
     runs-on: windows-latest

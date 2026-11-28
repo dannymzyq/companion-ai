@@ -409,6 +409,28 @@ export function initExtras({ getAvatar, getConfig, send, toast, reloadAll }) {
 
   let pairUrlNow = '';
   const pickPairUrl = (st) => (st && ((st.pair_urls && st.pair_urls[0]) || (st.urls && st.urls[0]) || st.url)) || '';
+  // Si escucha en la red (y en qué direcciones), si va cifrado, o por qué no pudo.
+  const pairingText = (st) => {
+    if (!st.enabled) return '';
+    if (!st.listening) return st.error || 'No está escuchando en la red.';
+    const urls = (st.urls || []).join(' · ');
+    return st.secure ? `Escuchando en tu red, cifrado: ${urls}`
+      : `Escuchando en tu red sin cifrar (${urls}): úsalo solo en casa; en el teléfono no habrá micrófono, escríbele.`;
+  };
+  function showPairing(st) {
+    pairUrlNow = pickPairUrl(st);
+    if ($('pairing-box')) $('pairing-box').hidden = !st.enabled;
+    if ($('pairing-url')) {
+      $('pairing-url').textContent = pairUrlNow;
+      $('pairing-url').hidden = !pairUrlNow;
+    }
+    if ($('pairing-state')) $('pairing-state').textContent = pairingText(st);
+    const fp = $('pairing-fp');
+    if (fp) {
+      fp.textContent = st.enabled && st.fingerprint ? `Huella del certificado (SHA-256): ${st.fingerprint}` : '';
+      fp.hidden = !fp.textContent;
+    }
+  }
   async function refreshPairing() {
     const sw = $('pairing-on');
     const box = $('pairing-box');
@@ -416,9 +438,7 @@ export function initExtras({ getAvatar, getConfig, send, toast, reloadAll }) {
     let st;
     try { st = await jfetch('/api/pairing'); } catch { sw.closest('.set-card')?.setAttribute('hidden', ''); return; }
     sw.checked = !!st.enabled;
-    box.hidden = !st.enabled;
-    pairUrlNow = pickPairUrl(st);
-    if ($('pairing-url')) $('pairing-url').textContent = pairUrlNow || 'Activa Wi-Fi o LAN para ver el enlace local.';
+    showPairing(st);
   }
 
   if ($('pairing-on')) {
@@ -429,10 +449,10 @@ export function initExtras({ getAvatar, getConfig, send, toast, reloadAll }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: $('pairing-on').checked }),
         });
-        pairUrlNow = pickPairUrl(st);
-        if ($('pairing-box')) $('pairing-box').hidden = !st.enabled;
-        if ($('pairing-url')) $('pairing-url').textContent = pairUrlNow || 'Activa Wi-Fi o LAN para ver el enlace local.';
-        toast(st.enabled ? 'Modo En Casa activado en tu red local.' : 'Modo En Casa desactivado.');
+        showPairing(st);
+        if (!st.enabled) toast('Modo En Casa desactivado: ya no escucha en la red.');
+        else if (st.listening) toast('Modo En Casa activado en tu red local.');
+        else toast(pairingText(st), true);
       } catch (e) {
         $('pairing-on').checked = !$('pairing-on').checked;
         toast(e.message, true);
@@ -456,9 +476,8 @@ export function initExtras({ getAvatar, getConfig, send, toast, reloadAll }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true, rotate: true }),
         });
-        pairUrlNow = pickPairUrl(st);
-        if ($('pairing-url')) $('pairing-url').textContent = pairUrlNow;
-        toast('Código de emparejamiento renovado.');
+        showPairing(st);
+        toast('Enlace renovado: el anterior ya no sirve y los teléfonos conectados se desconectaron.');
       } catch (e) { toast(e.message, true); }
     };
   }
@@ -509,7 +528,8 @@ export function initExtras({ getAvatar, getConfig, send, toast, reloadAll }) {
       const s = document.createElement('span');
       const count = tools.filter((t) => (t.server_id && t.server_id === srv.id) || t.server_name === srv.name || t.server === srv.name).length;
       const detail = srv.command ? [srv.command, ...(srv.args || [])].join(' ') : (srv.url || '');
-      s.textContent = `${detail ? detail + ' · ' : ''}${count} herramientas`;
+      const err = st.enabled && (st.errors || {})[srv.id];
+      s.textContent = `${detail ? detail + ' · ' : ''}${err || `${count} herramientas`}`;
       const del = document.createElement('button');
       del.type = 'button';
       del.textContent = '✕';
@@ -553,7 +573,7 @@ export function initExtras({ getAvatar, getConfig, send, toast, reloadAll }) {
       const raw = (urlEl && urlEl.value.trim()) || '';
       if (!raw) { toast('Escribe la dirección local del servidor MCP (http://127.0.0.1:…).', true); return; }
       try {
-        await jfetch('/api/mcp', {
+        const st = await jfetch('/api/mcp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true, add: { name, url: raw } }),
@@ -561,7 +581,10 @@ export function initExtras({ getAvatar, getConfig, send, toast, reloadAll }) {
         if (nameEl) nameEl.value = '';
         if (urlEl) urlEl.value = '';
         refreshMcp();
-        toast(`Servidor MCP «${name}» conectado.`);
+        const added = (st.servers || [])[(st.servers || []).length - 1];
+        const err = added && (st.errors || {})[added.id];
+        if (err) toast(`Servidor MCP «${name}» añadido, pero no da sus herramientas: ${err}`, true);
+        else toast(`Servidor MCP «${name}» conectado.`);
       } catch (e) { toast(e.message, true); }
     };
   }

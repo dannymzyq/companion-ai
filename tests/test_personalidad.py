@@ -138,7 +138,7 @@ class Animo(unittest.TestCase):
 class Api(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.c = TestClient(server.app, base_url="http://127.0.0.1:8299")
+        cls.c = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000))
 
     def test_elegir_crear_y_borrar(self):
         state.save(personality={})
@@ -197,7 +197,7 @@ class Reajuste(unittest.TestCase):
         real = asyncio.wait_for
         with mock.patch.object(sess, "_open", [Lenta()]), \
                 mock.patch.object(server.asyncio, "wait_for", lambda aw, t: real(aw, 0.05)):
-            r = TestClient(server.app, base_url="http://127.0.0.1:8299").post("/api/personality/select", json={"id": personality.DEFAULT}, headers=ORIGIN)
+            r = TestClient(server.app, base_url="http://127.0.0.1:8299", client=("127.0.0.1", 50000)).post("/api/personality/select", json={"id": personality.DEFAULT}, headers=ORIGIN)
         self.assertEqual(r.status_code, 200, r.text)
 
 

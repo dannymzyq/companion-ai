@@ -136,21 +136,31 @@ Si no hay nada nuevo o no vale la pena interrumpir, responde únicamente [silenc
 No describas la imagen entera, no hagas preguntas y no repitas algo que ya dijiste{said}.)"""
 
 
+def mcp_block(user_name: str, mcp_tools: list[dict] | None, *, live: bool = False) -> str:
+    """Las herramientas MCP que configuró el usuario, con sus argumentos. Texto del servidor MCP: va recortado y en
+    una sola línea por herramienta (y cada llamada pasa por la tarjeta)."""
+    if not mcp_tools:
+        return ""
+
+    def one(t: dict) -> str:
+        args = ", ".join(str(a)[:30] for a in (t.get("args") or [])[:8])
+        desc = " ".join(str(t.get("description") or "").split())[:160]
+        return f"  - {t['server_id']}:{t['name']}" + (f"({args})" if args else "") + (f" — {desc}" if desc else "")
+
+    items = "\n".join(one(t) for t in mcp_tools[:15])
+    if live:
+        return (f"\n# Herramientas MCP de {user_name}\nPara usarlas llama a `ejecutar_accion` con accion='mcp', "
+                f"arg1='servidor:herramienta' y arg2 = un objeto JSON con sus argumentos. Disponibles:\n{items}\n")
+    return ("[accion: mcp | servidor:herramienta | {\"arg\":\"valor\"}]   invoca una herramienta MCP local configurada por "
+            f"{user_name}. Herramientas disponibles:\n{items}\n")
+
+
 def actions_block(user_name: str, control: bool = True, mcp_tools: list[dict] | None = None) -> str:
     """Las acciones en la PC que el personaje puede pedir. Texto fijo (solo cambia si se encienden o apagan)."""
     ctl = ("""[accion: controlar | aplicación | qué hacer en ella]   por ejemplo [accion: controlar | Apple Music | reproducir el álbum Random Access Memories]
 controlar sirve para tareas DENTRO de una aplicación (buscar y reproducir una canción o álbum en Apple Music o Spotify, pulsar botones, escribir en Word). Si la aplicación aún está cerrada o te pide «abre X y haz Y», pide directamente controlar (el companion la abre solo antes de manejarla; no pidas solo abrir_app). Te preguntará antes de enviar, comprar o borrar algo que no pidió.
 """ if control else "Manejar otras aplicaciones con su teclado y ratón no lo puedes hacer con el modelo que usas ahora: dilo si te lo pide.\n")
-    mcp_sec = ""
-    if mcp_tools:
-        items = "\n".join(
-            f"  - {t['server_id']}:{t['name']}" + (f" ({t['description']})" if t.get("description") else "")
-            for t in mcp_tools[:15]
-        )
-        mcp_sec = (
-            "[accion: mcp | servidor:herramienta | {\"arg\":\"valor\"}]   invoca una herramienta MCP local configurada por "
-            f"{user_name}. Herramientas disponibles:\n{items}\n"
-        )
+    mcp_sec = mcp_block(user_name, mcp_tools)
     word = (f"\n{user_name}: «Abre Apple Music y pon el álbum Un Verano Sin Ti» → tú: [emo:feliz] [accion: controlar | Apple Music | "
             f"reproducir el álbum Un Verano Sin Ti] Ya mismo te lo pongo.\n"
             f"{user_name}: «Escribe en Word un párrafo sobre el mar» → tú: [emo:feliz] [accion: controlar | Word | "
@@ -339,7 +349,7 @@ Cuando pide algo útil, da la respuesta enseguida (tras tu reacción, en pocas p
 
 # Lo que ves
 {vision_block(user_name)}
-{actions_block(user_name, control, mcp_tools=mcp_tools) if (actions and not live) else ""}
+{actions_block(user_name, control, mcp_tools=mcp_tools) if (actions and not live) else ""}{mcp_block(user_name, mcp_tools, live=True) if (actions and live) else ""}
 # Cómo hablas
 Idioma: {s.get("language", "es")}. Registro {s.get("formality", "casual")}. {s.get("notes", "")}
 Muletillas: {", ".join(s.get("catchphrases", [])) or "ninguna"}. Como mucho una cada varias respuestas (si salen siempre, cansan) y nunca cuando {user_name} lo está pasando mal.
