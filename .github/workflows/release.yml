@@ -68,7 +68,9 @@ jobs:
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("dist/SHA256SUMS.txt", "$hash  Companion-Setup-$env:VERSION.exe`n", (New-Object Text.UTF8Encoding $false))
           # Si la etiqueta se movió y el Release ya existe, se sustituyen sus archivos en lugar de fallar.
-          gh release view "${{ github.ref_name }}" *> $null
+          # La comprobación va por cmd: en Windows PowerShell, el «release not found» que gh escribe por stderr, una vez
+          # redirigido, es un error que corta el paso (así falló la primera vez la 0.11.1, con una etiqueta nueva).
+          cmd /c "gh release view ${{ github.ref_name }} >nul 2>&1"
           if ($LASTEXITCODE -eq 0) {
             gh release upload "${{ github.ref_name }}" $exe "dist/SHA256SUMS.txt" --clobber
             gh release edit "${{ github.ref_name }}" --title "Companion $env:VERSION" --notes-file notas.md
